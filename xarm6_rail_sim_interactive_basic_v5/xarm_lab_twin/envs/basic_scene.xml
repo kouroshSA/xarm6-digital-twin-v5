@@ -1,0 +1,228 @@
+<!-- envs/basic_scene.xml -->
+<mujoco model="xarm6_rail_cubes_bins">
+
+  <compiler angle="radian" meshdir="assets/"/>
+  <option gravity="0 0 -9.81" timestep="0.002" integrator="implicitfast"/>
+
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.6 0.6 0.6"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <map zfar="30"/>
+  </visual>
+
+  <default>
+    <default class="arm_link">
+      <!-- Arm geoms: contype=2 collide with world (contype=1) but not each other -->
+      <geom contype="2" conaffinity="1"/>
+    </default>
+    <default class="cube">
+      <geom type="box" size="0.015 0.015 0.015" mass="0.05"
+            friction="1.0 0.05 0.0001" solref="0.005 1" solimp="0.95 0.99 0.001"/>
+    </default>
+    <default class="bin_wall">
+      <geom type="box" rgba="0.8 0.8 0.8 0.5" mass="0"
+            contype="1" conaffinity="1"/>
+    </default>
+  </default>
+
+  <asset>
+    <!-- Materials for cubes -->
+    <material name="red_mat"   rgba="0.9 0.2 0.2 1"/>
+    <material name="green_mat" rgba="0.2 0.8 0.3 1"/>
+    <material name="blue_mat"  rgba="0.2 0.4 0.9 1"/>
+    <!-- Materials for bin floor markers -->
+    <material name="red_bin_mat"   rgba="0.9 0.2 0.2 0.6"/>
+    <material name="green_bin_mat" rgba="0.2 0.8 0.3 0.6"/>
+    <material name="blue_bin_mat"  rgba="0.2 0.4 0.9 0.6"/>
+  </asset>
+
+  <worldbody>
+
+    <!-- Lighting -->
+    <light pos="0 0 2.5" dir="0 0 -1" diffuse="0.7 0.7 0.7"/>
+    <light pos="0.5 0.5 1.8" dir="-0.3 -0.3 -1" diffuse="0.4 0.4 0.4"/>
+
+    <!-- Floor -->
+    <geom name="floor" type="plane" size="3 3 0.1"
+          rgba="0.7 0.7 0.65 1" contype="1" conaffinity="1"/>
+
+    <!-- Bench -->
+    <body name="bench" pos="0 0 0.375">
+      <geom name="bench_top" type="box" size="0.75 0.45 0.375"
+            rgba="0.75 0.65 0.5 1" contype="1" conaffinity="1" mass="0"/>
+    </body>
+
+    <!-- ============================================================
+         RAIL - 700mm prismatic joint along X axis
+         Mounted at y=-0.05 (slightly behind bench center)
+    ============================================================ -->
+    <body name="rail_track" pos="0.0 -0.05 0.75">
+
+      <geom name="rail_geom" type="box" size="0.35 0.025 0.015"
+            rgba="0.4 0.4 0.45 1" contype="0" conaffinity="0" mass="0"/>
+
+      <body name="rail_carriage" pos="-0.35 0.0 0.02">
+        <joint name="rail" type="slide" axis="1 0 0"
+               range="0.0 0.7" damping="200"/>
+        <geom name="carriage_geom" type="box" size="0.06 0.04 0.015"
+              rgba="0.55 0.55 0.6 1" contype="1" conaffinity="1" mass="2.0"/>
+
+        <!-- ============================================================
+             xARM6 - boxy stand-in (replace with official MJCF if desired,
+             see Phase 2b below)
+        ============================================================ -->
+        <body name="xarm_base" pos="0 0 0.02">
+          <geom name="base_link" type="cylinder" size="0.06 0.04"
+                rgba="0.3 0.3 0.3 1" mass="0.5" class="arm_link"/>
+          <joint name="joint1" type="hinge" axis="0 0 1"
+                 range="-3.14159 3.14159" damping="10"/>
+
+          <body name="link1" pos="0 0 0.09">
+            <geom name="link1_geom" type="box" size="0.055 0.055 0.11"
+                  rgba="0.85 0.85 0.85 1" mass="2.16" class="arm_link"/>
+            <joint name="joint2" type="hinge" axis="0 1 0"
+                   range="-2.0944 2.0944" damping="10"/>
+
+            <body name="link2" pos="0 0 0.22">
+              <geom name="link2_geom" type="box" size="0.045 0.045 0.105"
+                    rgba="0.85 0.85 0.85 1" mass="1.71" class="arm_link"/>
+              <joint name="joint3" type="hinge" axis="0 1 0"
+                     range="-3.14159 1.2217" damping="8"/>
+
+              <body name="link3" pos="0 0 0.20">
+                <geom name="link3_geom" type="box" size="0.04 0.04 0.09"
+                      rgba="0.8 0.8 0.8 1" mass="1.38" class="arm_link"/>
+                <joint name="joint4" type="hinge" axis="1 0 0"
+                       range="-1.9199 1.9199" damping="6"/>
+
+                <body name="link4" pos="0 0 0.175">
+                  <geom name="link4_geom" type="box" size="0.035 0.035 0.075"
+                        rgba="0.75 0.75 0.75 1" mass="1.05" class="arm_link"/>
+                  <joint name="joint5" type="hinge" axis="0 1 0"
+                         range="-2.6180 2.6180" damping="4"/>
+
+                  <body name="link5" pos="0 0 0.13">
+                    <geom name="link5_geom" type="box" size="0.03 0.03 0.055"
+                          rgba="0.7 0.7 0.7 1" mass="0.72" class="arm_link"/>
+                    <joint name="joint6" type="hinge" axis="1 0 0"
+                           range="-1.9199 1.9199" damping="3"/>
+
+                    <body name="link6" pos="0 0 0.075">
+                      <geom name="link6_geom" type="cylinder"
+                            size="0.025 0.03"
+                            rgba="0.6 0.6 0.6 1" mass="0.25" class="arm_link"/>
+                      <site name="end_effector" pos="0 0 0.09"
+                            size="0.015" rgba="1 0.3 0.3 1" type="sphere"/>
+                      <body name="gripper" pos="0 0 0.06">
+                        <geom name="gripper_geom" type="box"
+                              size="0.018 0.038 0.025"
+                              rgba="0.35 0.35 0.35 1" mass="0.15"
+                              class="arm_link"/>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+
+      </body>
+    </body>
+
+    <!-- ============================================================
+         CUBES - three RGB cubes near the rail (y=0.15)
+    ============================================================ -->
+    <body name="red_cube" pos="-0.20 0.15 0.78">
+      <geom name="red_cube_geom" class="cube" material="red_mat"/>
+      <joint type="free" name="red_cube_joint"/>
+    </body>
+    <body name="green_cube" pos="0.00 0.15 0.78">
+      <geom name="green_cube_geom" class="cube" material="green_mat"/>
+      <joint type="free" name="green_cube_joint"/>
+    </body>
+    <body name="blue_cube" pos="0.20 0.15 0.78">
+      <geom name="blue_cube_geom" class="cube" material="blue_mat"/>
+      <joint type="free" name="blue_cube_joint"/>
+    </body>
+
+    <!-- ============================================================
+         BINS - three open-top boxes farther from the rail (y=0.35)
+         Each bin is a 4-wall + 1-floor static structure with a colored
+         floor marker for visual identification. Internal dim: 80x80x60mm.
+    ============================================================ -->
+    <body name="red_bin" pos="-0.20 0.35 0.75">
+      <!-- Floor marker (colored) -->
+      <geom name="red_bin_floor" type="box" size="0.040 0.040 0.001"
+            pos="0 0 0.001" material="red_bin_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <!-- 4 walls -->
+      <geom name="red_bin_w_front"  class="bin_wall"
+            size="0.040 0.002 0.030" pos="0 -0.040 0.030"/>
+      <geom name="red_bin_w_back"   class="bin_wall"
+            size="0.040 0.002 0.030" pos="0  0.040 0.030"/>
+      <geom name="red_bin_w_left"   class="bin_wall"
+            size="0.002 0.040 0.030" pos="-0.040 0 0.030"/>
+      <geom name="red_bin_w_right"  class="bin_wall"
+            size="0.002 0.040 0.030" pos=" 0.040 0 0.030"/>
+    </body>
+
+    <body name="green_bin" pos="0.00 0.35 0.75">
+      <geom name="green_bin_floor" type="box" size="0.040 0.040 0.001"
+            pos="0 0 0.001" material="green_bin_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <geom name="green_bin_w_front" class="bin_wall"
+            size="0.040 0.002 0.030" pos="0 -0.040 0.030"/>
+      <geom name="green_bin_w_back"  class="bin_wall"
+            size="0.040 0.002 0.030" pos="0  0.040 0.030"/>
+      <geom name="green_bin_w_left"  class="bin_wall"
+            size="0.002 0.040 0.030" pos="-0.040 0 0.030"/>
+      <geom name="green_bin_w_right" class="bin_wall"
+            size="0.002 0.040 0.030" pos=" 0.040 0 0.030"/>
+    </body>
+
+    <body name="blue_bin" pos="0.20 0.35 0.75">
+      <geom name="blue_bin_floor" type="box" size="0.040 0.040 0.001"
+            pos="0 0 0.001" material="blue_bin_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <geom name="blue_bin_w_front" class="bin_wall"
+            size="0.040 0.002 0.030" pos="0 -0.040 0.030"/>
+      <geom name="blue_bin_w_back"  class="bin_wall"
+            size="0.040 0.002 0.030" pos="0  0.040 0.030"/>
+      <geom name="blue_bin_w_left"  class="bin_wall"
+            size="0.002 0.040 0.030" pos="-0.040 0 0.030"/>
+      <geom name="blue_bin_w_right" class="bin_wall"
+            size="0.002 0.040 0.030" pos=" 0.040 0 0.030"/>
+    </body>
+
+  </worldbody>
+
+  <!-- Suppress collisions between adjacent arm links -->
+  <contact>
+    <exclude body1="rail_carriage" body2="xarm_base"/>
+    <exclude body1="rail_carriage" body2="link1"/>
+    <exclude body1="xarm_base"     body2="link1"/>
+    <exclude body1="link1"         body2="link2"/>
+    <exclude body1="link2"         body2="link3"/>
+    <exclude body1="link3"         body2="link4"/>
+    <exclude body1="link4"         body2="link5"/>
+    <exclude body1="link5"         body2="link6"/>
+    <exclude body1="link6"         body2="gripper"/>
+  </contact>
+
+  <!-- ============================================================
+       ACTUATORS
+       Index 0 = rail (meters)
+       Index 1-6 = joints 1-6 (radians)
+  ============================================================ -->
+  <actuator>
+    <position name="act_rail" joint="rail"   kp="2000" kv="200"/>
+    <position name="act1"     joint="joint1" kp="500"  kv="50"/>
+    <position name="act2"     joint="joint2" kp="500"  kv="50"/>
+    <position name="act3"     joint="joint3" kp="400"  kv="40"/>
+    <position name="act4"     joint="joint4" kp="300"  kv="30"/>
+    <position name="act5"     joint="joint5" kp="200"  kv="20"/>
+    <position name="act6"     joint="joint6" kp="150"  kv="15"/>
+  </actuator>
+
+</mujoco>
