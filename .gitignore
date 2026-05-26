@@ -1,0 +1,53 @@
+# =========================================================
+# Repo-root .gitignore for xarm6-digital-twin-v5
+# =========================================================
+
+# --- Secrets and API keys (CRITICAL — never commit) ---
+.env
+.env.local
+.env.*.local
+*.key
+**/secrets/
+# User's private notes — found to contain the live API key in plain text
+How-to-run.txt
+
+# --- Auto-generated / runtime artifacts ---
+**/recordings/
+**/MUJOCO_LOG.TXT
+**/agent/objects.json
+**/lessons.md
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Editor / IDE / OS cruft ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Local-only extras at this dir level ---
+Old/
+*.mp4
+*.mkv
+*.mov
+
+# --- Python virtual envs (in case anyone makes one inside the repo) ---
+venv/
+.venv/
+env/
+.python-version
+
+# --- Conda metadata (the env itself lives outside) ---
+**/conda-meta/
+
+# --- Misc ---
+*.log
+*.tmp
+*.bak
