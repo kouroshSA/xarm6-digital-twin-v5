@@ -1,6 +1,7 @@
 # replay.py
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -224,3 +225,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # WSLg + aarch64 GLFW teardown deadlocks (where x86_64 Linux merely segfaults
+    # per the README). Bypass interpreter shutdown now that all data is persisted.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
