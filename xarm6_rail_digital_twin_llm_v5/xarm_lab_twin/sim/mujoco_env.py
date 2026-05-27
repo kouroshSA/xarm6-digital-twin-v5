@@ -615,14 +615,25 @@ class SimXArmAPI:
             or (result is not None and not result.is_valid)
         )
         if need_retry:
-            with self.lock:
-                seed = np.zeros(len(self.joint_ids))
-                retry_angles = self.ik_solver.solve(target_pos, seed_q=seed)
-            if retry_angles is not None:
+            # Two fallback seeds, tried in order. The all-zeros "rocket"
+            # pose is too far from typical pick-and-place targets for the
+            # iterative Jacobian to converge in 100 iters; the second seed
+            # is a slightly-bent forward "ready" pose that starts the
+            # search much closer to any over-bench target.
+            fallback_seeds = [
+                np.zeros(len(self.joint_ids)),
+                np.deg2rad([0.0, 20.0, 0.0, 0.0, 50.0, 0.0]),
+            ]
+            for seed in fallback_seeds:
+                with self.lock:
+                    retry_angles = self.ik_solver.solve(target_pos, seed_q=seed)
+                if retry_angles is None:
+                    continue
                 retry_result = self.validator.validate(retry_angles, target_pos)
                 if retry_result.is_valid:
                     joint_angles = retry_angles
                     result = retry_result
+                    break
 
         if joint_angles is None:
             print(f"[SimXArm] IK failed for target "
