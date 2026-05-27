@@ -34,6 +34,14 @@ def main():
                              "learning constraints between attempts.")
     parser.add_argument("--max-episodes", type=int, default=10,
                         help="Max episodes for --loop (default: 10).")
+    parser.add_argument("--stringency",
+                        choices=["loose", "normal", "strict"],
+                        default="loose",
+                        help="How tightly physical_outcome() grades placements. "
+                             "loose (default): legacy 20mm xy / 30mm z slot "
+                             "tolerance, no uprightness check. normal: 12/15mm "
+                             "+ <=30deg tilt. strict: 6/6mm + <=10deg tilt. "
+                             "Tighter = harder for the LLM to claim success.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()
@@ -100,6 +108,7 @@ def main():
             brain=brain, arm=arm, registry=registry,
             recorder_factory=_recorder_factory,
             max_episodes=args.max_episodes,
+            stringency=args.stringency,
         )
         summary = loop.run(args.task)
         loop_summary = summary
@@ -126,8 +135,8 @@ def main():
     time.sleep(1.5)
     physical = ""
     if args.mode == "sim" and hasattr(arm, "physical_outcome"):
-        physical = arm.physical_outcome()
-        print(f"\n[Physical outcome] {physical}")
+        physical = arm.physical_outcome(args.stringency)
+        print(f"\n[Physical outcome] {physical}  (stringency={args.stringency})")
     if not args.dry_run and not _loop_handled_lessons:
         # Grade the run before logging so lessons.md records the TASK outcome,
         # not just whether commands ran without errors.
@@ -140,6 +149,7 @@ def main():
             results=result.get("results", []),
             physical_outcome=physical,
             task_success=task_success,
+            stringency=args.stringency,
         )
         print("[Lessons] Appended to lessons.md")
 

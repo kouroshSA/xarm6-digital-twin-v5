@@ -46,6 +46,15 @@ GRIPPER_REACH_M = 0.07  # 70mm from EE site to body center (Claude's move_to tar
                         # the EE site, and the EE site is ~30mm below the gripper
                         # body in world frame when the arm points down)
 
+# Cosmetic finger animation. The two finger joints have range [0, 0.015] m
+# where 0 = open, 0.015 = closed (inward). Both joints are driven to the
+# same ctrl value via act_finger_l / act_finger_r. Fingers are contype=0 so
+# they don't affect contacts -- they're purely a visual cue for the magnetic
+# grasp. Welds still do the actual carrying.
+FINGER_ACT_NAMES = ("act_finger_l", "act_finger_r")
+GRIPPER_OPEN_CTRL_M   = 0.0
+GRIPPER_CLOSED_CTRL_M = 0.015
+
 # Tube-rack slot grid (rack-local offsets). Both racks share the same 4x2 layout:
 #   columns 1..4 at rel x = -0.060, -0.020, +0.020, +0.060
 #   rows   1..2 at rel y = -0.020, +0.020
@@ -62,6 +71,33 @@ TUBE_SLOT_Z_M = 0.8175
 TUBE_BODY_NAMES = ("tube_L1", "tube_L2", "tube_L3",
                    "tube_R1", "tube_R2", "tube_R3")
 SLOT_OCCUPIED_TOL_M = 0.020   # cube/tube center within +/- this from slot xy
+                              # (used by place_tube_in_rack's "which slots are
+                              # already taken" scan -- intentionally loose so a
+                              # roughly-aligned tube still counts as occupying
+                              # its slot; do NOT confuse with the stringency
+                              # tolerances below, which gate physical_outcome()
+                              # reporting)
+
+# Stringency levels for physical_outcome(). The grader's verdict (success vs.
+# failure) is derived from the strings physical_outcome() emits, so tightening
+# these tolerances makes outcomes harder to claim. Default is "loose" so the
+# loop's existing behaviour is unchanged when callers don't pass a stringency.
+#
+# rack_xy_tol_m / rack_z_tol_m: how close to a slot's xy/z a tube must be
+#   before it counts as "in <rack>".
+# bin_xy_tol_m: how close to a bin's xy a cube must be (in addition to z
+#   being inside the bin walls) before it counts as "in <bin>".
+# tilt_deg_max: max tilt of a tube's local +z from world +z; tubes lying
+#   sideways won't count as seated. Loose disables this check entirely.
+STRINGENCY_LEVELS = {
+    "loose":  {"rack_xy_tol_m": 0.020, "rack_z_tol_m": 0.030,
+               "bin_xy_tol_m": 0.040, "tilt_deg_max": 90.0},
+    "normal": {"rack_xy_tol_m": 0.012, "rack_z_tol_m": 0.015,
+               "bin_xy_tol_m": 0.030, "tilt_deg_max": 30.0},
+    "strict": {"rack_xy_tol_m": 0.006, "rack_z_tol_m": 0.006,
+               "bin_xy_tol_m": 0.020, "tilt_deg_max": 10.0},
+}
+DEFAULT_STRINGENCY = "loose"
 
 # When push_object operates on a rack, these tubes are welded too so the
 # rack and everything inside it move as a unit. Empty (released) racks just
@@ -92,6 +128,22 @@ class SimXArmAPI:
         self.rail_jid  = self.model.joint("rail").id
         self.ee_site   = self.model.site("end_effector").id
         self.gripper_bid = self.model.body("gripper").id
+
+        # Optional finger actuators (cosmetic gripper animation). Missing on
+        # scenes that haven't been migrated to the articulated-finger model;
+        # the rest of SimXArmAPI degrades gracefully when empty.
+        self.finger_act_ids = []
+        for name in FINGER_ACT_NAMES:
+            try:
+                self.finger_act_ids.append(self.model.actuator(name).id)
+            except KeyError:
+                pass
+        self.finger_jids = []
+        for jname in ("finger_left_joint", "finger_right_joint"):
+            try:
+                self.finger_jids.append(self.model.joint(jname).id)
+            except KeyError:
+                pass
         self.cube_bids = {
             body_name: self.model.body(body_name).id
             for body_name in GRIPPABLE_BODIES
@@ -527,6 +579,14 @@ class SimXArmAPI:
                 self.data.qpos[qpos_adr:qpos_adr + 7] = \
                     self.model.qpos0[qpos_adr:qpos_adr + 7]
                 self.data.qvel[dof_adr:dof_adr + 6] = 0.0
+            # Snap the fingers back open (qpos + ctrl) so each episode starts
+            # with a clean, visibly-open gripper.
+            for jid in self.finger_jids:
+                qpos_adr = self.model.jnt_qposadr[jid]
+                dof_adr  = self.model.jnt_dofadr[jid]
+                self.data.qpos[qpos_adr] = 0.0
+                self.data.qvel[dof_adr]  = 0.0
+            self._set_finger_ctrl(GRIPPER_OPEN_CTRL_M)
             mujoco.mj_forward(self.model, self.data)
         self.go_home()
         return 0
@@ -677,6 +737,15 @@ class SimXArmAPI:
             angles = [np.rad2deg(self.data.qpos[jid]) for jid in self.joint_ids]
         return 0, angles
 
+    def _set_finger_ctrl(self, ctrl_value: float) -> None:
+        """Drive both finger actuators to the same ctrl. Caller must hold self.lock.
+        No-op if the scene has no finger actuators (older / different XML)."""
+        if not self.finger_act_ids:
+            return
+        v = float(np.clip(ctrl_value, GRIPPER_OPEN_CTRL_M, GRIPPER_CLOSED_CTRL_M))
+        for aid in self.finger_act_ids:
+            self.data.ctrl[aid] = v
+
     def open_lite6_gripper(self) -> int:
         """Release any held cube by deactivating all gripper weld constraints."""
         with self.lock:
@@ -686,6 +755,7 @@ class SimXArmAPI:
                 if self.data.eq_active[eqid]:
                     self.data.eq_active[eqid] = 0
                     released.append(cube_name)
+            self._set_finger_ctrl(GRIPPER_OPEN_CTRL_M)
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
         return 0
 
@@ -713,6 +783,9 @@ class SimXArmAPI:
                         for g in geom_ids)
                 if d < nearest_d:
                     nearest, nearest_d = cube_name, d
+            # Animate fingers closing regardless of whether anything is in
+            # reach -- a "tried to grasp but missed" visual is informative.
+            self._set_finger_ctrl(GRIPPER_CLOSED_CTRL_M)
             if nearest is None or nearest_d > GRIPPER_REACH_M:
                 print(f"[SimXArm] Gripper close (no cube in reach; "
                       f"nearest={nearest} at {nearest_d*1000:.1f}mm)")
@@ -750,7 +823,7 @@ class SimXArmAPI:
             for i, angle in enumerate(angles_rad):
                 self.data.ctrl[self.act_ids[1 + i]] = float(angle)
 
-    def physical_outcome(self) -> str:
+    def physical_outcome(self, stringency: str = DEFAULT_STRINGENCY) -> str:
         """Inspect cube/tube positions and return a short human-readable summary.
 
         Categories detected:
@@ -762,11 +835,28 @@ class SimXArmAPI:
           - "off bench"     : object xy is outside bench bounds but still elevated
                               (mid-air or in-flight)
         Anything else (resting loose on the bench or in its home rack) isn't called out.
+
+        `stringency` selects how tight the rack-seated / bin-placed thresholds
+        are; see STRINGENCY_LEVELS at module top. "loose" preserves the
+        original (pre-stringency) behaviour and is the default.
         """
+        cfg = STRINGENCY_LEVELS.get(stringency, STRINGENCY_LEVELS[DEFAULT_STRINGENCY])
+        rack_xy_tol  = cfg["rack_xy_tol_m"]
+        rack_z_tol   = cfg["rack_z_tol_m"]
+        bin_xy_tol   = cfg["bin_xy_tol_m"]
+        tilt_deg_max = cfg["tilt_deg_max"]
+
         with self.lock:
             mujoco.mj_forward(self.model, self.data)
             object_positions = {
                 name: self.data.xpos[bid].copy()
+                for name, bid in self.cube_bids.items()
+            }
+            # Body orientations as 3x3 rotation matrices -- column 2 is the
+            # body's local +z axis expressed in the world frame. Used to gate
+            # rack-seated reporting by uprightness.
+            object_xmats = {
+                name: self.data.xmat[bid].reshape(3, 3).copy()
                 for name, bid in self.cube_bids.items()
             }
             bin_positions = {
@@ -788,15 +878,23 @@ class SimXArmAPI:
 
         def _tube_seated_in_rack(tube_pos, rack_pos) -> bool:
             """True if a tube body is sitting in any slot of the given rack."""
-            if abs(tube_pos[2] - TUBE_SLOT_Z_M) > 0.030:
+            if abs(tube_pos[2] - TUBE_SLOT_Z_M) > rack_z_tol:
                 return False
             for (_col, _row, dx, dy) in RACK_SLOTS:
                 sx = rack_pos[0] + dx
                 sy = rack_pos[1] + dy
-                if (abs(tube_pos[0] - sx) < SLOT_OCCUPIED_TOL_M
-                        and abs(tube_pos[1] - sy) < SLOT_OCCUPIED_TOL_M):
+                if (abs(tube_pos[0] - sx) < rack_xy_tol
+                        and abs(tube_pos[1] - sy) < rack_xy_tol):
                     return True
             return False
+
+        def _is_upright(xmat) -> bool:
+            """True if the body's local +z axis tilts <= tilt_deg_max from world +z."""
+            if tilt_deg_max >= 90.0:
+                return True  # loose mode: no uprightness check
+            local_z_world = xmat[:, 2]
+            cos_tilt = float(np.clip(local_z_world[2], -1.0, 1.0))
+            return np.rad2deg(np.arccos(cos_tilt)) <= tilt_deg_max
 
         notes = []
         for obj_name, p in object_positions.items():
@@ -810,7 +908,7 @@ class SimXArmAPI:
                 dx = abs(p[0] - bpos[0])
                 dy = abs(p[1] - bpos[1])
                 dz = p[2] - bpos[2]
-                if dx < 0.040 and dy < 0.040 and 0.0 < dz < 0.060:
+                if dx < bin_xy_tol and dy < bin_xy_tol and 0.0 < dz < 0.060:
                     placed_in = bin_name
                     break
             if placed_in is not None:
@@ -823,7 +921,8 @@ class SimXArmAPI:
                 for rack_name, rack_pos in rack_positions.items():
                     if rack_name == home:
                         continue
-                    if _tube_seated_in_rack(p, rack_pos):
+                    if (_tube_seated_in_rack(p, rack_pos)
+                            and _is_upright(object_xmats[obj_name])):
                         seated_in_other = rack_name
                         break
                 if seated_in_other is not None:

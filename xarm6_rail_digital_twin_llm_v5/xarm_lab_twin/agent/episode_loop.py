@@ -203,7 +203,8 @@ class EpisodeRetry:
 
     def __init__(self, brain, arm, registry, recorder_factory,
                  max_episodes: int = 10,
-                 settle_seconds: float = 1.5):
+                 settle_seconds: float = 1.5,
+                 stringency: str = "loose"):
         """
         Args:
             brain:            LLMBrain instance (already constructed).
@@ -214,6 +215,10 @@ class EpisodeRetry:
             max_episodes:     Cap on retries.
             settle_seconds:   How long to wait after the last command before
                               calling physical_outcome().
+            stringency:       loose / normal / strict -- forwarded to
+                              arm.physical_outcome() to tighten what counts
+                              as a placed object. See STRINGENCY_LEVELS in
+                              sim/mujoco_env.py.
         """
         self.brain = brain
         self.arm = arm
@@ -221,6 +226,7 @@ class EpisodeRetry:
         self.recorder_factory = recorder_factory
         self.max_episodes = max_episodes
         self.settle_seconds = settle_seconds
+        self.stringency = stringency
 
     def run(self, task: str) -> Dict[str, Any]:
         ctx = EpisodeContext(task=task, max_episodes=self.max_episodes)
@@ -261,10 +267,11 @@ class EpisodeRetry:
 
             # 4. Wait for physics to settle and inspect.
             time.sleep(self.settle_seconds)
-            physical = self.arm.physical_outcome() if hasattr(
+            physical = self.arm.physical_outcome(self.stringency) if hasattr(
                 self.arm, "physical_outcome") else ""
             ctx.final_physical = physical
-            print(f"[EpisodeLoop] Physical outcome: {physical or '(none)'}")
+            print(f"[EpisodeLoop] Physical outcome: {physical or '(none)'} "
+                  f"(stringency={self.stringency})")
 
             # 5. Classify this episode's outcome (success / failure / ungraded).
             #    The loop runs ALL episodes regardless -- we never short-circuit
@@ -313,7 +320,7 @@ class EpisodeRetry:
 
             ctx.episode_outcomes.append(episode_outcome)
             _record_lesson(task, self.brain, result, physical, ctx,
-                           episode_outcome)
+                           episode_outcome, self.stringency)
             _close_recorder(recorder)
             ctx.episode_num += 1
 
@@ -387,7 +394,8 @@ def _first_command_failure(results: List[Dict[str, Any]]
 
 def _record_lesson(task: str, brain, result: Dict[str, Any],
                    physical: str, ctx: EpisodeContext,
-                   episode_outcome: Optional[bool]) -> None:
+                   episode_outcome: Optional[bool],
+                   stringency: str = "loose") -> None:
     """Append a one-liner to lessons.md for this episode.
 
     `episode_outcome` is the grader's verdict (True/False/None) -- it gets
@@ -395,6 +403,9 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
     whether the TASK succeeded, not just whether the commands ran without
     errors. Without this, "knocked the rack off the bench" while trying to
     place a tube would be recorded as SUCCESS and poison future runs.
+
+    `stringency` is the grading mode the episode was scored under; passed
+    through so the entry can be tagged in lessons.md.
     """
     label = f"{task} [ep {ctx.episode_num}/{ctx.max_episodes}]"
     append_lesson(
@@ -404,6 +415,7 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
         results=result.get("results", []),
         physical_outcome=physical,
         task_success=episode_outcome,
+        stringency=stringency,
     )
 
 

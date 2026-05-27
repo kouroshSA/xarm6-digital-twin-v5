@@ -118,13 +118,40 @@
                     <body name="link6" pos="0 0 0.075">
                       <geom name="link6_geom" type="cylinder" size="0.025 0.03"
                             rgba="0.6 0.6 0.6 1" mass="0.25" class="arm_link"/>
+                      <!-- IK target marker. Kept small + translucent so it's an
+                           unobtrusive cue rather than dominating the visual. -->
                       <site name="end_effector" pos="0 0 0.09"
-                            size="0.015" rgba="1 0.3 0.3 1" type="sphere"/>
+                            size="0.005" rgba="1 0.3 0.3 0.5" type="sphere"/>
                       <body name="gripper" pos="0 0 0.06">
+                        <!-- Palm: the static wrist plate. Geom name preserved
+                             for FK validator (ARM_GEOM_NAMES) + weld targets. -->
                         <geom name="gripper_geom" type="box"
-                              size="0.018 0.038 0.025"
+                              size="0.018 0.025 0.020"
+                              pos="0 0 0.005"
                               rgba="0.35 0.35 0.35 1" mass="0.15"
                               class="arm_link"/>
+                        <!-- Two parallel fingers extending past the EE site.
+                             contype/conaffinity=0 makes them cosmetic-only (no
+                             contacts), so adding them doesn't change physics
+                             or invalidate existing IK trajectories. Welds
+                             still do the actual grasping. Each joint qpos in
+                             [0, 0.015] m: 0 = open, 0.015 = closed (inward). -->
+                        <body name="finger_left" pos="0 -0.025 0.045">
+                          <joint name="finger_left_joint" type="slide"
+                                 axis="0 1 0" range="0 0.015" damping="2"/>
+                          <geom name="finger_left_geom" type="box"
+                                size="0.005 0.004 0.020"
+                                rgba="0.2 0.2 0.2 1" mass="0.02"
+                                contype="0" conaffinity="0"/>
+                        </body>
+                        <body name="finger_right" pos="0 0.025 0.045">
+                          <joint name="finger_right_joint" type="slide"
+                                 axis="0 -1 0" range="0 0.015" damping="2"/>
+                          <geom name="finger_right_geom" type="box"
+                                size="0.005 0.004 0.020"
+                                rgba="0.2 0.2 0.2 1" mass="0.02"
+                                contype="0" conaffinity="0"/>
+                        </body>
                       </body>
                     </body>
                   </body>
@@ -354,6 +381,13 @@
     <position name="act4"     joint="joint4" kp="300"  kv="30"/>
     <position name="act5"     joint="joint5" kp="200"  kv="20"/>
     <position name="act6"     joint="joint6" kp="150"  kv="15"/>
+    <!-- Cosmetic finger actuators. ctrl in [0, 0.015] m: 0 = open, 0.015 =
+         closed. SimXArmAPI drives both to the same value from gripper_close/
+         gripper_open, so they always move in sync. -->
+    <position name="act_finger_l" joint="finger_left_joint"
+              kp="200" kv="20" ctrlrange="0 0.015"/>
+    <position name="act_finger_r" joint="finger_right_joint"
+              kp="200" kv="20" ctrlrange="0 0.015"/>
   </actuator>
 
 </mujoco>

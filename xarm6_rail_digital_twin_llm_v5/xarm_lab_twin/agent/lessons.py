@@ -75,15 +75,24 @@ def append_lesson(task_prompt: str, model_short: str,
                   planned_commands: list, results: list,
                   physical_outcome: str = "",
                   task_success: Optional[bool] = None,
+                  stringency: Optional[str] = None,
                   lessons_file: Path = None) -> Path:
-    """Write a one-line lesson to lessons.md and trim to MAX_LESSONS."""
+    """Write a one-line lesson to lessons.md and trim to MAX_LESSONS.
+
+    `stringency`, when set, is rendered as a `[stringency=X]` tag in the
+    entry so users can tell at a glance which grading mode a past SUCCESS
+    was claimed under. Lines without the tag (legacy entries) are treated
+    as loose-mode for filtering purposes.
+    """
     if lessons_file is None:
         lessons_file = LESSONS_FILE
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     outcome = _summarize_outcome(planned_commands, results, physical_outcome,
                                  task_success=task_success)
-    new_entry = f'- {ts} [{model_short}] "{task_prompt}" -> {outcome}'
+    stringency_tag = f"[stringency={stringency}] " if stringency else ""
+    new_entry = (f'- {ts} [{model_short}] {stringency_tag}'
+                 f'"{task_prompt}" -> {outcome}')
 
     existing_entries = []
     if lessons_file.exists():
@@ -98,9 +107,14 @@ def append_lesson(task_prompt: str, model_short: str,
     return lessons_file
 
 
-# Regex to pull the task prompt out of a lesson line, e.g.:
+# Regex to pull the task prompt out of a lesson line. Tolerates one or more
+# bracket-tagged annotations (model + optional stringency etc.) before the
+# quoted task. Examples:
 #   - 2026-05-27 09:49 [haiku] "pick the blue-cap tube ..." -> SUCCESS (...)
-_LESSON_TASK_RE = re.compile(r'^\-\s+\S+\s+\S+\s+\[[^\]]+\]\s+"(?P<task>.+?)"\s+->')
+#   - 2026-05-27 09:49 [haiku] [stringency=normal] "pick ..." -> FAILED ...
+_LESSON_TASK_RE = re.compile(
+    r'^\-\s+\S+\s+\S+\s+(?:\[[^\]]+\]\s+)+"(?P<task>.+?)"\s+->'
+)
 
 
 def _extract_task_from_lesson_line(line: str) -> Optional[str]:
