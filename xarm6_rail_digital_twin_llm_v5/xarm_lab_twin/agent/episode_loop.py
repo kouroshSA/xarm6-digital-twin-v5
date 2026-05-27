@@ -1,10 +1,12 @@
 # agent/episode_loop.py
 """
-Episode learning loop.
+Episode learning loop (training-session mode).
 
-Runs a task across up to N episodes. Between episodes, analyses failures and
-injects learned constraints into the next attempt. Stops on success or on
-reaching max_episodes.
+Runs the task across exactly N episodes (no early stopping on success).
+Between episodes, analyses failures and injects learned constraints into
+the next attempt. After all episodes finish, reports per-episode outcomes
+and a first-half vs. second-half success breakdown so the user can see
+whether the model is actually improving across the session.
 
 Designed as a thin wrapper around LLMBrain -- does NOT modify llm_brain.py's
 core logic. Each episode:
@@ -12,31 +14,37 @@ core logic. Each episode:
   2. start a fresh Recorder
   3. brain.execute_task(task, extra_context=<learned constraints>)
   4. wait for physics to settle
-  5. arm.physical_outcome() + check_outcome(task, ...) -> success?
-  6. if failed: analyse the failure, append a constraint, append a lesson, retry
-  7. if succeeded: append a "SUCCESS after N episodes" lesson, stop
+  5. arm.physical_outcome() + check_outcome(task, ...) -> success/failure/ungraded
+  6. append per-episode lesson; if failed, append a learned constraint too
+  7. always continue to the next episode until max_episodes is reached
 """
-import re
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
 
-from agent.outcome_checker import check_outcome
+from agent.outcome_checker import check_outcome, classify_task
 from agent.lessons import append_lesson
 from recording import Recorder
 
 
 @dataclass
 class EpisodeContext:
-    """Accumulates learned constraints across episodes within one task run."""
+    """Accumulates learned constraints + per-episode outcomes across one task run."""
     task: str
     max_episodes: int = 10
     episode_num: int = 1
     learned_constraints: List[str] = field(default_factory=list)
     failure_history: List[Dict[str, Any]] = field(default_factory=list)
+    # `success` = "did any episode succeed". The loop now runs all episodes,
+    # so this is sticky-OR rather than the early-stop terminator it used to be.
     success: bool = False
     final_result: Optional[Dict[str, Any]] = None
     final_physical: str = ""
+    # Per-episode outcomes, in run order. True/False/None where:
+    #   True  = grader said success
+    #   False = command failure OR grader said failure
+    #   None  = grader couldn't classify the task (no learning possible)
+    episode_outcomes: List[Optional[bool]] = field(default_factory=list)
 
     def add_constraint(self, constraint: str) -> None:
         if constraint and constraint not in self.learned_constraints:
@@ -113,25 +121,8 @@ def analyse_command_failure(failed_step: Dict[str, Any],
     return f"Action '{action}' failed with code {code}. Avoid this exact step."
 
 
-# Task-family classifiers. These mirror the regexes in outcome_checker.py so
-# the loop reasons about WHAT the user asked for (push? place? sort?) rather
-# than WHICH object they named. Add new families here as new task templates
-# are introduced.
-_PUSH_OFF_RE  = re.compile(r"\b(push|knock|drop|shove|slide)\b.*\b(off|edge|floor|away)\b")
-_PLACEMENT_RE = re.compile(r"\b(put|place|move|drop|stash)\b.*\b(in|into|inside)\b.*\b(bin|container|box|rack|slot)\b")
-_SORT_RE      = re.compile(r"\bsort\b.*\bcubes?\b")
-
-
-def _classify_task(task: str) -> str:
-    """Return one of: 'push_off', 'placement', 'sort', 'unknown'."""
-    t = task.lower()
-    if _PUSH_OFF_RE.search(t):
-        return "push_off"
-    if _SORT_RE.search(t):
-        return "sort"
-    if _PLACEMENT_RE.search(t):
-        return "placement"
-    return "unknown"
+# Task-family-aware failure analyser. Family is determined by
+# outcome_checker.classify_task() (push_off / placement / sort / unknown).
 
 
 def analyse_physical_failure(task: str, physical: str,
@@ -145,7 +136,7 @@ def analyse_physical_failure(task: str, physical: str,
     """
     phys = physical or ""
     nothing_moved = (not phys) or phys == "no objects displaced"
-    family = _classify_task(task)
+    family = classify_task(task)
     placement_wrong_dest = bool(reason and "Missing" in reason and " in " in phys)
 
     if family == "push_off":
@@ -275,8 +266,13 @@ class EpisodeRetry:
             ctx.final_physical = physical
             print(f"[EpisodeLoop] Physical outcome: {physical or '(none)'}")
 
-            # 5. Did any command fail at the dispatch level?
+            # 5. Classify this episode's outcome (success / failure / ungraded).
+            #    The loop runs ALL episodes regardless -- we never short-circuit
+            #    on success, because the goal is to measure whether the model
+            #    *consistently* solves the task, not just whether it can once.
+            episode_outcome: Optional[bool] = None  # True / False / None
             cmd_failure = _first_command_failure(result.get("results", []))
+
             if cmd_failure is not None:
                 idx, failed = cmd_failure
                 planned = result.get("commands", [])[idx] if idx < len(
@@ -288,53 +284,75 @@ class EpisodeRetry:
                     "step": idx, "action": failed.get("action"),
                     "code": failed.get("result"), "constraint": constraint,
                 })
-                _record_lesson(task, self.brain, result, physical, ctx)
-                _close_recorder(recorder)
-                ctx.episode_num += 1
-                continue
+                episode_outcome = False
+            else:
+                # All commands returned 0. Did the physical state match the task?
+                success, reason = check_outcome(task, physical)
+                print(f"[EpisodeLoop] Outcome check: success={success} ({reason})")
 
-            # 6. All commands returned 0. Did the physical state match the task?
-            success, reason = check_outcome(task, physical)
-            print(f"[EpisodeLoop] Outcome check: success={success} ({reason})")
-
-            if success is True or (success is None and physical):
-                # Treat "unknown but something happened" as soft success --
-                # surfaces it for the user instead of looping forever on tasks
-                # the parser can't grade.
-                ctx.success = bool(success) or False
                 if success is True:
                     print(f"[EpisodeLoop] SUCCESS on episode {ctx.episode_num}")
                     ctx.success = True
+                    episode_outcome = True
+                elif success is False:
+                    constraint = analyse_physical_failure(task, physical, reason)
+                    if constraint:
+                        ctx.add_constraint(constraint)
+                    ctx.failure_history.append({
+                        "episode": ctx.episode_num, "kind": "physical",
+                        "physical": physical, "reason": reason,
+                        "constraint": constraint,
+                    })
+                    episode_outcome = False
                 else:
-                    print(f"[EpisodeLoop] STOPPING (outcome unclear -- check manually)")
-                _record_lesson(task, self.brain, result, physical, ctx)
-                _close_recorder(recorder)
-                break
+                    # success is None -- parser couldn't classify the task.
+                    # No constraint to learn from, but we keep iterating so
+                    # the user can still measure command-level reliability.
+                    print(f"[EpisodeLoop] UNGRADED (grader cannot classify this task)")
+                    episode_outcome = None
 
-            if success is False:
-                # Commands ran but physical state is wrong. Infer a constraint.
-                constraint = analyse_physical_failure(task, physical, reason)
-                if constraint:
-                    ctx.add_constraint(constraint)
-                ctx.failure_history.append({
-                    "episode": ctx.episode_num, "kind": "physical",
-                    "physical": physical, "reason": reason,
-                    "constraint": constraint,
-                })
-
-            _record_lesson(task, self.brain, result, physical, ctx)
+            ctx.episode_outcomes.append(episode_outcome)
+            _record_lesson(task, self.brain, result, physical, ctx,
+                           episode_outcome)
             _close_recorder(recorder)
             ctx.episode_num += 1
 
-        # End of loop. Print summary. Count = current iter when we break on
-        # success/unknown (didn't increment), or current iter - 1 when we ran
-        # all max_episodes (incremented at end of last iter).
-        episodes_run = (ctx.episode_num
-                        if ctx.episode_num <= ctx.max_episodes
-                        else ctx.max_episodes)
+        # --- End of loop. Build the training-quality summary. ---
+        total = len(ctx.episode_outcomes)
+        n_succ     = sum(1 for o in ctx.episode_outcomes if o is True)
+        n_fail     = sum(1 for o in ctx.episode_outcomes if o is False)
+        n_ungraded = sum(1 for o in ctx.episode_outcomes if o is None)
+
+        # First half = ceil(total / 2). For odd N the first half gets the
+        # extra episode (e.g., 31 -> 16 + 15) per the design spec.
+        half = (total + 1) // 2
+        first_half  = ctx.episode_outcomes[:half]
+        second_half = ctx.episode_outcomes[half:]
+        succ_first  = sum(1 for o in first_half  if o is True)
+        fail_first  = sum(1 for o in first_half  if o is False)
+        succ_second = sum(1 for o in second_half if o is True)
+        fail_second = sum(1 for o in second_half if o is False)
+
         print(f"\n{'=' * 70}")
-        print(f"[EpisodeLoop] Done after {episodes_run} episode(s). "
-              f"success={ctx.success}")
+        print(f"[EpisodeLoop] Done after {total} episode(s). "
+              f"any_success={ctx.success}")
+        ungraded_tail = (f"   Ungraded: {n_ungraded}" if n_ungraded else "")
+        print(f"[EpisodeLoop] Totals: {n_succ} success / {n_fail} failure"
+              f" out of {total}{ungraded_tail}")
+        if total >= 2:
+            print(f"[EpisodeLoop] First half  (ep 1-{half}):  "
+                  f"{succ_first} success, {fail_first} failure")
+            print(f"[EpisodeLoop] Second half (ep {half + 1}-{total}): "
+                  f"{succ_second} success, {fail_second} failure")
+            # Convergence hint: did we improve?
+            if succ_second > succ_first:
+                print(f"[EpisodeLoop] -> IMPROVING (+{succ_second - succ_first} "
+                      f"more successes in second half)")
+            elif succ_second < succ_first:
+                print(f"[EpisodeLoop] -> REGRESSING ({succ_first - succ_second} "
+                      f"fewer successes in second half)")
+            else:
+                print(f"[EpisodeLoop] -> FLAT (same success count in both halves)")
         if ctx.learned_constraints:
             print(f"[EpisodeLoop] Learned constraints ({len(ctx.learned_constraints)}):")
             for c in ctx.learned_constraints:
@@ -343,11 +361,17 @@ class EpisodeRetry:
 
         return {
             "success": ctx.success,
-            "episodes_run": episodes_run,
+            "episodes_run": total,
             "final_result": ctx.final_result,
             "final_physical": ctx.final_physical,
             "learned_constraints": ctx.learned_constraints,
             "failure_history": ctx.failure_history,
+            "episode_outcomes": ctx.episode_outcomes,
+            "totals": {"success": n_succ, "failure": n_fail, "ungraded": n_ungraded},
+            "halves": {
+                "first":  {"success": succ_first,  "failure": fail_first,  "n": len(first_half)},
+                "second": {"success": succ_second, "failure": fail_second, "n": len(second_half)},
+            },
         }
 
 
@@ -362,8 +386,16 @@ def _first_command_failure(results: List[Dict[str, Any]]
 
 
 def _record_lesson(task: str, brain, result: Dict[str, Any],
-                   physical: str, ctx: EpisodeContext) -> None:
-    """Append a one-liner to lessons.md for this episode."""
+                   physical: str, ctx: EpisodeContext,
+                   episode_outcome: Optional[bool]) -> None:
+    """Append a one-liner to lessons.md for this episode.
+
+    `episode_outcome` is the grader's verdict (True/False/None) -- it gets
+    passed through to append_lesson so the lesson string accurately reflects
+    whether the TASK succeeded, not just whether the commands ran without
+    errors. Without this, "knocked the rack off the bench" while trying to
+    place a tube would be recorded as SUCCESS and poison future runs.
+    """
     label = f"{task} [ep {ctx.episode_num}/{ctx.max_episodes}]"
     append_lesson(
         task_prompt=label,
@@ -371,6 +403,7 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
         planned_commands=result.get("commands", []),
         results=result.get("results", []),
         physical_outcome=physical,
+        task_success=episode_outcome,
     )
 
 

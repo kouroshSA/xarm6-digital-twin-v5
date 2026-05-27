@@ -135,7 +135,7 @@ class LLMBrain:
             llm_log = LLMSessionLog(self.recorder, self.model_full, task_prompt)
             llm_log.log_prompt()
 
-        lessons = read_lessons_section()
+        lessons = read_lessons_section(current_task=task_prompt)
         system = SYSTEM_PROMPT_TEMPLATE.format(
             registry_context=self.registry.to_llm_context(),
             lessons_section=lessons if lessons else "(no prior lessons yet)",

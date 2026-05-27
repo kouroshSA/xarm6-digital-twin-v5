@@ -46,6 +46,31 @@ TUBE_HOME_RACK = {
     "tube_R1": "right_tube_rack", "tube_R2": "right_tube_rack", "tube_R3": "right_tube_rack",
 }
 
+# Task-family classifiers. These mirror the patterns expected_outcome() uses
+# below -- centralised here so other modules (lesson filtering, the loop's
+# failure-mode hints) can ask "what kind of task is this?" without
+# re-implementing the regexes. Add new families here when new task templates
+# are introduced.
+_PUSH_OFF_RE  = re.compile(r"\b(push|knock|drop|shove|slide)\b.*\b(off|edge|floor|away)\b")
+_PLACEMENT_RE = re.compile(r"\b(put|place|move|drop|stash|pick)\b.*\b(in|into|inside)\b.*\b(bin|container|box|rack|slot)\b")
+_SORT_RE      = re.compile(r"\bsort\b.*\bcubes?\b")
+
+
+def classify_task(task: str) -> str:
+    """Return one of: 'push_off', 'placement', 'sort', 'unknown'.
+
+    Used to scope cross-run lessons (so push-task wins don't leak into
+    placement-task prompts) and to pick task-appropriate failure hints.
+    """
+    t = task.lower()
+    if _PUSH_OFF_RE.search(t):
+        return "push_off"
+    if _SORT_RE.search(t):
+        return "sort"
+    if _PLACEMENT_RE.search(t):
+        return "placement"
+    return "unknown"
+
 
 def _off_bench_terms(names: List[str]) -> List[str]:
     """Return the union of '<name> fell to floor' and '<name> off bench' for each name."""
