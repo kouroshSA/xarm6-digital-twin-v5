@@ -16,6 +16,7 @@ core logic. Each episode:
   6. if failed: analyse the failure, append a constraint, append a lesson, retry
   7. if succeeded: append a "SUCCESS after N episodes" lesson, stop
 """
+import re
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
@@ -112,38 +113,98 @@ def analyse_command_failure(failed_step: Dict[str, Any],
     return f"Action '{action}' failed with code {code}. Avoid this exact step."
 
 
+# Task-family classifiers. These mirror the regexes in outcome_checker.py so
+# the loop reasons about WHAT the user asked for (push? place? sort?) rather
+# than WHICH object they named. Add new families here as new task templates
+# are introduced.
+_PUSH_OFF_RE  = re.compile(r"\b(push|knock|drop|shove|slide)\b.*\b(off|edge|floor|away)\b")
+_PLACEMENT_RE = re.compile(r"\b(put|place|move|drop|stash)\b.*\b(in|into|inside)\b.*\b(bin|container|box|rack|slot)\b")
+_SORT_RE      = re.compile(r"\bsort\b.*\bcubes?\b")
+
+
+def _classify_task(task: str) -> str:
+    """Return one of: 'push_off', 'placement', 'sort', 'unknown'."""
+    t = task.lower()
+    if _PUSH_OFF_RE.search(t):
+        return "push_off"
+    if _SORT_RE.search(t):
+        return "sort"
+    if _PLACEMENT_RE.search(t):
+        return "placement"
+    return "unknown"
+
+
 def analyse_physical_failure(task: str, physical: str,
                              reason: str) -> Optional[str]:
     """
     Commands all returned 0, but the physical outcome doesn't match the task.
-    Infer a constraint from the discrepancy.
+    Infer a task-family-appropriate constraint -- the hint depends on whether
+    the user asked to push, place, or sort, NOT on which specific object was
+    named. Object-specific advice (cube vs tube vs rack heights) should come
+    from the registry the LLM already sees in the system prompt.
     """
-    if not physical or physical == "no objects displaced":
-        return (f"All commands succeeded but nothing moved. The grasp likely "
-                f"failed: gripper_close probably ran with the EE too far from "
-                f"the object. Re-check the cube position from the registry, "
-                f"set rail closer, and approach with z=795 mm (just above "
-                f"cube top at 780 mm).")
+    phys = physical or ""
+    nothing_moved = (not phys) or phys == "no objects displaced"
+    family = _classify_task(task)
+    placement_wrong_dest = bool(reason and "Missing" in reason and " in " in phys)
 
-    # Wrong bin / fell to floor / off bench
-    if "fell to floor" in physical:
-        return (f"An object fell to the floor when it shouldn't have. Either "
-                f"the release height was too high, the lift cleared the bin "
-                f"opening, or the trajectory took it past the bench edge. "
-                f"Release at z=830 mm directly above the bin centre.")
+    if family == "push_off":
+        if nothing_moved:
+            return ("Push did not displace anything. The arm must actually "
+                    "make contact and drag the target: use `push_object` with "
+                    "target_name matching the intended body, and aim "
+                    "to_x_mm/to_y_mm at the nearest bench edge "
+                    "(|x|>750 mm or |y|>450 mm). `move_to` alone will not "
+                    "push -- it just relocates the EE. Set the rail position "
+                    "so the EE can reach the object's xy with a clear "
+                    "approach from the opposite side of the chosen edge.")
+        # Got "in <bin>" segments but no off-bench segments for any target.
+        if " in " in phys and "off bench" not in phys and "fell to floor" not in phys:
+            return ("Push deposited the target into a bin instead of off the "
+                    "bench. Re-aim to_x_mm/to_y_mm toward the nearest bench "
+                    "edge, not toward another container.")
+        # We got SOME off-bench/floor events, but check_outcome graded False
+        # -- meaning the wrong object was affected.
+        if "off bench" in phys or "fell to floor" in phys:
+            return (f"Push affected the wrong object(s) -- observed: {phys}. "
+                    "Use `push_object` with target_name set to the body the "
+                    "task names, and double-check the registry for that "
+                    "body's current xy before choosing the push destination.")
+        return (f"Push completed but the result is unclear: {phys}. Re-read "
+                "the task target and push harder toward the bench edge.")
 
-    if "off bench" in physical and "push" not in task.lower():
-        return (f"An object ended up off the bench but the task wasn't a push. "
-                f"Your transit path went past bench edge. Keep xy inside "
-                f"[-750..+750, -450..+450] mm during transit.")
+    if family in ("placement", "sort"):
+        if nothing_moved:
+            return ("All commands succeeded but nothing moved -- the grasp "
+                    "likely failed. The EE site must be within ~70 mm of the "
+                    "target body's centre when `gripper_close` fires. Use "
+                    "the registry's grip height for the target object "
+                    "(cubes/tubes/bins/racks have different heights), "
+                    "set the rail closer, and verify xy matches the object's "
+                    "current position from the registry. For tube-into-rack "
+                    "tasks, use `place_tube_in_rack` after grasping -- it "
+                    "snaps the held tube into the rack's first open slot.")
+        if "fell to floor" in phys:
+            return ("An object fell to the floor during placement. Likely "
+                    "causes: release was too high above the destination "
+                    "(bounce-out), lift trajectory cleared the destination's "
+                    "opening sideways, or transit path crossed the bench "
+                    "edge. Release just above the destination's top surface, "
+                    "directly over its xy from the registry.")
+        if "off bench" in phys:
+            return ("An object ended up off the bench during placement. Your "
+                    "transit path went past the bench edge. Keep xy inside "
+                    "[-750..+750, -450..+450] mm while carrying.")
+        if placement_wrong_dest:
+            return (f"Object placed in the WRONG destination: {phys}. The "
+                    "placement xy didn't match the task target. Re-read the "
+                    "registry for the intended destination's xy.")
+        return None
 
-    # Wrong-bin placement
-    if "_cube in" in physical and reason and "Missing" in reason:
-        return (f"Cube ended up in the WRONG bin ({physical}). Re-read the "
-                f"registry for the target bin's xy; you placed at the wrong "
-                f"destination.")
-
-    return None
+    # Unknown task family: give a generic nudge so something is logged.
+    return (f"Physical state doesn't match the task: {phys}. Re-check the "
+            "task target and use registry coordinates rather than "
+            "estimating positions.")
 
 
 class EpisodeRetry:

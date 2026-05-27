@@ -754,11 +754,14 @@ class SimXArmAPI:
         """Inspect cube/tube positions and return a short human-readable summary.
 
         Categories detected:
-          - "in <bin>"      : cube center inside a bin footprint, low z above bin floor
           - "fell to floor" : object z is near floor level (< 0.1 m)
+          - "in <bin>"      : cube center inside a bin footprint, low z above bin floor
+          - "in <rack>"     : tube body seated in a rack slot of a NON-HOME rack
+                              (tubes that haven't left their home rack are silent
+                              -- the loop only cares about state changes)
           - "off bench"     : object xy is outside bench bounds but still elevated
                               (mid-air or in-flight)
-        Anything else (resting on the bench or in a rack) isn't called out.
+        Anything else (resting loose on the bench or in its home rack) isn't called out.
         """
         with self.lock:
             mujoco.mj_forward(self.model, self.data)
@@ -770,9 +773,30 @@ class SimXArmAPI:
                 name: self.data.xpos[self.model.body(name).id].copy()
                 for name in ("red_bin", "green_bin", "blue_bin")
             }
+            rack_positions = {
+                name: self.data.xpos[self.model.body(name).id].copy()
+                for name in RACK_TUBE_GROUPS
+            }
 
         bench_x_min, bench_x_max = self.BENCH_X_MM[0] / 1000.0, self.BENCH_X_MM[1] / 1000.0
         bench_y_min, bench_y_max = self.BENCH_Y_MM[0] / 1000.0, self.BENCH_Y_MM[1] / 1000.0
+
+        # Reverse the RACK_TUBE_GROUPS mapping for quick home-rack lookup.
+        tube_home_rack = {
+            tube: rack for rack, tubes in RACK_TUBE_GROUPS.items() for tube in tubes
+        }
+
+        def _tube_seated_in_rack(tube_pos, rack_pos) -> bool:
+            """True if a tube body is sitting in any slot of the given rack."""
+            if abs(tube_pos[2] - TUBE_SLOT_Z_M) > 0.030:
+                return False
+            for (_col, _row, dx, dy) in RACK_SLOTS:
+                sx = rack_pos[0] + dx
+                sy = rack_pos[1] + dy
+                if (abs(tube_pos[0] - sx) < SLOT_OCCUPIED_TOL_M
+                        and abs(tube_pos[1] - sy) < SLOT_OCCUPIED_TOL_M):
+                    return True
+            return False
 
         notes = []
         for obj_name, p in object_positions.items():
@@ -792,6 +816,20 @@ class SimXArmAPI:
             if placed_in is not None:
                 notes.append(f"{obj_name} in {placed_in}")
                 continue
+            # Tube seated in a NON-HOME rack (= a placement event worth reporting).
+            if obj_name in tube_home_rack:
+                home = tube_home_rack[obj_name]
+                seated_in_other = None
+                for rack_name, rack_pos in rack_positions.items():
+                    if rack_name == home:
+                        continue
+                    if _tube_seated_in_rack(p, rack_pos):
+                        seated_in_other = rack_name
+                        break
+                if seated_in_other is not None:
+                    notes.append(f"{obj_name} in {seated_in_other}")
+                    continue
+                # Not in any non-home rack -- fall through to off-bench check.
             # Past the bench edge in xy (but still elevated -- mid-fall or hanging)
             if not (bench_x_min <= p[0] <= bench_x_max and
                     bench_y_min <= p[1] <= bench_y_max):
