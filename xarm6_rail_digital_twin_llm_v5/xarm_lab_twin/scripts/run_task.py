@@ -29,6 +29,11 @@ def main():
     parser.add_argument("--save-frames", action="store_true",
                         help="Record image frames at 10Hz (off by default). "
                              "Adds ~10-15MB per minute of recording.")
+    parser.add_argument("--loop", action="store_true",
+                        help="Enable episode learning loop: retry on failure, "
+                             "learning constraints between attempts.")
+    parser.add_argument("--max-episodes", type=int, default=10,
+                        help="Max episodes for --loop (default: 10).")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()
@@ -63,11 +68,44 @@ def main():
                      model=model_short)
 
     print(f"\n[Task] {args.task}\n")
-    try:
-        result = brain.execute_task(args.task, dry_run=args.dry_run)
-    except Exception as e:
-        print(f"[System] Task failed: {e}")
-        result = {"commands": [], "results": [], "error": True}
+    # _loop_handled_lessons: when True, the EpisodeRetry already appended one
+    # lesson per episode, so the outer code at the bottom skips its
+    # single-shot append_lesson() to avoid duplication.
+    _loop_handled_lessons = False
+
+    if args.loop and not args.dry_run:
+        from agent.episode_loop import EpisodeRetry
+
+        # The outer recorder is replaced by per-episode recorders inside the
+        # loop. Stop+save the outer one (no prompt, since loop mode is
+        # non-interactive).
+        if recorder is not None:
+            recorder.stop_and_prompt(prompt=False)
+            recorder = None
+
+        def _recorder_factory():
+            if not hasattr(arm, "model"):
+                return None
+            return Recorder(
+                model=arm.model, data=arm.data, lock=arm.lock,
+                interface="episode_loop", scene_xml="envs/lab_scene.xml",
+                enable_frames=args.save_frames,
+            )
+
+        loop = EpisodeRetry(
+            brain=brain, arm=arm, registry=registry,
+            recorder_factory=_recorder_factory,
+            max_episodes=args.max_episodes,
+        )
+        summary = loop.run(args.task)
+        result = summary["final_result"] or {"commands": [], "results": []}
+        _loop_handled_lessons = True
+    else:
+        try:
+            result = brain.execute_task(args.task, dry_run=args.dry_run)
+        except Exception as e:
+            print(f"[System] Task failed: {e}")
+            result = {"commands": [], "results": [], "error": True}
 
     print("\n[Planned sequence]")
     for i, cmd in enumerate(result.get("commands", [])):
@@ -85,7 +123,7 @@ def main():
     if args.mode == "sim" and hasattr(arm, "physical_outcome"):
         physical = arm.physical_outcome()
         print(f"\n[Physical outcome] {physical}")
-    if not args.dry_run:
+    if not args.dry_run and not _loop_handled_lessons:
         append_lesson(
             task_prompt=args.task,
             model_short=model_short,
