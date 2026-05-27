@@ -46,6 +46,21 @@ class EpisodeContext:
     #   None  = grader couldn't classify the task (no learning possible)
     episode_outcomes: List[Optional[bool]] = field(default_factory=list)
 
+    # Phase 1: soft positive-signal learning. Successful plans are exposed
+    # to subsequent episodes as exploration-friendly references, NOT as
+    # prescriptive exemplars. See successes_block() for the framing.
+    successful_plans: List[Dict[str, Any]] = field(default_factory=list)
+    # Each entry: {"episode": int, "commands": [...], "n_commands": int,
+    #              "physical": str, "stringency": str}
+
+    best_plan_idx: Optional[int] = None
+    # Index into successful_plans of the current "best" plan by n_commands.
+    # None until first success.
+
+    success_diversity: List[int] = field(default_factory=list)
+    # Hash of each successful plan's action sequence (just the "action"
+    # strings, ignoring params). Used to compute reuse rate in the summary.
+
     def add_constraint(self, constraint: str) -> None:
         if constraint and constraint not in self.learned_constraints:
             self.learned_constraints.append(constraint)
@@ -59,6 +74,85 @@ class EpisodeContext:
                  "(These come from real failures observed just now. Respect them.)"]
         for c in self.learned_constraints:
             lines.append(f"- {c}")
+        return "\n".join(lines) + "\n"
+
+    def add_successful_plan(self, commands: List[Dict[str, Any]],
+                            physical: str, stringency: str) -> None:
+        """Record a success. Gates on clean physical outcome to avoid
+        pinning destructive plans the grader missed.
+        """
+        # Defensive gate: reject if physical outcome has destructive markers,
+        # even though check_outcome returned True. False-positive mitigation.
+        if physical and any(marker in physical for marker in
+                            ("off bench", "fell to floor")):
+            print(f"[EpisodeLoop] Success grader fired but physical='{physical}' "
+                  f"looks destructive -- NOT pinning this plan.")
+            return
+
+        n_cmds = len(commands)
+        entry = {
+            "episode": self.episode_num,
+            "commands": commands,
+            "n_commands": n_cmds,
+            "physical": physical,
+            "stringency": stringency,
+        }
+        self.successful_plans.append(entry)
+
+        # Track action-sequence hash for reuse-rate metric in summary.
+        action_seq = tuple(c.get("action", "?") for c in commands)
+        self.success_diversity.append(hash(action_seq))
+
+        # Update best_plan_idx by n_commands (fewer = better as a default
+        # proxy). Change this metric here if needed later.
+        if (self.best_plan_idx is None or
+                n_cmds < self.successful_plans[self.best_plan_idx]["n_commands"]):
+            self.best_plan_idx = len(self.successful_plans) - 1
+            print(f"[EpisodeLoop] New best plan: {n_cmds} commands "
+                  f"(episode {self.episode_num}).")
+
+        # Cap at the most recent 3 to bound prompt growth, but always keep
+        # the best one even if it would otherwise fall out of the window.
+        if len(self.successful_plans) > 3:
+            best = self.successful_plans[self.best_plan_idx]
+            recent = [p for p in self.successful_plans[-3:] if p is not best]
+            self.successful_plans = [best] + recent[-2:]
+            self.best_plan_idx = 0
+
+    def successes_block(self) -> str:
+        """Render successful plans with EXPLORATION-FRIENDLY framing.
+
+        The framing here is doing real work: we want the LLM to have
+        known-good plans as reference, but we explicitly tell it the task
+        likely admits better solutions and invite it to find one. Direct
+        framing would cause lock-in.
+        """
+        if not self.successful_plans:
+            return ""
+
+        import json
+        best = self.successful_plans[self.best_plan_idx]
+        best_n = best["n_commands"]
+
+        lines = [
+            "",
+            "## Plans that have succeeded on this task",
+            f"(The current best plan has {best_n} commands. Plans below "
+            f"satisfied the grader, but this task likely admits shorter "
+            f"or cleaner solutions. You may adapt these approaches, but "
+            f"a plan that achieves the goal in fewer commands or with "
+            f"a safer trajectory is preferred.)",
+            "",
+        ]
+        for entry in self.successful_plans:
+            marker = " (current best)" if entry is best else ""
+            lines.append(f"- Episode {entry['episode']} "
+                         f"({entry['n_commands']} commands){marker}:")
+            lines.append("  ```json")
+            plan_json = json.dumps(entry["commands"], indent=2)
+            for jline in plan_json.split("\n"):
+                lines.append(f"  {jline}")
+            lines.append("  ```")
         return "\n".join(lines) + "\n"
 
 
@@ -255,7 +349,9 @@ class EpisodeRetry:
             # 2. Build the prompt: original task + learned constraints block.
             #    (Constraints ride along inside the user message; no change
             #    to llm_brain.py required.)
-            episode_task = task + ctx.constraints_block()
+            episode_task = (task
+                            + ctx.constraints_block()
+                            + ctx.successes_block())
 
             # 3. Execute.
             try:
@@ -300,6 +396,11 @@ class EpisodeRetry:
                 if success is True:
                     print(f"[EpisodeLoop] SUCCESS on episode {ctx.episode_num}")
                     ctx.success = True
+                    ctx.add_successful_plan(
+                        commands=result.get("commands", []),
+                        physical=physical,
+                        stringency=self.stringency,
+                    )
                     episode_outcome = True
                 elif success is False:
                     constraint = analyse_physical_failure(task, physical, reason)
@@ -364,6 +465,28 @@ class EpisodeRetry:
             print(f"[EpisodeLoop] Learned constraints ({len(ctx.learned_constraints)}):")
             for c in ctx.learned_constraints:
                 print(f"  - {c}")
+
+        if ctx.successful_plans:
+            print(f"[EpisodeLoop] Successful plans pinned: {len(ctx.successful_plans)}")
+            best = ctx.successful_plans[ctx.best_plan_idx]
+            print(f"[EpisodeLoop] Best plan: {best['n_commands']} commands "
+                  f"(episode {best['episode']})")
+
+            # Reuse-rate metric: of the successes in this run, how many used
+            # the same action sequence as a previous success? Tells the user
+            # whether the model is converging on the pinned shape (high reuse)
+            # or independently finding solutions (low reuse).
+            if len(ctx.success_diversity) >= 2:
+                unique_hashes = len(set(ctx.success_diversity))
+                total_successes = len(ctx.success_diversity)
+                reuse_rate = 1.0 - (unique_hashes / total_successes)
+                print(f"[EpisodeLoop] Success-plan diversity: "
+                      f"{unique_hashes}/{total_successes} unique action "
+                      f"sequences (reuse rate {reuse_rate:.0%})")
+                if reuse_rate >= 0.5:
+                    print(f"[EpisodeLoop] -> Model is CONVERGING on pinned plan shape")
+                else:
+                    print(f"[EpisodeLoop] -> Model is finding INDEPENDENT solutions")
         print('=' * 70)
 
         return {
@@ -379,6 +502,9 @@ class EpisodeRetry:
                 "first":  {"success": succ_first,  "failure": fail_first,  "n": len(first_half)},
                 "second": {"success": succ_second, "failure": fail_second, "n": len(second_half)},
             },
+            "successful_plans": ctx.successful_plans,
+            "best_plan_idx": ctx.best_plan_idx,
+            "success_diversity": ctx.success_diversity,
         }
 
 
