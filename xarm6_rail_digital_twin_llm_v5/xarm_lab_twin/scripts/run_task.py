@@ -124,12 +124,17 @@ def main():
         physical = arm.physical_outcome()
         print(f"\n[Physical outcome] {physical}")
     if not args.dry_run and not _loop_handled_lessons:
+        # Grade the run before logging so lessons.md records the TASK outcome,
+        # not just whether commands ran without errors.
+        from agent.outcome_checker import check_outcome
+        task_success, _reason = check_outcome(args.task, physical)
         append_lesson(
             task_prompt=args.task,
             model_short=model_short,
             planned_commands=result.get("commands", []),
             results=result.get("results", []),
             physical_outcome=physical,
+            task_success=task_success,
         )
         print("[Lessons] Appended to lessons.md")
 
