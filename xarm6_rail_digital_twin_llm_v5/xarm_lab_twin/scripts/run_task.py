@@ -72,6 +72,10 @@ def main():
     # lesson per episode, so the outer code at the bottom skips its
     # single-shot append_lesson() to avoid duplication.
     _loop_handled_lessons = False
+    loop_summary = None  # populated only on --loop runs; used to re-print the
+                         # success/failure totals as the LAST thing on screen
+                         # so the [Planned sequence]/etc. blocks below don't
+                         # scroll the per-episode stats out of view.
 
     if args.loop and not args.dry_run:
         from agent.episode_loop import EpisodeRetry
@@ -98,6 +102,7 @@ def main():
             max_episodes=args.max_episodes,
         )
         summary = loop.run(args.task)
+        loop_summary = summary
         result = summary["final_result"] or {"commands": [], "results": []}
         _loop_handled_lessons = True
     else:
@@ -142,6 +147,45 @@ def main():
         recorder.stop_and_prompt(prompt=True, auto_task_label=args.task)
 
     arm.disconnect()
+
+    # Re-print the loop summary as the LAST visible block so it isn't scrolled
+    # away by [Planned sequence] / [Execution results] / [Physical outcome].
+    if loop_summary is not None:
+        tot = loop_summary.get("totals", {})
+        halves = loop_summary.get("halves", {})
+        first = halves.get("first", {})
+        second = halves.get("second", {})
+        n_total = loop_summary.get("episodes_run", 0)
+        n_succ  = tot.get("success", 0)
+        n_fail  = tot.get("failure", 0)
+        n_ungr  = tot.get("ungraded", 0)
+        succ_first  = first.get("success", 0); fail_first  = first.get("failure", 0)
+        succ_second = second.get("success", 0); fail_second = second.get("failure", 0)
+        n_first  = first.get("n", 0)
+        n_second = second.get("n", 0)
+        if succ_second > succ_first:
+            trend = f"IMPROVING (+{succ_second - succ_first} more successes in 2nd half)"
+        elif succ_second < succ_first:
+            trend = f"REGRESSING ({succ_first - succ_second} fewer successes in 2nd half)"
+        else:
+            trend = "FLAT (same success count in both halves)"
+        truncated_task = (args.task if len(args.task) <= 60
+                          else args.task[:57] + "...")
+        print()
+        print("=" * 68)
+        print("                          RUN SUMMARY")
+        print("=" * 68)
+        print(f"  Task:        {truncated_task}")
+        print(f"  Episodes:    {n_total}   (success={n_succ}, "
+              f"failure={n_fail}{', ungraded=' + str(n_ungr) if n_ungr else ''})")
+        if n_total >= 2:
+            print(f"  First half   (ep 1-{n_first}):  "
+                  f"{succ_first} success, {fail_first} failure")
+            print(f"  Second half  (ep {n_first + 1}-{n_total}): "
+                  f"{succ_second} success, {fail_second} failure")
+            print(f"  Trend:       {trend}")
+        print("=" * 68)
+
     # Force-exit. The MuJoCo viewer's GLFW + X11 cleanup at Python interpreter
     # shutdown can hang or segfault; all our durable data is already flushed
     # to disk by this point. Flush stdout/stderr to make sure no print() is lost.
