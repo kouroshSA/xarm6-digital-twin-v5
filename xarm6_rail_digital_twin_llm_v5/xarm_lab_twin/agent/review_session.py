@@ -69,7 +69,7 @@ Never phrase as:
   - "Always use rail=140mm." (rule, not observation)
   - "Don't grasp after moving the rail." (rule, not observation)
 
-## What to look for
+## What to look for (per-task)
 
 1. **Cross-episode patterns in successes**: what did the working plans have
    in common? What numeric ranges did the parameters cluster in?
@@ -81,6 +81,42 @@ Never phrase as:
    any success episode's physical outcome reads as suspect to you, flag it.
 4. **Failed deviations**: if an episode tried something new and it didn't
    work, what changed between the deviation and the working plans?
+
+## Cross-task observations (the world model)
+
+In addition to the per-task writeup, look for observations that are
+*general* -- true beyond this one task. These accumulate into a separate
+`world_model.md` file across sessions. Four categories:
+
+  - **geometric**: arm reachability, collision envelopes, validator
+    quirks, IK behaviour at extremes. Examples: "validator rejects
+    descents below z~895mm anywhere inside a tube-rack footprint",
+    "IK fails for wrist pitches outside +/-90deg at the workspace edge".
+  - **object_class**: regularities that apply to all members of a class
+    (all tubes, all bins, all racks). Examples: "tubes seated in racks
+    can be grasped from z=900mm regardless of which rack",
+    "bin walls top out at z=810mm across all three colors".
+  - **primitive**: behaviour of a command primitive. Examples:
+    "`place_tube_in_rack` requires the rail to be at the rack's
+    optimal_rail_mm; otherwise it returns IK failure",
+    "`push_object` on a rack body carries all 3 tubes with it".
+  - **grader**: regularities about how `physical_outcome` / `check_outcome`
+    grade outcomes. Examples: "loose stringency accepts tubes within 30mm
+    of the slot xy; strict requires <10mm", "the grader counts a tube as
+    in-rack even if its lid is missing".
+
+Only emit a cross-task observation when there's evidence in THIS session
+that the pattern is real. A one-session observation will be recorded as
+provisional; it will only become high-confidence if future sessions
+corroborate it.
+
+### Existing world-model entries (from prior sessions)
+
+If existing entries are shown below, you must indicate for each new
+observation whether it is a CORROBORATION of an existing entry (use its
+`merge_with_index`) or a genuinely NEW one. Near-duplicates -- same fact
+phrased differently -- should be merged, not duplicated. Only emit truly
+new content as new entries.
 
 ## Output format
 
@@ -115,9 +151,24 @@ The trailing JSON block must have this exact shape:
       "deviation": "<what was tried differently>",
       "diagnosis": "<why it failed compared to the working plan>"
     }
+  ],
+  "cross_task_observations": [
+    {
+      "text": "<one-line observation general enough to apply beyond this task>",
+      "category": "geometric" | "object_class" | "primitive" | "grader",
+      "merge_with_index": <int or null>
+    }
   ]
 }
 ```
+
+For `cross_task_observations`:
+- `category` must be one of the four strings above.
+- `merge_with_index` is the index (0-based) of an existing entry in that
+  same category that this observation corroborates -- use `null` for a
+  genuinely new entry. Indexes refer to the existing entries listed under
+  "Existing world-model entries" in the user message; if no entries exist
+  in that category, always use `null`.
 
 If you have nothing to put in a list, use `[]`. Do not omit fields. Do not
 add commentary after the JSON block.
@@ -163,7 +214,47 @@ def _serialize_episode(idx: int, ctx) -> Dict[str, Any]:
     return entry
 
 
-def _build_user_message(task: str, ctx, prior_lessons: str) -> str:
+def _render_existing_world_model(world_model) -> str:
+    """Render the existing WorldModel entries in a form Opus can reference
+    by `merge_with_index`. Returns '' if there are no entries.
+
+    The format intentionally numbers entries 0..N-1 within each category
+    so Opus's `merge_with_index` can refer to them unambiguously.
+    """
+    if world_model is None:
+        return ""
+    # Lazy import to avoid forcing world_model.py at import time of
+    # review_session.py.
+    from agent.world_model import SECTIONS, SECTION_KEYS
+
+    have_any = any(world_model.entries.get(k) for k in SECTION_KEYS)
+    if not have_any:
+        return ""
+
+    lines = ["## Existing world-model entries"]
+    if world_model.scene_changed:
+        lines.append("**Note: scene XML has changed since these entries "
+                     "were recorded -- treat as untested.**")
+    lines.append("Reference these by category + 0-based index when "
+                 "deciding `merge_with_index` for your cross-task "
+                 "observations.")
+    lines.append("")
+
+    for title, key in SECTIONS:
+        section = world_model.entries.get(key, [])
+        if not section:
+            continue
+        lines.append(f"### {title} (category=`{key}`)")
+        for i, entry in enumerate(section):
+            lines.append(f"  [{i}] {entry.text} "
+                         f"_(confidence={entry.confidence}, "
+                         f"corroborations={len(entry.corroborations)})_")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _build_user_message(task: str, ctx, prior_lessons: str,
+                        world_model=None) -> str:
     """Serialize the full session into a clean prompt the reviewer can read."""
     n_total = len(ctx.episode_outcomes)
     episodes = [_serialize_episode(i, ctx) for i in range(n_total)]
@@ -208,10 +299,18 @@ def _build_user_message(task: str, ctx, prior_lessons: str) -> str:
             "",
         ])
 
+    wm_block = _render_existing_world_model(world_model)
+    if wm_block:
+        parts.append(wm_block)
+        parts.append("")
+
     parts.append(
         "Write your review now. Remember: observations with episode-level "
-        "evidence, never prescriptive rules. End with the JSON block as "
-        "specified in the system prompt."
+        "evidence, never prescriptive rules. Emit cross-task observations "
+        "only when there's evidence in this session; mark them as "
+        "corroborations of existing entries via merge_with_index when "
+        "applicable. End with the JSON block as specified in the system "
+        "prompt."
     )
     return "\n".join(parts)
 
@@ -235,6 +334,7 @@ def _parse_review_response(raw: str) -> Dict[str, Any]:
             "observations": [],
             "false_positives": [],
             "exploration_diagnoses": [],
+            "cross_task_observations": [],
         }
 
     last = matches[-1]
@@ -248,6 +348,7 @@ def _parse_review_response(raw: str) -> Dict[str, Any]:
             "observations": [],
             "false_positives": [],
             "exploration_diagnoses": [],
+            "cross_task_observations": [],
         }
 
     return {
@@ -255,6 +356,7 @@ def _parse_review_response(raw: str) -> Dict[str, Any]:
         "observations": parsed.get("observations", []),
         "false_positives": parsed.get("false_positives", []),
         "exploration_diagnoses": parsed.get("exploration_diagnoses", []),
+        "cross_task_observations": parsed.get("cross_task_observations", []),
     }
 
 
@@ -262,6 +364,7 @@ def review_session(task: str,
                    ctx,
                    model: str = REVIEW_MODEL_DEFAULT,
                    prior_lessons: str = "",
+                   world_model=None,
                    client: Optional[anthropic.Anthropic] = None,
                    ) -> Dict[str, Any]:
     """Invoke Opus on the full session; return parsed structured review.
@@ -295,7 +398,8 @@ def review_session(task: str,
     if client is None:
         client = anthropic.Anthropic()
 
-    user_msg = _build_user_message(task, ctx, prior_lessons)
+    user_msg = _build_user_message(task, ctx, prior_lessons,
+                                   world_model=world_model)
 
     t_start = time.time()
     response = client.messages.create(
