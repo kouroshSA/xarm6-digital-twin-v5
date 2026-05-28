@@ -261,6 +261,85 @@ A named-tier override skips the Haiku call entirely (small token-cost
 saver). Per-command tier downgrades within the LLM plan continue to
 work and are clamped to the CLI-set ceiling.
 
+The cap is enforced two ways: (1) the LLMBrain dispatch clamps every
+`speed_mm_s` value the planner emits before passing it to the sim;
+(2) `SimXArmAPI.set_position` / `set_rail_position` / `set_servo_angle`
+actually *pace* the motion by interpolating actuator targets at ~50 Hz
+over `distance / speed` wall-clock seconds. So a 200 mm move at
+`speed=40` takes about 5 seconds of real time, not the milliseconds it
+would take if you slammed the ctrl in one shot. `push_object` honors
+the same cap on all of its internal sub-moves. The pacing is what makes
+"slow" actually look slow on screen; without it the cap would just be
+a number in the log.
+
+### Learning architecture (Phase 1 / 2 / 3)
+
+Beyond the per-episode failure analyser that the `--loop` flag has had
+from the start, three additional layers let the system accumulate
+knowledge across episodes and sessions.
+
+**Phase 1 — In-session positive-signal reinforcement.** When an
+episode succeeds, its full command plan is recorded in
+`EpisodeContext.successful_plans` and rendered into the prompt for
+subsequent episodes of the same session, framed as "plans that
+satisfied the grader, but the task likely admits shorter or cleaner
+solutions" so the planner is invited to improve rather than locked
+into the first working plan. A simple reuse-rate metric tells you at
+the end of the run whether the planner converged on the pinned shape
+or kept finding independent solutions. Defensive: physically
+destructive successes ("off bench", "fell to floor") are skipped to
+avoid pinning false positives.
+
+**Phase 2 — End-of-session Opus review.** After all N episodes finish
+(if `N >= 3`), the loop invokes Claude Opus 4.7 once on the full
+session and asks for *abstracted observations* phrased as hypotheses,
+not rules. Output is appended to `reviews.md` at the project root,
+tagged by timestamp + task, with structured fields for false-positive
+flags and exploration diagnoses. The review is non-fatal: API failure
+or malformed output is logged and the session result is returned
+unchanged.
+
+**Phase 3 — Cross-task world model.** `world_model.md` accumulates
+*invariants* across sessions in four sections (geometric, object-class,
+primitive, grader). Each entry tracks its corroboration count; on read,
+confidence = high (3+ sessions), medium (2), provisional (1). The
+Opus reviewer (Phase 2) reads existing entries and decides per
+new-observation whether to merge into one (incrementing corroboration)
+or create a fresh entry. The world model gets injected into every
+future LLMBrain system prompt, so each new task starts with the
+system's accumulated knowledge. A scene-hash banner fires when
+`envs/lab_scene.xml` has changed since entries were recorded.
+
+**Dynamic grader.** For task phrasings the regex grader doesn't
+recognise (anything outside push-off / placement / sort templates), the
+loop calls Haiku once at session start (`agent/dynamic_grader.py`) to
+produce a `(mode, expected_substrings)` spec that plugs into
+`check_outcome` as a fallback. Cached for the session; non-fatal on
+API failure (falls back to "ungraded" as before). Same module hosts
+the speed-tier inference behind `--speed-tier`.
+
+**Body-aware failure analyser.** `analyse_command_failure` in
+`agent/episode_loop.py` now cross-references failed `move_to`
+coordinates against the registry: when a validation failure happens
+inside a known body's collision envelope, the emitted constraint
+names the body and recommends the empirically-working approach /
+grasp heights from `_WORKING_HEIGHTS`. For `place_tube_in_rack` IK
+failures, it also names the rack's `optimal_rail_mm`.
+
+**Extended physical_outcome vocabulary.** `SimXArmAPI.physical_outcome`
+now snapshots body positions at scene reset and emits two new fact
+shapes on top of the four categorical events (`in <bin>`,
+`in <rack>`, `off bench`, `fell to floor`):
+
+- `<X> moved (Δx, Δy)mm` — per-object displacement >= 20 mm
+- `<a> closer to <b>` / `<a> farther from <b>` — inter-object xy
+  distance changed by >= 20 mm; pair members alphabetical for
+  deterministic substring matching.
+
+This vocabulary is what lets tasks like "push the green bin closer to
+the blue bin" be physically gradable; otherwise the grader has no
+substring to match against.
+
 ### Inspecting a recording
 
 ```python
@@ -304,23 +383,30 @@ inline comments in `sim/mujoco_env.py` and `sim/ik_solver.py`.
 xarm_lab_twin/
 ├── .env                    # API key (gitignored)
 ├── env_loader.py           # parses .env into os.environ
-├── lessons.md              # auto-appended cross-session lesson file
+├── lessons.md              # one-line outcome log, auto-appended per episode
+├── reviews.md              # Opus session-end abstracted writeups (Phase 2)
+├── world_model.md          # cross-task invariants accumulated over sessions (Phase 3)
 ├── envs/
 │   ├── lab_scene.xml       # MuJoCo scene (arm + rail + cubes + bins + tubes + racks)
 │   └── scene_randomizer.py # object-pose jitter for augmented runs
 ├── sim/
-│   ├── mujoco_env.py       # SimXArmAPI (XArmAPI-compatible)
+│   ├── mujoco_env.py       # SimXArmAPI -- physical_outcome + paced motion + push macros
 │   ├── fk_validator.py     # FK + collision validation
 │   └── ik_solver.py        # pink IK + iterative Jacobian fallback
 ├── agent/
-│   ├── llm_brain.py        # Claude API loop and command dispatch
-│   ├── object_registry.py  # cube/tube/bin/rack metadata
+│   ├── llm_brain.py        # Claude planner loop; speed-cap dispatch
+│   ├── object_registry.py  # cube/tube/bin/rack metadata + grip configs
 │   ├── prompt_variants.py  # diverse-task and paraphrase generators
-│   └── lessons.py          # cross-session lesson read/write
+│   ├── outcome_checker.py  # regex grader (push-off / placement / sort)
+│   ├── dynamic_grader.py   # Haiku fallback grader + speed-tier inference
+│   ├── episode_loop.py     # EpisodeRetry, in-session plan pinning, body-aware analyser
+│   ├── review_session.py   # Phase 2 Opus session review pass
+│   ├── world_model.py      # Phase 3 cross-task invariant store
+│   └── lessons.py          # lessons.md + reviews.md read/write
 ├── hardware/
 │   └── real_arm.py         # RealXArmAPI wrapper (--mode real)
 ├── scripts/
-│   ├── run_task.py         # single task
+│   ├── run_task.py         # single task (+ --loop for EpisodeRetry)
 │   ├── run_task_augmented.py  # variants + scene jitter
 │   ├── auto_play.py        # multi-episode LLM-generated tasks
 │   ├── random_play.py      # multi-episode random-pose sampler
