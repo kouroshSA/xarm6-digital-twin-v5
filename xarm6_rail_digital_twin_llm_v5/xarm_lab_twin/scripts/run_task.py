@@ -115,6 +115,12 @@ def main():
         result = summary["final_result"] or {"commands": [], "results": []}
         _loop_handled_lessons = True
     else:
+        # Infer the speed-cap tier from the task prompt before dispatch.
+        # Without this, single-shot mode would always run at the default
+        # 'medium' cap regardless of "carefully" / "quickly" cues in the
+        # prompt -- the dispatch clamp would still be enforced, but the
+        # tier would never be downgraded for delicate tasks.
+        brain.prepare_for_task(args.task)
         try:
             result = brain.execute_task(args.task, dry_run=args.dry_run)
         except Exception as e:

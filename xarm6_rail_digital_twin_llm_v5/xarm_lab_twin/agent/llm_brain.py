@@ -153,6 +153,45 @@ class LLMBrain:
         self.speed_tier = tier
         self.speed_cap_mm_s = cap_mm_s
 
+    def prepare_for_task(self, task: str) -> None:
+        """Per-task setup hook: infer the speed tier from the task prompt
+        and apply the cap. Idempotent for the same task string (skips
+        re-inference on a repeated call -- useful when an outer loop
+        re-invokes execute_task with the same prompt augmented in
+        different ways).
+
+        Non-fatal: any failure leaves the existing cap in place (defaults
+        to 'medium'/80 mm/s on a fresh brain).
+
+        Call this from any entry point that drives the brain (run_task,
+        auto_play, run_task_augmented, EpisodeRetry); skipping it means
+        the brain keeps the default medium cap regardless of what the
+        prompt says.
+        """
+        # Cache key is the raw task string so a per-episode call from
+        # EpisodeRetry (which augments the task with constraints/successes
+        # blocks) won't trigger re-inference if the underlying task is
+        # the same. The augmented form should be passed to execute_task,
+        # but prepare_for_task should be called with the ORIGINAL task.
+        if getattr(self, "_speed_cap_task", None) == task:
+            return
+
+        try:
+            from agent.dynamic_grader import (infer_speed_cap, SPEED_TIERS,
+                                              DEFAULT_SPEED_TIER)
+            tier = infer_speed_cap(task)
+        except Exception as e:
+            print(f"[LLMBrain] Speed inference unavailable (non-fatal): "
+                  f"{type(e).__name__}: {e}; keeping current cap.")
+            self._speed_cap_task = task
+            return
+
+        cap = SPEED_TIERS.get(tier, SPEED_TIERS[DEFAULT_SPEED_TIER])
+        self.set_speed_cap(tier, cap)
+        self._speed_cap_task = task
+        cap_str = "UNCAPPED" if cap is None else f"{cap:.0f} mm/s"
+        print(f"[LLMBrain] Speed cap for this task: {tier} ({cap_str})")
+
     def _render_speed_cap_section(self) -> str:
         """Render the active-cap section for the system prompt so the LLM
         produces compliant speeds up-front rather than waiting for the
