@@ -726,29 +726,61 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
 def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]]:
     """Run the Phase-2 Opus review pass; never propagate failures.
 
-    Returns the parsed review dict on success (also written to reviews.md),
-    or None on any error. The "non-fatal" guarantee matters: a flaky API
-    call should not invalidate a successful training session.
+    Returns the parsed review dict on success (also written to reviews.md,
+    and cross-task observations merged into world_model.md), or None on
+    any error. The "non-fatal" guarantee matters: a flaky API call should
+    not invalidate a successful training session.
     """
     try:
         from agent.review_session import review_session
         from agent.lessons import (read_lessons_section, read_reviews_section,
                                    append_review)
+        from agent.world_model import (read_world_model, update_from_review,
+                                       write_world_model)
 
-        # Pass prior context (lessons + earlier reviews on this task family)
-        # so Opus can corroborate/refine rather than duplicate.
+        # Pass prior context (lessons + earlier reviews on this task family,
+        # plus the existing world model) so Opus can corroborate/refine
+        # rather than duplicate.
         prior_lessons  = read_lessons_section(current_task=task)
         prior_reviews  = read_reviews_section(current_task=task)
         prior_combined = "\n\n".join(p for p in (prior_lessons, prior_reviews)
                                      if p.strip())
+        world_model    = read_world_model()
+        if world_model.scene_changed:
+            print(f"[EpisodeLoop] world_model.md: scene XML has changed "
+                  f"since entries were recorded -- Opus will treat them "
+                  f"as untested.")
 
         print(f"\n[EpisodeLoop] Invoking Opus session review "
               f"({len(ctx.episode_outcomes)} episodes)...")
         review = review_session(task=task, ctx=ctx,
-                                prior_lessons=prior_combined)
+                                prior_lessons=prior_combined,
+                                world_model=world_model)
 
         append_review(task=task, review=review, model="opus-4-7")
         print(f"[EpisodeLoop] Opus review written to reviews.md")
+
+        # Phase 3: merge cross-task observations into world_model.md.
+        cross = review.get("cross_task_observations") or []
+        if cross:
+            log = update_from_review(world_model, cross,
+                                     task_label=task)
+            write_world_model(world_model)
+            n_new = sum(1 for L in log if L["action"] == "new")
+            n_mrg = sum(1 for L in log if L["action"] == "merged")
+            n_dup = sum(1 for L in log if L["action"] == "merged_duplicate")
+            n_skp = sum(1 for L in log if L["action"] == "skipped")
+            print(f"[EpisodeLoop] world_model.md updated: "
+                  f"{n_new} new, {n_mrg} merged, {n_dup} duplicate, "
+                  f"{n_skp} skipped.")
+            for entry in log:
+                if entry["action"] == "new":
+                    print(f"  + new [{entry['category']}] "
+                          f"({entry['confidence']}): {entry['text']}")
+                elif entry["action"] == "merged":
+                    print(f"  ~ merged into [{entry['category']}][{entry['into_index']}] "
+                          f"(now {entry['new_confidence']}): "
+                          f"{entry['into_text']}")
 
         fps = review.get("false_positives") or []
         if fps:

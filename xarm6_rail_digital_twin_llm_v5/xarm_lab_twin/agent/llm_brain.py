@@ -6,6 +6,7 @@ import time
 from typing import Optional
 from agent.object_registry import ObjectRegistry
 from agent.lessons import read_lessons_section
+from agent.world_model import read_world_model, render_for_system_prompt
 from recording import Recorder, LLMSessionLog
 
 
@@ -108,6 +109,13 @@ JSON array ONLY - no prose, no markdown fences. Example for "put red cube in red
 ## Current scene registry
 {registry_context}
 
+## What we know about this scene and arm (from prior sessions)
+Accumulated cross-task invariants. High-confidence entries have held
+across 3+ sessions. Provisional entries are from a single session and
+are NOT yet validated -- you may rely on the high/medium ones; the
+provisional ones are hypotheses to test rather than facts to respect.
+{world_model_section}
+
 ## Lessons from past runs
 These are auto-appended after each task. Most recent first. Read them and
 avoid repeating mistakes (e.g. a height that previously caused a collision).
@@ -136,8 +144,16 @@ class LLMBrain:
             llm_log.log_prompt()
 
         lessons = read_lessons_section(current_task=task_prompt)
+        wm = read_world_model()
+        wm_section = render_for_system_prompt(wm, include_provisional=True)
+        if wm.scene_changed and wm_section:
+            wm_section = ("**Scene XML has changed since these observations "
+                          "were recorded -- treat all entries as untested.**"
+                          "\n\n" + wm_section)
         system = SYSTEM_PROMPT_TEMPLATE.format(
             registry_context=self.registry.to_llm_context(),
+            world_model_section=wm_section if wm_section
+                                else "(no cross-task world model yet)",
             lessons_section=lessons if lessons else "(no prior lessons yet)",
         )
         self.history.append({"role": "user", "content": task_prompt})
