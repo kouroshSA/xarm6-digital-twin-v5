@@ -58,13 +58,14 @@ in a benchmark pick-and-place environment.
 - place_tube_in_rack  params: {{"rack_name": "left_tube_rack" | "right_tube_rack"}}  — while holding a tube, this finds the first open slot in the named rack, flies the arm there, and seats the tube. Use this when the task says "put the tube in the other rack" / "place tube in an open slot" / "move tube to rack X".
 - push_object     params: {{"target_name": <body name>, "to_x_mm": <float>, "to_y_mm": <float>}}  — slide/carry an object across the bench to a target xy, or past the bench edge to push it off (it falls to the floor under gravity). Bench extents: x ∈ [-750, +750] mm, y ∈ [-450, +450] mm. To push something OFF the bench, pass a target xy past those bounds (e.g. y=550 for past the front edge).
   Valid `target_name` values (any of these can be pushed):
-    - Cubes: `red_cube`, `green_cube`, `blue_cube`
-    - Bins:  `red_bin`, `green_bin`, `blue_bin`
-    - Tube racks: `left_tube_rack`, `right_tube_rack` (each contains 3 tubes that come along automatically)
-    - Falcon tubes: `tube_L1`, `tube_L2`, `tube_L3`, `tube_R1`, `tube_R2`, `tube_R3`
+    - Cubes: `green_cube`, `blue_cube`  (red_cube was removed; its position is now the Vortex-Genie 2)
+    - Bins:  `green_bin`, `blue_bin`    (red_bin was removed)
+    - Tube racks: `left_tube_rack` (front-left of bench), `right_tube_rack` (now BACK-LEFT of bench, directly behind left_tube_rack -- name kept for history). Each rack carries 3 tubes that come along automatically.
+    - Falcon tubes: `tube_L1`, `tube_L2`, `tube_L3`, `tube_R1`, `tube_R2`, `tube_R3` (all 6 are now on the LEFT side of the bench)
     - 96-well plates: `well_plate_A` (starts on OT-2 deck), `well_plate_B` (starts on bench). Prefer pick-and-place for plates -- push is destructive.
     - Tip rack: `tip_box` (starts on OT-2 deck). Prefer pick-and-place.
     - Heater-shaker module: `heater_shaker` (heavy bench fixture; pushing it usually wrong).
+    - Vortex-Genie 2: `vortex_genie` (heavy bench fixture; pushing it usually wrong).
   When the task references multiple objects ("all objects", "everything on the bench", "clear the table", "all the things"), iterate ALL of the bodies above and emit one push_object per body. **Do not skip racks** — pushing a rack carries its 3 tubes with it, so a single push_object on a rack removes 4 things from the bench at once. The full "clear the table" sequence is: 3 cubes + 3 bins + 2 racks = 8 push_object calls (the 6 tubes inside racks are handled by the rack pushes).
   **IMPORTANT**: whenever the user says "push" / "slide" / "shove" / "knock off" / "drop off the edge" / similar, ALWAYS use push_object. Do NOT use move_to + gripper_close + gripper_open for these tasks — that's the pick-and-place pattern, which produces the wrong motion for push tasks.
 - get_pose        params: {{}}
@@ -132,20 +133,35 @@ in a benchmark pick-and-place environment.
    (-300, -250, 870), lower to (-300, -250, 845), open gripper.
    The shaker is heavy (2 kg) and should be left in place; do not
    push or pick it up unless the task explicitly says so.
+
+   **Vortex-Genie 2:** classic benchtop vortex mixer on the bench
+   at world (-200, +250). 165 W x 122 D x 165 H mm. Top orbital
+   platform centre at (-200, +250, 905); platform top surface at
+   z=910 mm. The vortex AUTO-ACTIVATES when any movable body (tube,
+   cube, plate, etc.) is resting on the platform -- the platform
+   then orbits at 4 mm radius / ~25 Hz, dragging the object via
+   friction. To "vortex" a tube: pick the tube from its rack,
+   position the gripper above (-200, +250, 940), descend to
+   (-200, +250, 920) so the tube's bottom touches the platform,
+   gripper_open, then LIFT THE GRIPPER AWAY to (-200, +250, 980)
+   so the vortex can shake the tube freely without the gripper
+   pinning it. The vortex stops automatically when the object is
+   removed. The vortex chassis is heavy; do not try to push or
+   grasp it.
 6. If a task is ambiguous, output done() with a message asking for clarification.
 
 ## Output format
-JSON array ONLY - no prose, no markdown fences. Example for "put red cube in red bin":
+JSON array ONLY - no prose, no markdown fences. Example for "put green cube in green bin":
 [
-  {{"action": "set_rail",      "params": {{"position_mm": 150, "speed_mm_s": 100}}}},
-  {{"action": "move_to",       "params": {{"x": -200, "y": 150, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
-  {{"action": "move_to",       "params": {{"x": -200, "y": 150, "z": 795, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
+  {{"action": "set_rail",      "params": {{"position_mm": 350, "speed_mm_s": 100}}}},
+  {{"action": "move_to",       "params": {{"x": 0, "y": 150, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
+  {{"action": "move_to",       "params": {{"x": 0, "y": 150, "z": 795, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
   {{"action": "gripper_close", "params": {{}}}},
-  {{"action": "move_to",       "params": {{"x": -200, "y": 150, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
-  {{"action": "move_to",       "params": {{"x": -200, "y": 350, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
-  {{"action": "move_to",       "params": {{"x": -200, "y": 350, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
+  {{"action": "move_to",       "params": {{"x": 0, "y": 150, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
+  {{"action": "move_to",       "params": {{"x": 0, "y": 350, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
+  {{"action": "move_to",       "params": {{"x": 0, "y": 350, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
   {{"action": "gripper_open",  "params": {{}}}},
-  {{"action": "done",          "params": {{"message": "Red cube placed in red bin"}}}}
+  {{"action": "done",          "params": {{"message": "Green cube placed in green bin"}}}}
 ]
 
 ## Active speed cap

@@ -36,7 +36,8 @@ class FKValidator:
     # body's qpos, so the body appears to overlap geometry that it would actually
     # move out of. Each tube has two geoms (body + cap), so both must be listed.
     HELD_CUBE_GEOMS = {
-        "red_cube_geom":   "grip_red_cube",
+        # red_cube was removed from the scene -- its slot is now the
+        # Vortex-Genie 2.
         "green_cube_geom": "grip_green_cube",
         "blue_cube_geom":  "grip_blue_cube",
         "tube_L1_body":    "grip_tube_L1",
@@ -53,12 +54,8 @@ class FKValidator:
         "tube_R3_cap":     "grip_tube_R3",
         # Bins (each has 5 geoms: floor + 4 walls). All need to be filtered
         # when their weld is active so the validator doesn't reject moves
-        # while the bin is being pushed.
-        "red_bin_floor":    "grip_red_bin",
-        "red_bin_w_front":  "grip_red_bin",
-        "red_bin_w_back":   "grip_red_bin",
-        "red_bin_w_left":   "grip_red_bin",
-        "red_bin_w_right":  "grip_red_bin",
+        # while the bin is being pushed. red_bin was removed from the
+        # scene.
         "green_bin_floor":    "grip_green_bin",
         "green_bin_w_front":  "grip_green_bin",
         "green_bin_w_back":   "grip_green_bin",
