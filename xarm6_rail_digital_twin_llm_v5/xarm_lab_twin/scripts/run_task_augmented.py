@@ -154,10 +154,11 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     from agent.dynamic_grader import SPEED_TIERS
     parser.add_argument("--speed-tier",
-                        choices=list(SPEED_TIERS.keys()),
+                        choices=list(SPEED_TIERS.keys()) + ["auto"],
                         default=None,
                         help="Override the Haiku-inferred speed cap for "
-                             "every cycle. Deterministic safety override.")
+                             "every cycle. Deterministic safety override. "
+                             "Pass `auto` (or omit) to use Haiku inference.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()

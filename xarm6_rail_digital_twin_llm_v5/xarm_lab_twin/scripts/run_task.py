@@ -44,14 +44,17 @@ def main():
                              "Tighter = harder for the LLM to claim success.")
     from agent.dynamic_grader import SPEED_TIERS
     parser.add_argument("--speed-tier",
-                        choices=list(SPEED_TIERS.keys()),
+                        choices=list(SPEED_TIERS.keys()) + ["auto"],
                         default=None,
                         help="Override the Haiku-inferred session speed cap. "
                              "Useful when you want deterministic safety: "
                              "regardless of what the prompt says, the session "
                              "ceiling will be this tier. Per-command tier "
                              "downgrades within the LLM plan still apply, "
-                             "but cannot exceed this ceiling.")
+                             "but cannot exceed this ceiling. Pass `auto` to "
+                             "explicitly request Haiku inference (same as "
+                             "omitting the flag); omitting also defaults to "
+                             "Haiku inference.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()

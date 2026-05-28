@@ -184,6 +184,13 @@ class LLMBrain:
         if getattr(self, "_speed_cap_task", None) == task:
             return
 
+        # "auto" is an explicit opt-in to the Haiku inference path. It
+        # exists so callers can self-document their intent (--speed-tier
+        # auto reads better in a saved command than omitting the flag).
+        # Treat it as no override.
+        if override_tier == "auto":
+            override_tier = None
+
         # CLI override path: deterministic, no Haiku call.
         if override_tier is not None:
             from agent.dynamic_grader import SPEED_TIERS

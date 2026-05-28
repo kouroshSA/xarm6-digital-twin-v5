@@ -67,11 +67,12 @@ def main():
                         help="Record image frames at 10Hz per episode (off by default).")
     from agent.dynamic_grader import SPEED_TIERS
     parser.add_argument("--speed-tier",
-                        choices=list(SPEED_TIERS.keys()),
+                        choices=list(SPEED_TIERS.keys()) + ["auto"],
                         default=None,
                         help="Override the Haiku-inferred speed cap for "
                              "EVERY task in this auto-play run. "
-                             "Deterministic safety override.")
+                             "Deterministic safety override. Pass `auto` "
+                             "(or omit) to use Haiku inference per task.")
     args = parser.parse_args()
 
     # 1) Ask Claude for diverse task prompts
