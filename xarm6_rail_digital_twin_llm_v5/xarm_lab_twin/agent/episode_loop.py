@@ -489,6 +489,15 @@ class EpisodeRetry:
                     print(f"[EpisodeLoop] -> Model is finding INDEPENDENT solutions")
         print('=' * 70)
 
+        # Phase 2: Opus session review. Optional / non-fatal. Only fires for
+        # sessions of 3+ episodes -- one or two is too thin a base for
+        # abstraction, and the in-loop analysers already capture what's
+        # there. Any exception (API down, rate-limited, parse error) is
+        # caught and logged; the session result is returned regardless.
+        review_result = None
+        if total >= 3:
+            review_result = _maybe_run_review(task, ctx)
+
         return {
             "success": ctx.success,
             "episodes_run": total,
@@ -505,6 +514,7 @@ class EpisodeRetry:
             "successful_plans": ctx.successful_plans,
             "best_plan_idx": ctx.best_plan_idx,
             "success_diversity": ctx.success_diversity,
+            "review": review_result,
         }
 
 
@@ -543,6 +553,51 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
         task_success=episode_outcome,
         stringency=stringency,
     )
+
+
+def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]]:
+    """Run the Phase-2 Opus review pass; never propagate failures.
+
+    Returns the parsed review dict on success (also written to reviews.md),
+    or None on any error. The "non-fatal" guarantee matters: a flaky API
+    call should not invalidate a successful training session.
+    """
+    try:
+        from agent.review_session import review_session
+        from agent.lessons import (read_lessons_section, read_reviews_section,
+                                   append_review)
+
+        # Pass prior context (lessons + earlier reviews on this task family)
+        # so Opus can corroborate/refine rather than duplicate.
+        prior_lessons  = read_lessons_section(current_task=task)
+        prior_reviews  = read_reviews_section(current_task=task)
+        prior_combined = "\n\n".join(p for p in (prior_lessons, prior_reviews)
+                                     if p.strip())
+
+        print(f"\n[EpisodeLoop] Invoking Opus session review "
+              f"({len(ctx.episode_outcomes)} episodes)...")
+        review = review_session(task=task, ctx=ctx,
+                                prior_lessons=prior_combined)
+
+        append_review(task=task, review=review, model="opus-4-7")
+        print(f"[EpisodeLoop] Opus review written to reviews.md")
+
+        fps = review.get("false_positives") or []
+        if fps:
+            print(f"[EpisodeLoop] WARNING: Opus flagged {len(fps)} possible "
+                  f"false-positive successes -- see reviews.md.")
+            for fp in fps:
+                print(f"  - Episode {fp.get('episode', '?')}: "
+                      f"{fp.get('reason', '(no reason)')}")
+        diags = review.get("exploration_diagnoses") or []
+        if diags:
+            print(f"[EpisodeLoop] Opus diagnosed {len(diags)} failed "
+                  f"exploration(s) -- see reviews.md.")
+        return review
+    except Exception as e:
+        print(f"[EpisodeLoop] Review pass failed (non-fatal): "
+              f"{type(e).__name__}: {e}")
+        return None
 
 
 def _close_recorder(recorder) -> None:
