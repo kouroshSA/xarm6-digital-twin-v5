@@ -58,8 +58,13 @@ DEFAULT_SPEED_TIER = "medium"
 
 
 SPEED_SYSTEM_PROMPT = """\
-You analyse a task prompt for a robot arm and pick a single motion-speed
-tier from this fixed list:
+You analyse a task prompt for a robot arm and pick a single SESSION-LEVEL
+motion-speed tier that serves as the CEILING for the whole task. Per-
+command tier downgrades happen later (the planning model can attach a
+slower tier to individual delicate commands); your job is to set the
+upper bound the planner is allowed to use.
+
+## Tier list
 
   - "crazy_fast" : NO speed cap. Only pick this when the prompt EXPLICITLY
                    asks for uncapped / unlimited / no-safety-limit speed,
@@ -77,12 +82,32 @@ tier from this fixed list:
                    "delicately", "fragile", "in slow motion", "with
                    extreme care".
 
+## Multiple cues in one prompt
+
+When the prompt mentions DIFFERENT speeds for different phases -- e.g.
+"pick up the tube quickly then carefully insert it" -- pick the MOST
+PERMISSIVE (fastest) tier mentioned. That becomes the session ceiling.
+The planning model will downgrade individual commands to slower tiers
+for the careful phases. If you picked the slow tier as the session
+ceiling, the quick phase couldn't happen at all (the ceiling would
+hold the planner back). The most permissive tier preserves the
+planner's freedom to honour every cue in the prompt.
+
+For the example above ("pick up quickly then carefully insert"), the
+correct session tier is `fast` -- the planner will then attach
+`speed_tier: "slow"` to the insert commands and run the pickup at the
+fast cap.
+
+## Output
+
 Return a single JSON object with exactly two fields:
 
 {
   "tier": "<one of the five names above>",
-  "reasoning": "<one short sentence citing the speed cue you matched, "
-               "or 'no speed cue, defaulting to medium'>"
+  "reasoning": "<one short sentence citing the speed cue(s) you matched,
+                or 'no speed cue, defaulting to medium'. If multiple
+                cues were present, name them and explain that you picked
+                the most permissive as the session ceiling.>"
 }
 
 Do not wrap the JSON in markdown fences. Do not add prose around it.
