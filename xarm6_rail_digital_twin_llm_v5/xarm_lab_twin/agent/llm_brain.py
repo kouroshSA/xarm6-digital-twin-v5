@@ -272,6 +272,22 @@ class LLMBrain:
             + per_command_block
         )
 
+    def _effective_speed_mm_s(self, per_cmd_tier: Optional[str] = None,
+                              default: float = 100.0) -> float:
+        """Return the smallest of (default, per-command cap, session cap),
+        treating None caps as 'no constraint' on that side. Used by
+        push_object dispatch -- the macro takes a single speed_mm_s value
+        and applies it to its internal moves, so we need to resolve the
+        effective cap up-front rather than per-move."""
+        candidates = [default]
+        if per_cmd_tier:
+            from agent.dynamic_grader import SPEED_TIERS
+            if per_cmd_tier in SPEED_TIERS and SPEED_TIERS[per_cmd_tier] is not None:
+                candidates.append(SPEED_TIERS[per_cmd_tier])
+        if self.speed_cap_mm_s is not None:
+            candidates.append(self.speed_cap_mm_s)
+        return float(min(candidates))
+
     def _clamp_speed(self, requested: float, units: str = "mm/s",
                      per_cmd_tier: Optional[str] = None) -> float:
         """Clamp a single speed value against the effective cap.
@@ -482,7 +498,9 @@ class LLMBrain:
             "push_object":      lambda p: self.arm.push_object(
                                       target_name=p["target_name"],
                                       to_x_mm=float(p["to_x_mm"]),
-                                      to_y_mm=float(p["to_y_mm"])),
+                                      to_y_mm=float(p["to_y_mm"]),
+                                      speed_mm_s=self._effective_speed_mm_s(
+                                          p.get("speed_tier"))),
             "get_pose":         self._get_pose,
             "wait":             lambda p: time.sleep(p.get("seconds", 1)) or 0,
             "done":             lambda p: print(f"[Done] {p.get('message','')}") or 0,

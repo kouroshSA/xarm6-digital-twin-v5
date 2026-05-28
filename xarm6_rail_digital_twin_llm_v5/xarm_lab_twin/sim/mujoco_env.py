@@ -399,7 +399,8 @@ class SimXArmAPI:
     PUSH_GRASP_Z_MM = 795.0        # grasp height (same as cube pick-place)
 
     def push_object(self, target_name: str,
-                    to_x_mm: float, to_y_mm: float, **kwargs) -> int:
+                    to_x_mm: float, to_y_mm: float,
+                    speed_mm_s: float = 100.0, **kwargs) -> int:
         """Push (drag) a cube to a target xy position.
 
         Mechanic: magnetic-grasp + low-altitude drag + release. The "drag"
@@ -448,14 +449,16 @@ class SimXArmAPI:
         # x = rail_carriage_world_x = -0.35 + rail_qpos. To align under the
         # cube, set rail = cube_world_x + 0.35.
         rail_target_mm = float(np.clip(cx_mm + 350.0, 0.0, 700.0))
-        self.set_rail_position(position_mm=rail_target_mm, wait=True)
+        self.set_rail_position(position_mm=rail_target_mm,
+                               speed_mm_s=speed_mm_s, wait=True)
 
         # Helper: try to move arm but don't abort the whole push if it fails.
         # The snap step at the end teleports the object to target regardless,
         # so motion sub-steps are best-effort -- they make the visual motion
         # look right, but missing one isn't fatal.
         def _try_move(x, y, z, label):
-            r = self.set_position(x=x, y=y, z=z, roll=180, pitch=0, yaw=0, wait=True)
+            r = self.set_position(x=x, y=y, z=z, roll=180, pitch=0, yaw=0,
+                                  speed=speed_mm_s, wait=True)
             if r != 0:
                 print(f"[SimXArm] push_object: {label} sub-step failed "
                       f"(ret={r}) at ({x:+.0f},{y:+.0f},{z:+.0f}). Continuing.")
@@ -492,7 +495,8 @@ class SimXArmAPI:
         # 5) For off-bench targets, the arm may need to extend past the rail
         # workspace. Reposition the rail if needed before the final move_to.
         rail_target_mm = float(np.clip(to_x_mm + 350.0, 0.0, 700.0))
-        self.set_rail_position(position_mm=rail_target_mm, wait=True)
+        self.set_rail_position(position_mm=rail_target_mm,
+                               speed_mm_s=speed_mm_s, wait=True)
 
         # 6) Drag (or fly) toward the destination. Cubes drag at low height
         # (true pushing); bins/tubes fly at approach height (no grasp held).
@@ -500,7 +504,8 @@ class SimXArmAPI:
         # treat that as fatal because step 7 teleports for guaranteed placement.
         drag_z = transit_z if use_grasp else self.PUSH_APPROACH_Z_MM
         drag_ret = self.set_position(x=to_x_mm, y=to_y_mm, z=drag_z,
-                                     roll=180, pitch=0, yaw=0, wait=True)
+                                     roll=180, pitch=0, yaw=0,
+                                     speed=speed_mm_s, wait=True)
         if drag_ret != 0:
             print(f"[SimXArm] push_object: arm couldn't fully reach drag "
                   f"target ({to_x_mm:+.0f},{to_y_mm:+.0f}). Snapping cube "
@@ -585,7 +590,8 @@ class SimXArmAPI:
         # from far-out workspace coordinates where the Jacobian solver can
         # converge to a colliding local minimum.
         self.set_position(x=to_x_mm, y=to_y_mm, z=self.PUSH_APPROACH_Z_MM,
-                          roll=180, pitch=0, yaw=0, wait=True)
+                          roll=180, pitch=0, yaw=0,
+                          speed=speed_mm_s, wait=True)
         return 0
 
     def reset_scene(self) -> int:
@@ -664,8 +670,18 @@ class SimXArmAPI:
                           speed_mm_s: float = 50.0,
                           wait: bool = True, **kwargs) -> int:
         pos_m = float(np.clip(position_mm / 1000.0, 0.0, 0.7))
+        # Determine pacing duration from the rail-distance / speed. Skip
+        # pacing for tiny moves or non-positive speed (preserves the
+        # historical instant-ctrl behaviour for legacy callers).
         with self.lock:
-            self.data.ctrl[self.act_ids[RAIL_ACT]] = pos_m
+            start_m = float(self.data.ctrl[self.act_ids[RAIL_ACT]])
+        dist_mm = abs(pos_m - start_m) * 1000.0
+        if speed_mm_s and speed_mm_s > 0 and dist_mm > 1.0:
+            duration_s = dist_mm / float(speed_mm_s)
+            self._execute_paced_rail(pos_m, duration_s)
+        else:
+            with self.lock:
+                self.data.ctrl[self.act_ids[RAIL_ACT]] = pos_m
         if wait:
             self._wait_rail_settled(pos_m)
         return 0
@@ -736,7 +752,21 @@ class SimXArmAPI:
             print(f"[SimXArm] Validation failed: {result.reason}")
             return 2
 
-        self._execute_joint_angles(joint_angles)
+        # Pace the motion based on Cartesian distance / requested speed
+        # so the realised arm motion roughly tracks the user-specified
+        # mm/s. The dispatch layer in LLMBrain already clamps `speed` to
+        # the active session/per-command cap, so here we just translate
+        # mm/s into wall-clock duration and let _execute_paced_arm do
+        # the interpolation.
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            ee_now_m = self.data.site_xpos[self.ee_site].copy()
+        dist_mm = float(np.linalg.norm(target_pos - ee_now_m) * 1000.0)
+        if speed and speed > 0 and dist_mm > 1.0:
+            duration_s = dist_mm / float(speed)
+            self._execute_paced_arm(joint_angles, duration_s)
+        else:
+            self._execute_joint_angles(joint_angles)
         if wait:
             self._wait_arm_settled(joint_angles)
         return 0
@@ -747,7 +777,18 @@ class SimXArmAPI:
             print(f"[SimXArm] Expected 6 joint angles, got {len(angle)}")
             return 1
         angles_rad = np.deg2rad(angle)
-        self._execute_joint_angles(angles_rad)
+        # Pace by max joint angular delta / speed (deg/s). When multiple
+        # joints move, the largest delta dictates the duration so every
+        # joint completes its move within the requested window.
+        with self.lock:
+            start_rad = np.array([float(self.data.ctrl[self.act_ids[1 + i]])
+                                  for i in range(6)])
+        max_delta_deg = float(np.max(np.abs(np.rad2deg(angles_rad - start_rad))))
+        if speed and speed > 0 and max_delta_deg > 0.1:
+            duration_s = max_delta_deg / float(speed)
+            self._execute_paced_arm(angles_rad, duration_s)
+        else:
+            self._execute_joint_angles(angles_rad)
         if wait:
             self._wait_arm_settled(angles_rad)
         return 0
@@ -854,6 +895,65 @@ class SimXArmAPI:
         with self.lock:
             for i, angle in enumerate(angles_rad):
                 self.data.ctrl[self.act_ids[1 + i]] = float(angle)
+
+    # ---- speed-paced motion helpers --------------------------------------
+    # These exist because MuJoCo position actuators have no built-in
+    # velocity limit -- a one-shot `data.ctrl[...] = target` will drive the
+    # joint to the new setpoint as fast as the PD gains and dynamics allow.
+    # To honour a user-specified mm/s or deg/s on the motion primitives, we
+    # interpolate the ctrl value from its current position to the target
+    # over wall-clock time, writing intermediate setpoints at PACING_HZ.
+    # The actual joint positions track the setpoints with some PD lag, so
+    # the realised motion is roughly the requested speed (good enough as a
+    # safety cap for real-arm transfer; not a precise velocity controller).
+
+    PACING_HZ = 50.0
+    MAX_MOTION_DURATION_S = 30.0  # safety upper bound; longer requested
+                                  # durations are clamped so a bogus
+                                  # speed=0.001 doesn't hang the session
+
+    def _execute_paced_arm(self, target_angles_rad: np.ndarray,
+                           duration_s: float) -> None:
+        """Drive the 6 arm joint actuators from their current ctrl values
+        to `target_angles_rad` over wall-clock `duration_s`. Skips pacing
+        (just writes the target) for non-positive or zero durations."""
+        duration_s = float(min(max(duration_s, 0.0), self.MAX_MOTION_DURATION_S))
+        if duration_s <= 0.0:
+            self._execute_joint_angles(target_angles_rad)
+            return
+        n_steps = max(int(round(duration_s * self.PACING_HZ)), 2)
+        dt = duration_s / n_steps
+        with self.lock:
+            start = np.array([float(self.data.ctrl[self.act_ids[1 + i]])
+                              for i in range(len(target_angles_rad))])
+        for k in range(1, n_steps + 1):
+            alpha = k / n_steps
+            intermediate = start + alpha * (target_angles_rad - start)
+            with self.lock:
+                for i, ang in enumerate(intermediate):
+                    self.data.ctrl[self.act_ids[1 + i]] = float(ang)
+            if k < n_steps:
+                time.sleep(dt)
+
+    def _execute_paced_rail(self, target_pos_m: float,
+                            duration_s: float) -> None:
+        """Same idea for the single linear-rail actuator."""
+        duration_s = float(min(max(duration_s, 0.0), self.MAX_MOTION_DURATION_S))
+        if duration_s <= 0.0:
+            with self.lock:
+                self.data.ctrl[self.act_ids[RAIL_ACT]] = target_pos_m
+            return
+        n_steps = max(int(round(duration_s * self.PACING_HZ)), 2)
+        dt = duration_s / n_steps
+        with self.lock:
+            start_m = float(self.data.ctrl[self.act_ids[RAIL_ACT]])
+        for k in range(1, n_steps + 1):
+            alpha = k / n_steps
+            intermediate = start_m + alpha * (target_pos_m - start_m)
+            with self.lock:
+                self.data.ctrl[self.act_ids[RAIL_ACT]] = float(intermediate)
+            if k < n_steps:
+                time.sleep(dt)
 
     def physical_outcome(self, stringency: str = DEFAULT_STRINGENCY) -> str:
         """Inspect cube/tube positions and return a short human-readable summary.
