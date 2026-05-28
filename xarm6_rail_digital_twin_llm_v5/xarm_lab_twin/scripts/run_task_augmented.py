@@ -30,7 +30,8 @@ from recording import Recorder
 
 def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
                   model_short, pos_jitter_mm, rot_jitter_deg, seed,
-                  render, no_record, dry_run) -> Optional[Path]:
+                  render, no_record, dry_run,
+                  speed_tier_override: Optional[str] = None) -> Optional[Path]:
     from sim.mujoco_env import SimXArmAPI
     arm = SimXArmAPI(scene_xml="envs/lab_scene.xml", render=render)
 
@@ -69,7 +70,8 @@ def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
                      model=model_short)
     print(f"\n  [Cycle {cycle_index}] prompt: \"{task_prompt}\"")
     # Per-task speed-cap inference (variant prompts may shift the tier).
-    brain.prepare_for_task(task_prompt)
+    # CLI --speed-tier (when set) wins over Haiku inference.
+    brain.prepare_for_task(task_prompt, override_tier=speed_tier_override)
     try:
         result = brain.execute_task(task_prompt, dry_run=dry_run)
     except Exception as e:
@@ -150,6 +152,12 @@ def main():
     parser.add_argument("--no-annotate", action="store_true")
     parser.add_argument("--auto-accept-variants", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    from agent.dynamic_grader import SPEED_TIERS
+    parser.add_argument("--speed-tier",
+                        choices=list(SPEED_TIERS.keys()),
+                        default=None,
+                        help="Override the Haiku-inferred speed cap for "
+                             "every cycle. Deterministic safety override.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()
@@ -198,6 +206,7 @@ def main():
             render=not args.no_render,
             no_record=args.no_record,
             dry_run=args.dry_run,
+            speed_tier_override=args.speed_tier,
         )
         saved_dirs.append(saved)
 

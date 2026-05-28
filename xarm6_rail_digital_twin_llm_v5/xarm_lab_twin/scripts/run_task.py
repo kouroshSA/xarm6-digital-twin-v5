@@ -42,6 +42,16 @@ def main():
                              "tolerance, no uprightness check. normal: 12/15mm "
                              "+ <=30deg tilt. strict: 6/6mm + <=10deg tilt. "
                              "Tighter = harder for the LLM to claim success.")
+    from agent.dynamic_grader import SPEED_TIERS
+    parser.add_argument("--speed-tier",
+                        choices=list(SPEED_TIERS.keys()),
+                        default=None,
+                        help="Override the Haiku-inferred session speed cap. "
+                             "Useful when you want deterministic safety: "
+                             "regardless of what the prompt says, the session "
+                             "ceiling will be this tier. Per-command tier "
+                             "downgrades within the LLM plan still apply, "
+                             "but cannot exceed this ceiling.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()
@@ -109,18 +119,16 @@ def main():
             recorder_factory=_recorder_factory,
             max_episodes=args.max_episodes,
             stringency=args.stringency,
+            speed_tier_override=args.speed_tier,
         )
         summary = loop.run(args.task)
         loop_summary = summary
         result = summary["final_result"] or {"commands": [], "results": []}
         _loop_handled_lessons = True
     else:
-        # Infer the speed-cap tier from the task prompt before dispatch.
-        # Without this, single-shot mode would always run at the default
-        # 'medium' cap regardless of "carefully" / "quickly" cues in the
-        # prompt -- the dispatch clamp would still be enforced, but the
-        # tier would never be downgraded for delicate tasks.
-        brain.prepare_for_task(args.task)
+        # Infer the speed-cap tier from the task prompt before dispatch
+        # (CLI --speed-tier wins over inference when set).
+        brain.prepare_for_task(args.task, override_tier=args.speed_tier)
         try:
             result = brain.execute_task(args.task, dry_run=args.dry_run)
         except Exception as e:

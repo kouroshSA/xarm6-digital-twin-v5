@@ -153,7 +153,8 @@ class LLMBrain:
         self.speed_tier = tier
         self.speed_cap_mm_s = cap_mm_s
 
-    def prepare_for_task(self, task: str) -> None:
+    def prepare_for_task(self, task: str,
+                         override_tier: Optional[str] = None) -> None:
         """Per-task setup hook: infer the speed tier from the task prompt
         and apply the cap. Idempotent for the same task string (skips
         re-inference on a repeated call -- useful when an outer loop
@@ -162,6 +163,13 @@ class LLMBrain:
 
         Non-fatal: any failure leaves the existing cap in place (defaults
         to 'medium'/80 mm/s on a fresh brain).
+
+        `override_tier`, when set, SKIPS the Haiku inference entirely and
+        uses the named tier as the session ceiling. Wired to the
+        `--speed-tier` CLI flag in the entry-point scripts -- gives the
+        user a deterministic safety override that wins over any prompt
+        interpretation. Invalid names log a warning and fall back to the
+        usual inference path.
 
         Call this from any entry point that drives the brain (run_task,
         auto_play, run_task_augmented, EpisodeRetry); skipping it means
@@ -175,6 +183,21 @@ class LLMBrain:
         # but prepare_for_task should be called with the ORIGINAL task.
         if getattr(self, "_speed_cap_task", None) == task:
             return
+
+        # CLI override path: deterministic, no Haiku call.
+        if override_tier is not None:
+            from agent.dynamic_grader import SPEED_TIERS
+            if override_tier in SPEED_TIERS:
+                cap = SPEED_TIERS[override_tier]
+                self.set_speed_cap(override_tier, cap)
+                self._speed_cap_task = task
+                cap_str = "UNCAPPED" if cap is None else f"{cap:.0f} mm/s"
+                print(f"[LLMBrain] Speed cap (CLI override): "
+                      f"{override_tier} ({cap_str})")
+                return
+            else:
+                print(f"[LLMBrain] Invalid --speed-tier '{override_tier}'; "
+                      f"falling back to Haiku inference.")
 
         try:
             from agent.dynamic_grader import (infer_speed_cap, SPEED_TIERS,
