@@ -126,15 +126,8 @@ def build_default_registry() -> ObjectRegistry:
         approach_standoff_mm=60.0,
     )
 
-    reg.register(LabObject(
-        name="red_cube",
-        aliases=["red cube", "red block", "red"],
-        position_xyz_m=[-0.20, 0.15, 0.78],
-        optimal_rail_mm=150.0,
-        grasp=cube_grasp,
-        safety_notes="Small graspable cube. Approach from above.",
-        object_type="cube",
-    ))
+    # red_cube was removed; its position is now occupied by the
+    # Vortex-Genie 2 (registered as an instrument below).
     reg.register(LabObject(
         name="green_cube",
         aliases=["green cube", "green block", "green"],
@@ -154,16 +147,7 @@ def build_default_registry() -> ObjectRegistry:
         object_type="cube",
     ))
 
-    reg.register(LabObject(
-        name="red_bin",
-        aliases=["red bin", "red container", "red box"],
-        position_xyz_m=[-0.20, 0.35, 0.75],
-        optimal_rail_mm=150.0,
-        grasp=bin_grasp,
-        safety_notes="Open-top bin. Release cube above bin opening.",
-        is_container=True,
-        object_type="bin",
-    ))
+    # red_bin was removed; see note above about red_cube.
     reg.register(LabObject(
         name="green_bin",
         aliases=["green bin", "green container", "green box"],
@@ -231,36 +215,41 @@ def build_default_registry() -> ObjectRegistry:
         object_type="tube", cap_color="orange",
     ))
 
-    # Right rack tubes
-    # R1 col1 row2 (back-left), R2 col3 row1 (front-right), R3 col4 row2 (back-right)
+    # Right-rack tubes. The rack body itself has been relocated to the
+    # back-left of the bench (directly behind left_tube_rack), so these
+    # tubes now sit on the LEFT side of the bench despite their R*
+    # naming. The R name is kept so prior lessons.md / world_model
+    # references stay valid.
+    # R1 col1 row2, R2 col3 row1, R3 col4 row2.
     reg.register(LabObject(
         name="tube_R1",
         aliases=["tube R1", "right rack column 1 row 2",
-                 "back-left blue tube on the right", "blue tube back-left right rack"],
-        position_xyz_m=[0.390, 0.170, 0.8175],
-        optimal_rail_mm=700.0,
+                 "back blue tube in the back rack",
+                 "blue tube in the back-left rack column 1"],
+        position_xyz_m=[-0.510, 0.320, 0.8175],
+        optimal_rail_mm=0.0,
         grasp=tube_grasp,
-        safety_notes="Falcon tube with blue cap, in right rack col 1 row 2 (back-left). Grasp at cap height (~881mm).",
+        safety_notes="Falcon tube with blue cap, in right_tube_rack col 1 row 2. Located on the BACK-LEFT of the bench (the rack has been moved). Grasp at cap height (~881mm).",
         object_type="tube", cap_color="blue",
     ))
     reg.register(LabObject(
         name="tube_R2",
         aliases=["tube R2", "right rack column 3 row 1",
-                 "front-right orange tube on the right"],
-        position_xyz_m=[0.470, 0.130, 0.8175],
-        optimal_rail_mm=700.0,
+                 "front orange tube in the back rack"],
+        position_xyz_m=[-0.430, 0.280, 0.8175],
+        optimal_rail_mm=0.0,
         grasp=tube_grasp,
-        safety_notes="Falcon tube with orange cap, in right rack col 3 row 1 (front). Grasp at cap height (~881mm).",
+        safety_notes="Falcon tube with orange cap, in right_tube_rack col 3 row 1 (front row). Located on the BACK-LEFT of the bench. Grasp at cap height (~881mm).",
         object_type="tube", cap_color="orange",
     ))
     reg.register(LabObject(
         name="tube_R3",
         aliases=["tube R3", "right rack column 4 row 2",
-                 "back-right blue tube on the right"],
-        position_xyz_m=[0.510, 0.170, 0.8175],
-        optimal_rail_mm=700.0,
+                 "back blue tube in the back rack column 4"],
+        position_xyz_m=[-0.390, 0.320, 0.8175],
+        optimal_rail_mm=0.0,
         grasp=tube_grasp,
-        safety_notes="Falcon tube with blue cap, in right rack col 4 row 2 (back-right). Grasp at cap height (~881mm).",
+        safety_notes="Falcon tube with blue cap, in right_tube_rack col 4 row 2. Located on the BACK-LEFT of the bench. Grasp at cap height (~881mm).",
         object_type="tube", cap_color="blue",
     ))
 
@@ -281,11 +270,12 @@ def build_default_registry() -> ObjectRegistry:
     ))
     reg.register(LabObject(
         name="right_tube_rack",
-        aliases=["right rack", "right tube rack"],
-        position_xyz_m=[0.45, 0.15, 0.755],
-        optimal_rail_mm=700.0,
+        aliases=["right rack", "right tube rack", "back tube rack",
+                 "back rack", "the second tube rack"],
+        position_xyz_m=[-0.45, 0.30, 0.755],
+        optimal_rail_mm=0.0,
         grasp=rack_grasp,
-        safety_notes="Static fixture holding tube_R1, tube_R2, tube_R3. NOT graspable.",
+        safety_notes="Static fixture holding tube_R1, tube_R2, tube_R3. NOT graspable. RELOCATED: this rack used to be at (+0.45, +0.15) on the right side of the bench but has been moved to (-0.45, +0.30) -- directly behind left_tube_rack on the back-left of the bench. The 'right' in the name is historical.",
         object_type="rack",
     ))
 
@@ -409,6 +399,42 @@ def build_default_registry() -> ObjectRegistry:
             "(-300, -250, 870), descend to (-300, -250, 845), open "
             "gripper. Heavy (2 kg); do NOT push or pick up unless the "
             "task explicitly asks."
+        ),
+        object_type="instrument",
+    ))
+
+    # Vortex-Genie 2 (classic benchtop vortex mixer). Static fixture on
+    # the bench at the position where red_cube/red_bin used to live.
+    # 165 W x 122 D x 165 H mm. Its top platform orbits at 4 mm radius
+    # automatically when something rests on it (driven by
+    # SimXArmAPI._vortex_tick).
+    vortex_grasp = GraspConfig(
+        approach_direction=[0.0, 0.0, -1.0],
+        grip_orientation_rpy=[180.0, 0.0, 0.0],
+        grip_depth=0.0, approach_standoff_mm=0.0,
+    )
+    reg.register(LabObject(
+        name="vortex_genie",
+        aliases=["vortex", "vortex-genie", "vortex genie", "genie",
+                 "vortex mixer", "vortex-genie 2", "genie 2"],
+        position_xyz_m=[-0.200, 0.250, 0.750],
+        optimal_rail_mm=150.0,
+        grasp=vortex_grasp,
+        safety_notes=(
+            "Vortex-Genie 2 (classic benchtop vortex mixer). Static "
+            "instrument on the bench at (-200, +250). Chassis 165 W x "
+            "122 D x 165 H mm; top platform centre at world "
+            "(-200, +250, 905), platform top surface at z=910 mm. "
+            "AUTO-ON: when ANY movable body (tube, cube, plate, etc.) "
+            "is resting on the platform (xy within 50 mm of platform "
+            "centre and z within 80 mm above platform top), the "
+            "platform starts orbiting at 4 mm radius / ~25 Hz; the "
+            "object on it follows via friction. To vortex a tube: "
+            "grasp it from its rack, position the gripper above "
+            "(-200, +250, 940), descend to (-200, +250, 920) so the "
+            "tube body rests on the platform, release. The vortex "
+            "starts shaking automatically. Lift the gripper away "
+            "first to get a clear view of the motion."
         ),
         object_type="instrument",
     ))

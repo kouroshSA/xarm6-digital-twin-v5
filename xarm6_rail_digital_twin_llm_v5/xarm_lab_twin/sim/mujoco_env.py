@@ -20,8 +20,8 @@ RAIL_ACT    = 0
 # Cubes are short and grasped near their center; tubes are tall and grasped near
 # their cap. The dict is one entry per graspable free body in the scene.
 GRIPPABLE_BODIES = {
-    # Cubes
-    "red_cube":   "grip_red_cube",
+    # Cubes (red_cube removed -- its bench position is now the
+    # Vortex-Genie 2)
     "green_cube": "grip_green_cube",
     "blue_cube":  "grip_blue_cube",
     # Falcon tubes
@@ -31,8 +31,8 @@ GRIPPABLE_BODIES = {
     "tube_R1":    "grip_tube_R1",
     "tube_R2":    "grip_tube_R2",
     "tube_R3":    "grip_tube_R3",
-    # Bins (now free bodies, can be pushed around)
-    "red_bin":    "grip_red_bin",
+    # Bins (red_bin removed -- see above; remaining bins are still
+    # free bodies and can be pushed around)
     "green_bin":  "grip_green_bin",
     "blue_bin":   "grip_blue_bin",
     # Tube racks (also free now -- pushable)
@@ -165,6 +165,21 @@ class SimXArmAPI:
         self.validator = FKValidator(self.model, self.data, self.lock)
         self.ik_solver = IKSolver(self.model, self.data, self.lock)
 
+        # Vortex-Genie 2 orbital-platform actuators + body. Looked up
+        # lazily so the rest of the code stays valid for scenes that
+        # don't include the vortex.
+        self._vortex_x_act_id = None
+        self._vortex_y_act_id = None
+        self._vortex_platform_bid = None
+        try:
+            self._vortex_x_act_id = self.model.actuator("act_vortex_x").id
+            self._vortex_y_act_id = self.model.actuator("act_vortex_y").id
+            self._vortex_platform_bid = self.model.body("vortex_platform").id
+        except Exception:
+            pass
+        self._vortex_active = False
+        self._vortex_t0 = 0.0
+
         # Baseline positions captured at scene-reset time. physical_outcome()
         # compares current positions against these to emit displacement
         # ("moved (Δx, Δy)mm") and proximity ("closer to <other>") facts on
@@ -194,9 +209,10 @@ class SimXArmAPI:
             # forever -- but including it here keeps the all_positions
             # iteration uniform and lets the proximity code in
             # physical_outcome treat it like any other body.
-            for fixture in ("red_bin", "green_bin", "blue_bin",
+            for fixture in ("green_bin", "blue_bin",
                             "left_tube_rack", "right_tube_rack",
-                            "opentrons_ot2", "heater_shaker"):
+                            "opentrons_ot2", "heater_shaker",
+                            "vortex_genie"):
                 try:
                     fbid = self.model.body(fixture).id
                 except Exception:
@@ -208,7 +224,70 @@ class SimXArmAPI:
         while self._running:
             with self.lock:
                 mujoco.mj_step(self.model, self.data)
+            self._vortex_tick()
             time.sleep(0.002)
+
+    # ---- Vortex-Genie 2 orbital-platform driver -----------------------------
+    # Real spec: orbit radius 4mm, ~3200 rpm at full speed (~53 Hz). Sim uses
+    # a lower frequency (25 Hz) for stability with the actuator gains chosen
+    # in the XML, and because the visual benefit of a faster orbit is
+    # marginal -- 25 Hz already reads as "shaking" on screen.
+    VORTEX_ORBIT_RADIUS_M = 0.004
+    # Real Vortex-Genie tops out around 3200 rpm (~53 Hz), but with
+    # MuJoCo position actuators on a low-mass platform we can't track
+    # that without aggressive resonance. 12 Hz reads clearly as
+    # "shaking" on screen and stays inside the actuator bandwidth.
+    VORTEX_ORBIT_HZ = 12.0
+    # Detection envelope: how close (in xy) and how far above the platform
+    # top a movable body's CENTER must be for us to consider it "on the
+    # platform" and turn the vortex on.
+    VORTEX_DETECT_XY_M = 0.05
+    VORTEX_DETECT_Z_RANGE_M = (0.0, 0.08)
+
+    def _vortex_tick(self):
+        """Drive the vortex-platform actuators based on whether a movable
+        body is resting on the platform. Called from _sim_loop after each
+        mj_step. No-op if the scene doesn't include a Vortex-Genie."""
+        if (self._vortex_x_act_id is None or
+                self._vortex_y_act_id is None or
+                self._vortex_platform_bid is None):
+            return
+        # Snapshot platform position WITHOUT holding the lock too long --
+        # the platform xpos is updated by mj_step under the lock already.
+        plat_pos = self.data.xpos[self._vortex_platform_bid].copy()
+
+        on_platform = False
+        for name, bid in self.cube_bids.items():
+            obj_pos = self.data.xpos[bid]
+            dx = float(obj_pos[0] - plat_pos[0])
+            dy = float(obj_pos[1] - plat_pos[1])
+            dz = float(obj_pos[2] - plat_pos[2])
+            if (abs(dx) < self.VORTEX_DETECT_XY_M
+                    and abs(dy) < self.VORTEX_DETECT_XY_M
+                    and self.VORTEX_DETECT_Z_RANGE_M[0]
+                        < dz <
+                        self.VORTEX_DETECT_Z_RANGE_M[1]):
+                on_platform = True
+                break
+
+        if on_platform:
+            if not self._vortex_active:
+                self._vortex_active = True
+                self._vortex_t0 = time.time()
+            elapsed = time.time() - self._vortex_t0
+            omega = 2.0 * np.pi * self.VORTEX_ORBIT_HZ
+            r = self.VORTEX_ORBIT_RADIUS_M
+            cx = r * np.cos(omega * elapsed)
+            cy = r * np.sin(omega * elapsed)
+            with self.lock:
+                self.data.ctrl[self._vortex_x_act_id] = cx
+                self.data.ctrl[self._vortex_y_act_id] = cy
+        else:
+            if self._vortex_active:
+                self._vortex_active = False
+                with self.lock:
+                    self.data.ctrl[self._vortex_x_act_id] = 0.0
+                    self.data.ctrl[self._vortex_y_act_id] = 0.0
 
     def _launch_viewer(self):
         def _run():
@@ -1007,7 +1086,7 @@ class SimXArmAPI:
             }
             bin_positions = {
                 name: self.data.xpos[self.model.body(name).id].copy()
-                for name in ("red_bin", "green_bin", "blue_bin")
+                for name in ("green_bin", "blue_bin")
             }
             rack_positions = {
                 name: self.data.xpos[self.model.body(name).id].copy()
@@ -1018,7 +1097,7 @@ class SimXArmAPI:
             # one of these still loads (a missing fixture is silently
             # skipped, so its proximity facts just won't fire).
             static_positions = {}
-            for fx in ("opentrons_ot2", "heater_shaker"):
+            for fx in ("opentrons_ot2", "heater_shaker", "vortex_genie"):
                 try:
                     fbid = self.model.body(fx).id
                     static_positions[fx] = self.data.xpos[fbid].copy()

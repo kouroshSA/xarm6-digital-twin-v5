@@ -75,6 +75,16 @@
             friction="1.0 0.05 0.0001"
             solref="0.005 1" solimp="0.95 0.99 0.001"/>
     </default>
+    <!-- Vortex-Genie 2 platform: high-friction top surface so objects
+         placed on it follow the orbital motion via contact rather
+         than welding. The platform is a child body with two slide
+         joints; see <actuator> block at the bottom of the file for
+         the actuators that drive its orbital motion. -->
+    <default class="vortex_platform_geom">
+      <geom type="cylinder" size="0.055 0.005" mass="0"
+            friction="3.0 1.0 0.005"
+            solref="0.005 1" solimp="0.95 0.99 0.001"/>
+    </default>
   </default>
 
   <asset>
@@ -104,6 +114,13 @@
     <material name="heater_shaker_mat"     rgba="0.20 0.22 0.26 1"/>
     <material name="heater_shaker_top_mat" rgba="0.30 0.32 0.36 1"/>
     <material name="heater_shaker_accent_mat" rgba="0.10 0.50 0.85 1"/>
+    <!-- Vortex-Genie 2: classic look is grey chassis, black neck,
+         dark rubber/foam top platform. -->
+    <material name="vortex_chassis_mat"  rgba="0.55 0.60 0.65 1"/>
+    <material name="vortex_neck_mat"     rgba="0.15 0.15 0.17 1"/>
+    <material name="vortex_platform_mat" rgba="0.10 0.10 0.12 1"/>
+    <material name="vortex_dial_mat"     rgba="0.85 0.85 0.88 1"/>
+    <material name="vortex_logo_mat"     rgba="0.80 0.10 0.10 1"/>
   </asset>
 
   <worldbody>
@@ -215,10 +232,8 @@
     </body>
 
     <!-- Cubes -->
-    <body name="red_cube" pos="-0.20 0.15 0.78">
-      <geom name="red_cube_geom" class="cube" material="red_mat"/>
-      <joint type="free" name="red_cube_joint"/>
-    </body>
+    <!-- (red_cube was removed; its position is now occupied by the
+         Vortex-Genie 2 -- see the instruments section below.) -->
     <body name="green_cube" pos="0.00 0.15 0.78">
       <geom name="green_cube_geom" class="cube" material="green_mat"/>
       <joint type="free" name="green_cube_joint"/>
@@ -231,22 +246,9 @@
     <!-- Bins -->
     <!-- Bins are now FREE bodies so push_object can move them. Mass 0.5kg
          per bin -- heavy enough not to bounce around when cubes are dropped
-         inside, light enough for the arm to push around. -->
-    <body name="red_bin" pos="-0.20 0.35 0.75">
-      <inertial pos="0 0 0.020" mass="0.5" diaginertia="6e-4 6e-4 9e-4"/>
-      <joint type="free" name="red_bin_joint"/>
-      <geom name="red_bin_floor" type="box" size="0.040 0.040 0.001"
-            pos="0 0 0.001" material="red_bin_mat"
-            contype="1" conaffinity="1" mass="0"/>
-      <geom name="red_bin_w_front" class="bin_wall"
-            size="0.040 0.002 0.030" pos="0 -0.040 0.030"/>
-      <geom name="red_bin_w_back"  class="bin_wall"
-            size="0.040 0.002 0.030" pos="0  0.040 0.030"/>
-      <geom name="red_bin_w_left"  class="bin_wall"
-            size="0.002 0.040 0.030" pos="-0.040 0 0.030"/>
-      <geom name="red_bin_w_right" class="bin_wall"
-            size="0.002 0.040 0.030" pos=" 0.040 0 0.030"/>
-    </body>
+         inside, light enough for the arm to push around.
+         (red_bin was removed; its general area is now where the
+         Vortex-Genie 2 sits.) -->
 
     <body name="green_bin" pos="0.00 0.35 0.75">
       <inertial pos="0 0 0.020" mass="0.5" diaginertia="6e-4 6e-4 9e-4"/>
@@ -320,7 +322,12 @@
 
     <!-- RIGHT RACK at x=+0.45, y=0.15. Holds R1, R2, R3.
          Free body (same as left). -->
-    <body name="right_tube_rack" pos="0.45 0.15 0.755">
+    <!-- right_tube_rack: despite the name, this rack has been MOVED to
+         the back-left of the bench (directly behind left_tube_rack).
+         The "right" in the name is historical -- pre-existing
+         lessons.md and world_model.md entries reference it, so we keep
+         the identifier to avoid invalidating that history. -->
+    <body name="right_tube_rack" pos="-0.45 0.30 0.755">
       <inertial pos="0 0 0.020" mass="0.25" diaginertia="3e-4 7e-4 8e-4"/>
       <joint type="free" name="right_tube_rack_joint"/>
       <geom name="right_rack_base" class="rack_base" size="0.085 0.045 0.005"
@@ -363,21 +370,21 @@
       <joint type="free" name="tube_L3_joint"/>
     </body>
     <!-- RIGHT RACK TUBES -->
-    <body name="tube_R1" pos="0.390 0.170 0.8175">   <!-- col1 row2, blue -->
+    <body name="tube_R1" pos="-0.510 0.320 0.8175">  <!-- col1 row2, blue (moved with right_tube_rack to back-left) -->
       <inertial pos="0 0 0.01" mass="0.03" diaginertia="3e-5 3e-5 5e-6"/>
       <geom name="tube_R1_body" class="tube_body" material="tube_body_mat" mass="0"/>
       <geom name="tube_R1_cap"  type="cylinder" size="0.0155 0.006"
             pos="0 0 0.0635" material="cap_blue_mat" mass="0"/>
       <joint type="free" name="tube_R1_joint"/>
     </body>
-    <body name="tube_R2" pos="0.470 0.130 0.8175">   <!-- col3 row1, orange -->
+    <body name="tube_R2" pos="-0.430 0.280 0.8175">  <!-- col3 row1, orange (moved with right_tube_rack to back-left) -->
       <inertial pos="0 0 0.01" mass="0.03" diaginertia="3e-5 3e-5 5e-6"/>
       <geom name="tube_R2_body" class="tube_body" material="tube_body_mat" mass="0"/>
       <geom name="tube_R2_cap"  type="cylinder" size="0.0155 0.006"
             pos="0 0 0.0635" material="cap_orange_mat" mass="0"/>
       <joint type="free" name="tube_R2_joint"/>
     </body>
-    <body name="tube_R3" pos="0.510 0.170 0.8175">   <!-- col4 row2, blue -->
+    <body name="tube_R3" pos="-0.390 0.320 0.8175">  <!-- col4 row2, blue (moved with right_tube_rack to back-left) -->
       <inertial pos="0 0 0.01" mass="0.03" diaginertia="3e-5 3e-5 5e-6"/>
       <geom name="tube_R3_body" class="tube_body" material="tube_body_mat" mass="0"/>
       <geom name="tube_R3_cap"  type="cylinder" size="0.0155 0.006"
@@ -563,6 +570,68 @@
       <joint type="free" name="heater_shaker_joint"/>
     </body>
 
+    <!-- =============================================================
+         VORTEX-GENIE 2 (classic benchtop vortex mixer).
+         Outer dimensions 165 W x 122 D x 165 H mm (per spec).
+
+         Layout: chassis (grey rectangular base) -> short black neck
+         -> flat black rubber platform on top. When an object is
+         placed on the platform, _vortex_tick() (in SimXArmAPI) drives
+         two slide joints in a 4 mm-radius circle so the platform
+         orbits the object visibly. High friction on the platform
+         drags the object along.
+
+         Position: world (-0.20, +0.25, 0.75) -- the bench-top spot
+         where the now-deleted red_cube + red_bin used to live.
+         Static fixture (body has no free joint).
+    ============================================================= -->
+    <body name="vortex_genie" pos="-0.20 0.25 0.75">
+      <!-- Chassis: 165 W x 122 D x 130 H mm. Centred at z=0.065 so
+           the chassis bottom sits on the bench (z=0) and the top is
+           at z=0.130. -->
+      <geom name="vortex_chassis" type="box"
+            size="0.0825 0.061 0.065" pos="0 0 0.065"
+            material="vortex_chassis_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <!-- Neck: short black collar between chassis and platform. -->
+      <geom name="vortex_neck" type="box"
+            size="0.040 0.040 0.010" pos="0 0 0.140"
+            material="vortex_neck_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <!-- Speed dial on the front face. -->
+      <geom name="vortex_dial" type="cylinder"
+            size="0.018 0.005" pos="0 -0.061 0.045"
+            euler="1.5708 0 0"
+            material="vortex_dial_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Brand strip on the front face (red "Genie 2" colour). -->
+      <geom name="vortex_logo" type="box"
+            size="0.035 0.001 0.008" pos="0 -0.062 0.095"
+            material="vortex_logo_mat"
+            contype="0" conaffinity="0" mass="0"/>
+
+      <!-- Orbital platform: child body with two slide joints so it
+           can be driven in a 4 mm-radius circle around its rest
+           position. Joint range is +/-0.006 m to give the orbital
+           radius (4 mm) a 2 mm buffer. The cylinder geom is at
+           local z=0 inside this sub-body, which itself is at chassis
+           local z=0.155 -- so the platform top surface is at world
+           z = 0.75 + 0.155 + 0.005 = 0.910. -->
+      <body name="vortex_platform" pos="0 0 0.155">
+        <inertial pos="0 0 0" mass="0.02"
+                  diaginertia="2e-5 2e-5 3e-5"/>
+        <joint name="vortex_orbit_x" type="slide" axis="1 0 0"
+               range="-0.006 0.006" limited="true"
+               damping="0.05" stiffness="0"/>
+        <joint name="vortex_orbit_y" type="slide" axis="0 1 0"
+               range="-0.006 0.006" limited="true"
+               damping="0.05" stiffness="0"/>
+        <geom name="vortex_platform_top" class="vortex_platform_geom"
+              material="vortex_platform_mat"
+              contype="1" conaffinity="1"/>
+      </body>
+    </body>
+
   </worldbody>
 
   <contact>
@@ -585,7 +654,6 @@
        the cube is "carried" while the weld is active.
   ============================================================ -->
   <equality>
-    <weld name="grip_red_cube"   body1="gripper" body2="red_cube"   active="false"/>
     <weld name="grip_green_cube" body1="gripper" body2="green_cube" active="false"/>
     <weld name="grip_blue_cube"  body1="gripper" body2="blue_cube"  active="false"/>
     <weld name="grip_tube_L1"    body1="gripper" body2="tube_L1"    active="false"/>
@@ -594,7 +662,6 @@
     <weld name="grip_tube_R1"    body1="gripper" body2="tube_R1"    active="false"/>
     <weld name="grip_tube_R2"    body1="gripper" body2="tube_R2"    active="false"/>
     <weld name="grip_tube_R3"    body1="gripper" body2="tube_R3"    active="false"/>
-    <weld name="grip_red_bin"    body1="gripper" body2="red_bin"    active="false"/>
     <weld name="grip_green_bin"  body1="gripper" body2="green_bin"  active="false"/>
     <weld name="grip_blue_bin"   body1="gripper" body2="blue_bin"   active="false"/>
     <weld name="grip_left_rack"  body1="gripper" body2="left_tube_rack"  active="false"/>
@@ -620,6 +687,14 @@
               kp="200" kv="20" ctrlrange="0 0.015"/>
     <position name="act_finger_r" joint="finger_right_joint"
               kp="200" kv="20" ctrlrange="0 0.015"/>
+    <!-- Vortex-Genie orbital platform actuators. SimXArmAPI's
+         _vortex_tick drives ctrl to (R*cos(wt), R*sin(wt)) when an
+         object is detected on the platform; both back to 0 otherwise.
+         Joint range is +/-6mm; orbit radius commanded is 4mm. -->
+    <position name="act_vortex_x" joint="vortex_orbit_x"
+              kp="1000" kv="8" ctrlrange="-0.006 0.006"/>
+    <position name="act_vortex_y" joint="vortex_orbit_y"
+              kp="1000" kv="8" ctrlrange="-0.006 0.006"/>
   </actuator>
 
 </mujoco>
