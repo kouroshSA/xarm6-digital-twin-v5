@@ -306,21 +306,26 @@ def build_default_registry() -> ObjectRegistry:
         optimal_rail_mm=700.0,
         grasp=ot2_grasp,
         safety_notes=(
-            "Static instrument adjacent to bench on the +x side. Deck "
-            "surface at z=755mm. 6 SBS slots (3 cols x 2 rows) with "
-            "pitch 130mm x 94mm; slot centres in world coords: "
-            "front-left (870, -90), front-mid (1000, -90), front-right "
-            "(1130, -90), back-left (870, +90), back-mid (1000, +90), "
-            "back-right (1130, +90). Enclosure walls are non-colliding "
-            "(visual only) so the arm can descend through the top to "
-            "reach a slot. Do NOT try to grasp the OT-2 itself."
+            "Static instrument adjacent to bench on the +x side. Outer "
+            "footprint 630 x 570 mm. Side walls, back wall, and top are "
+            "COLLIDING obstacles; the ONLY access is through the front "
+            "(-x) opening that faces the bench. Deck surface at z=755 mm. "
+            "11 SBS slots (3 cols x 4 rows) + TRASH at slot 12. Pitch "
+            "132 mm cols x 89 mm rows. Slot world-xy (z=755 for all): "
+            "  slot 1=(867, +132), 2=(867, 0), 3=(867, -132) [front row], "
+            "  slot 4=(956, +132), 5=(956, 0), 6=(956, -132) [mid-front], "
+            "  slot 7=(1044, +132), 8=(1044, 0), 9=(1044, -132) [mid-back], "
+            "  slot 10=(1133, +132), 11=(1133, 0), TRASH=(1133, -132). "
+            "REACH WARNING from rail=700: slots 1-6 reach cleanly; "
+            "slots 7-9 are at the edge of arm reach; slots 10-11 + "
+            "TRASH are usually unreachable through the front opening. "
+            "Do NOT try to grasp the OT-2 itself."
         ),
         object_type="instrument",
     ))
 
-    # 96-well plate (graspable, sits in the OT-2 front-left slot at scene
-    # start). 127 x 85 x 14 mm. The plate is the *movable* OT-2 payload
-    # the arm picks up or places.
+    # 96-well plates (graspable). Plate A starts in OT-2 slot 1
+    # (front-left of deck); Plate B starts on the bench front-right.
     plate_grasp = GraspConfig(
         approach_direction=[0.0, 0.0, -1.0],
         grip_orientation_rpy=[180.0, 0.0, 0.0],
@@ -328,18 +333,84 @@ def build_default_registry() -> ObjectRegistry:
         approach_standoff_mm=50.0,
     )
     reg.register(LabObject(
-        name="well_plate",
-        aliases=["plate", "96-well plate", "well plate", "microplate",
-                 "96 well plate"],
-        position_xyz_m=[0.870, -0.090, 0.7625],
+        name="well_plate_A",
+        aliases=["plate A", "well plate A", "well_plate_a", "plate a",
+                 "96-well plate A", "OT-2 plate", "the plate on the OT-2",
+                 "the plate on the deck"],
+        position_xyz_m=[0.867, +0.132, 0.7625],
         optimal_rail_mm=700.0,
         grasp=plate_grasp,
         safety_notes=(
-            "96-well SBS plate. Start position: OT-2 front-left slot. "
-            "Plate body centre at z=762mm; top surface at z=770mm. "
-            "Grasp from directly above. Reachable with rail near 700mm."
+            "96-well SBS plate. Start position: OT-2 slot 1 "
+            "(front-left of deck). Plate body centre z=762; top z=770. "
+            "Grasp from directly above. Approach via OT-2 front opening."
         ),
         object_type="plate",
+    ))
+    reg.register(LabObject(
+        name="well_plate_B",
+        aliases=["plate B", "well plate B", "well_plate_b", "plate b",
+                 "96-well plate B", "bench plate", "the plate on the bench"],
+        position_xyz_m=[+0.200, -0.300, 0.7625],
+        optimal_rail_mm=550.0,
+        grasp=plate_grasp,
+        safety_notes=(
+            "96-well SBS plate. Start position: bench at (+200, -300). "
+            "Plate body centre z=762; top z=770. Standard top-down grasp."
+        ),
+        object_type="plate",
+    ))
+
+    # Opentrons tip rack (96-position SBS). Starts on the OT-2 deck in
+    # slot 4 (mid-front-left). Graspable.
+    tip_box_grasp = GraspConfig(
+        approach_direction=[0.0, 0.0, -1.0],
+        grip_orientation_rpy=[180.0, 0.0, 0.0],
+        grip_depth=0.7,
+        approach_standoff_mm=60.0,
+    )
+    reg.register(LabObject(
+        name="tip_box",
+        aliases=["tip rack", "tip box", "pipette tips", "tips",
+                 "tip_rack", "96-tip rack"],
+        position_xyz_m=[0.956, +0.132, 0.795],
+        optimal_rail_mm=700.0,
+        grasp=tip_box_grasp,
+        safety_notes=(
+            "Opentrons-style 96-position tip rack. 127 x 85 x 80 mm "
+            "(taller than a plate). Start position: OT-2 slot 4 "
+            "(mid-front-left). Body centre z=795; top z=835. Grasp from "
+            "directly above. Heavier than a plate (mass 0.2 kg)."
+        ),
+        object_type="plate",
+    ))
+
+    # Opentrons Heater-Shaker module (152 W x 90 D x 82 H mm). Sits on
+    # the bench, holds a 96-well plate on its top platform. Heavy so it
+    # stays put; not normally picked up but technically graspable (so
+    # push_object works on it if needed).
+    shaker_grasp = GraspConfig(
+        approach_direction=[0.0, 0.0, -1.0],
+        grip_orientation_rpy=[180.0, 0.0, 0.0],
+        grip_depth=0.7,
+        approach_standoff_mm=60.0,
+    )
+    reg.register(LabObject(
+        name="heater_shaker",
+        aliases=["shaker", "heater shaker", "opentrons shaker",
+                 "heater-shaker", "shaker module"],
+        position_xyz_m=[-0.300, -0.250, 0.791],
+        optimal_rail_mm=50.0,
+        grasp=shaker_grasp,
+        safety_notes=(
+            "Opentrons Heater-Shaker module on the bench front-left. "
+            "152 x 90 x 82 mm. Top platform at z=836 mm holds a "
+            "96-well plate. To PLACE a plate on the shaker: approach "
+            "(-300, -250, 870), descend to (-300, -250, 845), open "
+            "gripper. Heavy (2 kg); do NOT push or pick up unless the "
+            "task explicitly asks."
+        ),
+        object_type="instrument",
     ))
 
     return reg

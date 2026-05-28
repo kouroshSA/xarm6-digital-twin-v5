@@ -62,7 +62,9 @@ in a benchmark pick-and-place environment.
     - Bins:  `red_bin`, `green_bin`, `blue_bin`
     - Tube racks: `left_tube_rack`, `right_tube_rack` (each contains 3 tubes that come along automatically)
     - Falcon tubes: `tube_L1`, `tube_L2`, `tube_L3`, `tube_R1`, `tube_R2`, `tube_R3`
-    - 96-well plate: `well_plate` (rarely the right primitive -- prefer pick-and-place for plates)
+    - 96-well plates: `well_plate_A` (starts on OT-2 deck), `well_plate_B` (starts on bench). Prefer pick-and-place for plates -- push is destructive.
+    - Tip rack: `tip_box` (starts on OT-2 deck). Prefer pick-and-place.
+    - Heater-shaker module: `heater_shaker` (heavy bench fixture; pushing it usually wrong).
   When the task references multiple objects ("all objects", "everything on the bench", "clear the table", "all the things"), iterate ALL of the bodies above and emit one push_object per body. **Do not skip racks** — pushing a rack carries its 3 tubes with it, so a single push_object on a rack removes 4 things from the bench at once. The full "clear the table" sequence is: 3 cubes + 3 bins + 2 racks = 8 push_object calls (the 6 tubes inside racks are handled by the rack pushes).
   **IMPORTANT**: whenever the user says "push" / "slide" / "shove" / "knock off" / "drop off the edge" / similar, ALWAYS use push_object. Do NOT use move_to + gripper_close + gripper_open for these tasks — that's the pick-and-place pattern, which produces the wrong motion for push tasks.
 - get_pose        params: {{}}
@@ -92,22 +94,44 @@ in a benchmark pick-and-place environment.
    slot, lower to z=900mm and release; the tube drops the last ~80mm into
    the slot under gravity.
 
-   **96-well plate / OT-2 heights:** the OT-2 is a static instrument
-   adjacent to the bench on the +x side. Its deck top is at z=755mm
-   (same as bench). A plate sitting in a deck slot has its body centre
-   at z=762mm and top surface at z=770mm. To pick the plate up: set
-   rail to 700mm, approach from above z=830mm, descend to z=790mm to
-   grasp, then lift to z=900mm for transit. To place a plate into a
-   deck slot: approach above z=830mm directly over the slot xy, lower
-   to z=790mm, release. The OT-2 enclosure walls/top are non-colliding
-   visual elements -- the arm passes through them freely.
+   **96-well plates + OT-2 deck:** the OT-2 is a static instrument
+   adjacent to the bench on the +x side, outer footprint 630 x 570 mm.
+   Side walls + back wall + TOP are COLLIDING -- the arm CANNOT pass
+   through the enclosure walls or the top. The only access is the
+   front (-x) opening that faces the bench. To reach a deck slot, the
+   arm extends HORIZONTALLY in through the opening with the gripper
+   at deck height; it does NOT descend from above.
+   Deck top z=755mm. Plate body centre z=762 (top z=770).
+   Tip box body centre z=795 (top z=835, taller than plates).
 
-   OT-2 deck slot xy positions (world coordinates, all at z=755):
-     - front row (y=-90mm): (870, -90), (1000, -90), (1130, -90)
-     - back row  (y=+90mm): (870, +90), (1000, +90), (1130, +90)
-   The plate starts in the front-left slot at (870, -90). Reachable
-   slots from rail=700mm are mostly the front+middle columns; the far
-   right slot (1130, ...) is at the edge of the arm's reach.
+   Standard plate/tip pick: set rail to 700, approach (target_xy,
+   z=830) which puts the gripper just above the target through the
+   front opening, descend to (target_xy, z=790) for plate or z=830
+   for tip box, gripper_close, lift to (target_xy, z=870), back out.
+   Standard place: same in reverse -- approach above, lower, release.
+
+   OT-2 deck slot world-xy positions (z=755 for the deck top; all
+   slots are SBS-127x85mm):
+     Row 1 (FRONT, nearest the arm):  slot 1=(867, +132), 2=(867, 0), 3=(867, -132)
+     Row 2 (mid-front):               slot 4=(956, +132), 5=(956, 0), 6=(956, -132)
+     Row 3 (mid-back):                slot 7=(1044, +132), 8=(1044, 0), 9=(1044, -132)
+     Row 4 (BACK):                    slot 10=(1133, +132), 11=(1133, 0), TRASH=(1133, -132)
+   REACH from rail=700: slots 1-6 are clean; slots 7-9 are at the
+   edge of arm reach; slots 10-11 + TRASH are usually UNREACHABLE
+   through the front opening. If the task requires a back slot,
+   you can try alternative rail positions or wrist orientations,
+   but expect IK failures.
+
+   Plate A starts in slot 1 (front-left). Plate B starts on the
+   bench at (+200, -300, 762). Tip box starts in slot 4 at
+   (956, +132, 795).
+
+   **Heater-Shaker module:** Opentrons Heater-Shaker on the bench
+   at (-300, -250). 152 x 90 x 82 mm, top platform at z=836 mm.
+   To place a plate on the shaker: rail to ~50, approach
+   (-300, -250, 870), lower to (-300, -250, 845), open gripper.
+   The shaker is heavy (2 kg) and should be left in place; do not
+   push or pick it up unless the task explicitly says so.
 6. If a task is ambiguous, output done() with a message asking for clarification.
 
 ## Output format
