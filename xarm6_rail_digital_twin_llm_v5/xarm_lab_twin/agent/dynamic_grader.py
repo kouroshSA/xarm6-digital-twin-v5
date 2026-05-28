@@ -35,6 +35,60 @@ import anthropic
 GRADER_MODEL_DEFAULT = "claude-haiku-4-5-20251001"
 
 
+# ---------------------------------------------------------------------------
+# Speed-cap tiers (mm/s) for the motion primitives that take a speed param
+# (move_to, set_rail, set_joints). The LLM picks a tier from the task
+# prompt; the dispatch layer clamps any command-emitted speed to the tier's
+# cap. None means "no cap" -- only used for the crazy_fast tier, which the
+# user must opt into via explicit phrasing.
+#
+# These values are tuned for cautious real-arm transfer; adjust here if the
+# real hardware can take more. Medium = the prior de-facto cap (matches the
+# system prompt's "keep speed_mm_s <= 100" guidance, slightly conservative).
+# ---------------------------------------------------------------------------
+
+SPEED_TIERS = {
+    "crazy_fast": None,
+    "fast":       120,
+    "medium":      80,   # default when the task gives no speed cue
+    "slow":        40,
+    "very_slow":   15,
+}
+DEFAULT_SPEED_TIER = "medium"
+
+
+SPEED_SYSTEM_PROMPT = """\
+You analyse a task prompt for a robot arm and pick a single motion-speed
+tier from this fixed list:
+
+  - "crazy_fast" : NO speed cap. Only pick this when the prompt EXPLICITLY
+                   asks for uncapped / unlimited / no-safety-limit speed,
+                   e.g. "go as fast as possible with no limits", "crazy
+                   fast", "uncapped speed", "no safety cap". Otherwise do
+                   NOT pick this -- removing the safety cap is dangerous
+                   in real hardware.
+  - "fast"       : explicit speed cues like "quickly", "fast", "rapidly",
+                   "hurry", "asap", "as fast as you can".
+  - "medium"     : DEFAULT when no speed cue is present, or generic task
+                   descriptions. If you're unsure, pick this.
+  - "slow"       : cues like "slowly", "carefully", "gently", "take your
+                   time", "with care".
+  - "very_slow"  : cues like "very slowly", "extremely carefully",
+                   "delicately", "fragile", "in slow motion", "with
+                   extreme care".
+
+Return a single JSON object with exactly two fields:
+
+{
+  "tier": "<one of the five names above>",
+  "reasoning": "<one short sentence citing the speed cue you matched, "
+               "or 'no speed cue, defaulting to medium'>"
+}
+
+Do not wrap the JSON in markdown fences. Do not add prose around it.
+"""
+
+
 SYSTEM_PROMPT = """\
 You are a grading-criteria designer for a robot-arm digital twin. Given a
 task prompt, produce the success criteria that will be matched against
@@ -246,3 +300,60 @@ def infer_criteria(task: str, registry=None,
     preview = subs[:4] + (["..."] if len(subs) > 4 else [])
     print(f"[DynamicGrader] Criteria: mode={mode}, expects {preview}")
     return parsed
+
+
+def infer_speed_cap(task: str,
+                    model: str = GRADER_MODEL_DEFAULT,
+                    client: Optional[anthropic.Anthropic] = None,
+                    ) -> str:
+    """Ask Haiku which speed tier this task implies. Returns one of
+    SPEED_TIERS keys; defaults to DEFAULT_SPEED_TIER ('medium') on any
+    error or unrecognised response. Never returns None -- there is always
+    *some* cap (unless the model picks 'crazy_fast', which is uncapped).
+
+    The caller looks up SPEED_TIERS[result] to get the numeric mm/s cap
+    (or None for 'crazy_fast' = no clamp).
+    """
+    if client is None:
+        try:
+            client = anthropic.Anthropic()
+        except Exception as e:
+            print(f"[DynamicGrader] Speed inference unavailable: {e}; "
+                  f"defaulting to '{DEFAULT_SPEED_TIER}'.")
+            return DEFAULT_SPEED_TIER
+
+    t_start = time.time()
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=128,
+            system=SPEED_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": f"Task: \"{task}\""}],
+        )
+    except Exception as e:
+        print(f"[DynamicGrader] Speed inference API failure: "
+              f"{type(e).__name__}: {e}; defaulting to '{DEFAULT_SPEED_TIER}'.")
+        return DEFAULT_SPEED_TIER
+
+    latency = time.time() - t_start
+    raw = response.content[0].text
+    m = _JSON_OBJ_RE.search(raw)
+    tier = None
+    reasoning = ""
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            tier = obj.get("tier")
+            reasoning = obj.get("reasoning", "")
+        except json.JSONDecodeError:
+            pass
+    if tier not in SPEED_TIERS:
+        print(f"[DynamicGrader] Speed inference returned unrecognised tier "
+              f"({tier!r}); defaulting to '{DEFAULT_SPEED_TIER}'.")
+        return DEFAULT_SPEED_TIER
+
+    cap = SPEED_TIERS[tier]
+    cap_str = "UNCAPPED" if cap is None else f"{cap} mm/s"
+    print(f"[DynamicGrader] Speed tier in {latency:.1f}s: {tier} "
+          f"(cap: {cap_str}) -- {reasoning}")
+    return tier

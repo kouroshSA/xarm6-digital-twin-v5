@@ -67,6 +67,16 @@ class EpisodeContext:
     # when the regex grader already handles this task, or when the LLM
     # call failed / declined to grade.
 
+    speed_tier: str = "medium"
+    # One of SPEED_TIERS keys: "crazy_fast"/"fast"/"medium"/"slow"/"very_slow".
+    # Inferred once at session start from the task prompt. Defaults to
+    # "medium" so we never run uncapped without an explicit tier.
+
+    speed_cap_mm_s: Optional[float] = None
+    # The numeric cap derived from speed_tier (None when crazy_fast).
+    # Used by LLMBrain dispatch to clamp speed parameters on motion
+    # primitives.
+
     def add_constraint(self, constraint: str) -> None:
         if constraint and constraint not in self.learned_constraints:
             self.learned_constraints.append(constraint)
@@ -511,6 +521,26 @@ class EpisodeRetry:
             except Exception as e:
                 print(f"[EpisodeLoop] Dynamic grader unavailable (non-fatal): "
                       f"{type(e).__name__}: {e}")
+
+        # Infer the speed-cap tier from the task prompt and push it to the
+        # brain so dispatch can clamp motion primitives. Defaults to medium
+        # if Haiku is unavailable or the response is malformed.
+        try:
+            from agent.dynamic_grader import (infer_speed_cap, SPEED_TIERS,
+                                              DEFAULT_SPEED_TIER)
+            ctx.speed_tier = infer_speed_cap(task)
+        except Exception as e:
+            print(f"[EpisodeLoop] Speed inference unavailable (non-fatal): "
+                  f"{type(e).__name__}: {e}; using default '{DEFAULT_SPEED_TIER}'.")
+            ctx.speed_tier = DEFAULT_SPEED_TIER
+        ctx.speed_cap_mm_s = SPEED_TIERS[ctx.speed_tier]
+        # Push to the brain so dispatch clamps come into effect immediately.
+        if hasattr(self.brain, "set_speed_cap"):
+            self.brain.set_speed_cap(ctx.speed_tier, ctx.speed_cap_mm_s)
+        cap_str = ("UNCAPPED" if ctx.speed_cap_mm_s is None
+                   else f"{ctx.speed_cap_mm_s:.0f} mm/s")
+        print(f"[EpisodeLoop] Speed cap for this session: "
+              f"{ctx.speed_tier} ({cap_str})")
 
         while ctx.episode_num <= ctx.max_episodes:
             print(f"\n{'=' * 70}")
