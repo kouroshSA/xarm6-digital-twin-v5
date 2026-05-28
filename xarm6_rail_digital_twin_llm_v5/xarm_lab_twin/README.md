@@ -220,17 +220,18 @@ group (`images` at uint8 320×240×3, `t_wall` per frame).
 
 ### Capping motion speed (safety override)
 
-By default the loop infers a session-level speed cap from the task prompt
-(Haiku reads cues like "quickly" / "carefully" / "fragile" and picks one
-of `crazy_fast` / `fast` / `medium` / `slow` / `very_slow`; defaults to
-`medium` = 80 mm/s when no cue is present). The LLM may also downgrade
+By default (when `--speed-tier` is omitted, or set to `auto`) the loop
+infers a session-level speed cap from the task prompt: Haiku reads cues
+like "quickly" / "carefully" / "fragile" and picks one of `crazy_fast`
+/ `fast` / `medium` / `slow` / `very_slow`. When no cue is present the
+inference falls back to `medium` = 80 mm/s. The LLM may also downgrade
 individual commands by attaching `"speed_tier": "<tier>"` to any
 `move_to` / `set_rail` / `set_joints` it emits, but per-command tiers
 can never exceed the session ceiling.
 
 Pass `--speed-tier <name>` to ANY of the LLM entry points
-(`run_task.py`, `auto_play.py`, `run_task_augmented.py`) to override the
-Haiku inference and pin the session ceiling deterministically:
+(`run_task.py`, `auto_play.py`, `run_task_augmented.py`) to override
+the Haiku inference and pin the session ceiling deterministically:
 
 ```bash
 # Force every motion to very_slow (15 mm/s) regardless of prompt phrasing
@@ -246,12 +247,19 @@ python scripts/run_task.py \
 
 # Auto-play a batch of mixed tasks, all bounded to slow (40 mm/s)
 python scripts/auto_play.py --episodes 20 --speed-tier slow
+
+# Explicit opt-in to Haiku inference (same as omitting the flag, but
+# makes the intent visible in saved commands and scripts)
+python scripts/run_task.py \
+    "carefully transfer the blue-cap tube" \
+    --speed-tier auto
 ```
 
-Caps: `crazy_fast` = uncapped, `fast` = 120, `medium` = 80, `slow` = 40,
-`very_slow` = 15 mm/s. The override skips the Haiku call entirely, so
-it's also a small token-cost saver. Per-command tier downgrades within
-the LLM plan continue to work and are clamped to the CLI-set ceiling.
+Tiers and caps: `crazy_fast` = uncapped, `fast` = 120, `medium` = 80,
+`slow` = 40, `very_slow` = 15 mm/s, plus `auto` = use Haiku inference.
+A named-tier override skips the Haiku call entirely (small token-cost
+saver). Per-command tier downgrades within the LLM plan continue to
+work and are clamped to the CLI-set ceiling.
 
 ### Inspecting a recording
 
