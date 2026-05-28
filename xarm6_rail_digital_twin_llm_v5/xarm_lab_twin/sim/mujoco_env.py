@@ -38,8 +38,13 @@ GRIPPABLE_BODIES = {
     # Tube racks (also free now -- pushable)
     "left_tube_rack":  "grip_left_rack",
     "right_tube_rack": "grip_right_rack",
-    # 96-well plate sitting in the OT-2 deck
-    "well_plate":      "grip_well_plate",
+    # 96-well plates (A starts on the OT-2 deck, B on the bench)
+    "well_plate_A":    "grip_well_plate_A",
+    "well_plate_B":    "grip_well_plate_B",
+    # Opentrons tip rack on the OT-2 deck
+    "tip_box":         "grip_tip_box",
+    # Heater-shaker module on the bench
+    "heater_shaker":   "grip_heater_shaker",
 }
 # Backward-compat alias (older code still references GRIPPABLE_CUBES)
 GRIPPABLE_CUBES = GRIPPABLE_BODIES
@@ -191,7 +196,7 @@ class SimXArmAPI:
             # physical_outcome treat it like any other body.
             for fixture in ("red_bin", "green_bin", "blue_bin",
                             "left_tube_rack", "right_tube_rack",
-                            "opentrons_ot2"):
+                            "opentrons_ot2", "heater_shaker"):
                 try:
                     fbid = self.model.body(fixture).id
                 except Exception:
@@ -1009,12 +1014,11 @@ class SimXArmAPI:
                 for name in RACK_TUBE_GROUPS
             }
             # Static fixtures we still want as proximity reference points.
-            # Lookup is wrapped so a future scene that doesn't include the
-            # OT-2 still loads (the body simply doesn't make it into
-            # static_positions and proximity facts about it are silently
-            # skipped).
+            # Lookup is wrapped so a future scene that doesn't include
+            # one of these still loads (a missing fixture is silently
+            # skipped, so its proximity facts just won't fire).
             static_positions = {}
-            for fx in ("opentrons_ot2",):
+            for fx in ("opentrons_ot2", "heater_shaker"):
                 try:
                     fbid = self.model.body(fx).id
                     static_positions[fx] = self.data.xpos[fbid].copy()

@@ -89,9 +89,18 @@ class FKValidator:
         "R_sep_v2":          "grip_right_rack",
         "R_sep_v3":          "grip_right_rack",
         "R_sep_h1":          "grip_right_rack",
-        # 96-well plate (2 geoms: body + cosmetic top slab)
-        "well_plate_body":   "grip_well_plate",
-        "well_plate_top":    "grip_well_plate",
+        # 96-well plates A + B (2 geoms each: body + cosmetic top slab)
+        "well_plate_A_body": "grip_well_plate_A",
+        "well_plate_A_top":  "grip_well_plate_A",
+        "well_plate_B_body": "grip_well_plate_B",
+        "well_plate_B_top":  "grip_well_plate_B",
+        # Opentrons tip rack (2 geoms)
+        "tip_box_body":      "grip_tip_box",
+        "tip_box_top":       "grip_tip_box",
+        # Heater-shaker module (3 geoms)
+        "heater_shaker_body":     "grip_heater_shaker",
+        "heater_shaker_platform": "grip_heater_shaker",
+        "heater_shaker_logo":     "grip_heater_shaker",
     }
 
     def __init__(self, model: mujoco.MjModel,
