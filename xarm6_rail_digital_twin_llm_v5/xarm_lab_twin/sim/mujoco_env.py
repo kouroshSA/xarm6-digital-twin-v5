@@ -38,6 +38,8 @@ GRIPPABLE_BODIES = {
     # Tube racks (also free now -- pushable)
     "left_tube_rack":  "grip_left_rack",
     "right_tube_rack": "grip_right_rack",
+    # 96-well plate sitting in the OT-2 deck
+    "well_plate":      "grip_well_plate",
 }
 # Backward-compat alias (older code still references GRIPPABLE_CUBES)
 GRIPPABLE_CUBES = GRIPPABLE_BODIES
@@ -181,8 +183,15 @@ class SimXArmAPI:
             snap = {}
             for name, bid in self.cube_bids.items():
                 snap[name] = self.data.xpos[bid].copy()
+            # Static fixtures we want available as proximity-fact reference
+            # points ("well_plate closer to opentrons_ot2" etc). The OT-2
+            # never moves, so its snapshot value equals its current value
+            # forever -- but including it here keeps the all_positions
+            # iteration uniform and lets the proximity code in
+            # physical_outcome treat it like any other body.
             for fixture in ("red_bin", "green_bin", "blue_bin",
-                            "left_tube_rack", "right_tube_rack"):
+                            "left_tube_rack", "right_tube_rack",
+                            "opentrons_ot2"):
                 try:
                     fbid = self.model.body(fixture).id
                 except Exception:
@@ -999,6 +1008,18 @@ class SimXArmAPI:
                 name: self.data.xpos[self.model.body(name).id].copy()
                 for name in RACK_TUBE_GROUPS
             }
+            # Static fixtures we still want as proximity reference points.
+            # Lookup is wrapped so a future scene that doesn't include the
+            # OT-2 still loads (the body simply doesn't make it into
+            # static_positions and proximity facts about it are silently
+            # skipped).
+            static_positions = {}
+            for fx in ("opentrons_ot2",):
+                try:
+                    fbid = self.model.body(fx).id
+                    static_positions[fx] = self.data.xpos[fbid].copy()
+                except Exception:
+                    pass
 
         bench_x_min, bench_x_max = self.BENCH_X_MM[0] / 1000.0, self.BENCH_X_MM[1] / 1000.0
         bench_y_min, bench_y_max = self.BENCH_Y_MM[0] / 1000.0, self.BENCH_Y_MM[1] / 1000.0
@@ -1071,9 +1092,21 @@ class SimXArmAPI:
                     categorical.add(obj_name)
                     continue
                 # Not in any non-home rack -- fall through to off-bench check.
-            # Past the bench edge in xy (but still elevated -- mid-fall or hanging)
-            if not (bench_x_min <= p[0] <= bench_x_max and
-                    bench_y_min <= p[1] <= bench_y_max):
+            # Past the bench edge in xy (but still elevated -- mid-fall or hanging).
+            # Suppress if the object STARTED off-bench (e.g. plate on the OT-2
+            # deck at world x=870, well past bench x_max=750) and hasn't
+            # moved -- otherwise we'd report an "off bench" event at every
+            # scene reset just because the body is parked on an off-bench
+            # fixture.
+            off_bench_now = not (bench_x_min <= p[0] <= bench_x_max and
+                                 bench_y_min <= p[1] <= bench_y_max)
+            init_p = self._initial_positions.get(obj_name)
+            still_at_init = (
+                init_p is not None
+                and ((p[0] - init_p[0]) ** 2 +
+                     (p[1] - init_p[1]) ** 2) ** 0.5 < 0.020
+            )
+            if off_bench_now and not still_at_init:
                 notes.append(f"{obj_name} off bench")
                 categorical.add(obj_name)
 
@@ -1095,6 +1128,8 @@ class SimXArmAPI:
             all_positions[bin_name] = bpos
         for rack_name, rpos in rack_positions.items():
             all_positions[rack_name] = rpos
+        for fx_name, fxpos in static_positions.items():
+            all_positions[fx_name] = fxpos
 
         moved: dict = {}  # name -> (Δx, Δy) in mm
         for name, p in all_positions.items():

@@ -22,7 +22,7 @@ class LabObject:
     safety_notes: str
     optimal_rail_mm: float = 350.0
     is_container: bool = False
-    object_type: str = "cube"   # "cube" | "tube" | "bin" | "rack"
+    object_type: str = "cube"   # "cube" | "tube" | "bin" | "rack" | "plate" | "instrument"
     cap_color: str = ""         # for tubes: "orange" or "blue"
     last_updated: str = ""
 
@@ -53,6 +53,9 @@ class ObjectRegistry:
         tubes = [o for o in self.objects.values() if o.object_type == "tube"]
         bins  = [o for o in self.objects.values() if o.object_type == "bin"]
         racks = [o for o in self.objects.values() if o.object_type == "rack"]
+        plates = [o for o in self.objects.values() if o.object_type == "plate"]
+        instruments = [o for o in self.objects.values()
+                       if o.object_type == "instrument"]
         lines = []
 
         def fmt_basic(obj):
@@ -80,6 +83,15 @@ class ObjectRegistry:
             lines.append("\n## Tube racks (static fixtures)\n")
             for obj in racks:
                 lines.append(fmt_basic(obj))
+        if plates:
+            lines.append("\n## 96-well plates (graspable, "
+                         "127 x 85 x 14 mm)\n")
+            for obj in plates:
+                lines.append(fmt_basic(obj))
+        if instruments:
+            lines.append("\n## Instruments (static fixtures, NOT graspable)\n")
+            for obj in instruments:
+                lines.append(fmt_basic(obj) + f"  {obj.safety_notes}\n")
         return "\n".join(lines)
 
     def save(self):
@@ -275,6 +287,59 @@ def build_default_registry() -> ObjectRegistry:
         grasp=rack_grasp,
         safety_notes="Static fixture holding tube_R1, tube_R2, tube_R3. NOT graspable.",
         object_type="rack",
+    ))
+
+    # Opentrons OT-2 (static fixture, not actuated by us). Sits adjacent
+    # to the bench on the +x side with its deck at bench height (z=0.75 m)
+    # so the arm can reach in from above. The xArm6 picks/places a
+    # 96-well plate from/to one of the deck slots.
+    ot2_grasp = GraspConfig(
+        approach_direction=[0.0, 0.0, -1.0],
+        grip_orientation_rpy=[180.0, 0.0, 0.0],
+        grip_depth=0.0, approach_standoff_mm=0.0,
+    )
+    reg.register(LabObject(
+        name="opentrons_ot2",
+        aliases=["ot2", "ot-2", "opentrons", "pipetting robot",
+                 "liquid handler"],
+        position_xyz_m=[1.0, 0.0, 0.0],
+        optimal_rail_mm=700.0,
+        grasp=ot2_grasp,
+        safety_notes=(
+            "Static instrument adjacent to bench on the +x side. Deck "
+            "surface at z=755mm. 6 SBS slots (3 cols x 2 rows) with "
+            "pitch 130mm x 94mm; slot centres in world coords: "
+            "front-left (870, -90), front-mid (1000, -90), front-right "
+            "(1130, -90), back-left (870, +90), back-mid (1000, +90), "
+            "back-right (1130, +90). Enclosure walls are non-colliding "
+            "(visual only) so the arm can descend through the top to "
+            "reach a slot. Do NOT try to grasp the OT-2 itself."
+        ),
+        object_type="instrument",
+    ))
+
+    # 96-well plate (graspable, sits in the OT-2 front-left slot at scene
+    # start). 127 x 85 x 14 mm. The plate is the *movable* OT-2 payload
+    # the arm picks up or places.
+    plate_grasp = GraspConfig(
+        approach_direction=[0.0, 0.0, -1.0],
+        grip_orientation_rpy=[180.0, 0.0, 0.0],
+        grip_depth=0.7,
+        approach_standoff_mm=50.0,
+    )
+    reg.register(LabObject(
+        name="well_plate",
+        aliases=["plate", "96-well plate", "well plate", "microplate",
+                 "96 well plate"],
+        position_xyz_m=[0.870, -0.090, 0.7625],
+        optimal_rail_mm=700.0,
+        grasp=plate_grasp,
+        safety_notes=(
+            "96-well SBS plate. Start position: OT-2 front-left slot. "
+            "Plate body centre at z=762mm; top surface at z=770mm. "
+            "Grasp from directly above. Reachable with rail near 700mm."
+        ),
+        object_type="plate",
     ))
 
     return reg
