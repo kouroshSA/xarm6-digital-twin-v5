@@ -227,6 +227,26 @@ def expected_outcome(task: str) -> Optional[Tuple[str, List[str]]]:
     return None  # Unknown task pattern
 
 
+_PROX_VERBS = (" closer to ", " farther from ")
+
+
+def _matches_with_swap(physical: str, expected: str) -> bool:
+    """Substring match, but ALSO accept the alphabetically-swapped form
+    for proximity facts ("X closer to Y" matches if "Y closer to X" is
+    in physical). The sim canonicalises pair order as
+    alphabetical-first first, but graders (especially Haiku) often
+    name objects in semantic-subject-first order. Rather than force
+    every prompt edit to win that fight, we just accept both."""
+    if expected in physical:
+        return True
+    for verb in _PROX_VERBS:
+        if verb in expected:
+            a, b = expected.split(verb, 1)
+            if f"{b}{verb}{a}" in physical:
+                return True
+    return False
+
+
 def check_outcome(task: str, physical: str,
                   fallback_spec: Optional[Tuple[str, List[str]]] = None,
                   ) -> Tuple[Optional[bool], str]:
@@ -257,12 +277,12 @@ def check_outcome(task: str, physical: str,
     src = " [LLM-grader]" if used_fallback else ""
 
     if mode == "any":
-        if any(e in phys for e in expected):
+        if any(_matches_with_swap(phys, e) for e in expected):
             return (True, f"Met physical condition{src}: {phys}")
         return (False, f"Expected one of {expected}{src}; got: {phys or 'no displacement'}")
 
     # mode == "all"
-    missing = [e for e in expected if e not in phys]
+    missing = [e for e in expected if not _matches_with_swap(phys, e)]
     if not missing:
         return (True, f"All expected placements present{src}: {phys}")
     return (False, f"Missing: {missing}{src}; got: {phys or 'no displacement'}")
