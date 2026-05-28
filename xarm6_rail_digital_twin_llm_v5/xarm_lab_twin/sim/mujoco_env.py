@@ -158,9 +158,37 @@ class SimXArmAPI:
         self.validator = FKValidator(self.model, self.data, self.lock)
         self.ik_solver = IKSolver(self.model, self.data, self.lock)
 
+        # Baseline positions captured at scene-reset time. physical_outcome()
+        # compares current positions against these to emit displacement
+        # ("moved (Δx, Δy)mm") and proximity ("closer to <other>") facts on
+        # top of the categorical events (in bin / fell to floor / etc.).
+        # Initialised here so the first physical_outcome() before any
+        # reset_scene() has something to compare against.
+        self._initial_positions: dict = {}
+        self._snapshot_positions()
+
         threading.Thread(target=self._sim_loop, daemon=True).start()
         if render:
             self._launch_viewer()
+
+    def _snapshot_positions(self) -> None:
+        """Record current world-frame positions of every tracked body.
+        Used by physical_outcome() as the baseline for displacement +
+        proximity facts. Safe to call any time -- overwrites the prior
+        snapshot."""
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            snap = {}
+            for name, bid in self.cube_bids.items():
+                snap[name] = self.data.xpos[bid].copy()
+            for fixture in ("red_bin", "green_bin", "blue_bin",
+                            "left_tube_rack", "right_tube_rack"):
+                try:
+                    fbid = self.model.body(fixture).id
+                except Exception:
+                    continue
+                snap[fixture] = self.data.xpos[fbid].copy()
+            self._initial_positions = snap
 
     def _sim_loop(self):
         while self._running:
@@ -589,6 +617,10 @@ class SimXArmAPI:
             self._set_finger_ctrl(GRIPPER_OPEN_CTRL_M)
             mujoco.mj_forward(self.model, self.data)
         self.go_home()
+        # Re-snapshot baseline positions so per-episode displacement /
+        # proximity facts in physical_outcome() are measured from this
+        # clean state, not from whatever the prior episode left behind.
+        self._snapshot_positions()
         return 0
 
     # ---- gestures ----
@@ -897,10 +929,18 @@ class SimXArmAPI:
             return np.rad2deg(np.arccos(cos_tilt)) <= tilt_deg_max
 
         notes = []
+        # `categorical` tracks objects that triggered one of the four primary
+        # event shapes (fell / in bin / in rack / off bench). Those are
+        # exclusive -- we don't also emit a "displaced" fact for them. Bins
+        # and racks have their own categorical event (off bench); if they
+        # haven't moved off the bench, they're candidates for displacement
+        # / proximity facts based on `_initial_positions`.
+        categorical: set = set()
         for obj_name, p in object_positions.items():
             # Fell to floor?
             if p[2] < 0.10:
                 notes.append(f"{obj_name} fell to floor")
+                categorical.add(obj_name)
                 continue
             # In a bin?
             placed_in = None
@@ -913,6 +953,7 @@ class SimXArmAPI:
                     break
             if placed_in is not None:
                 notes.append(f"{obj_name} in {placed_in}")
+                categorical.add(obj_name)
                 continue
             # Tube seated in a NON-HOME rack (= a placement event worth reporting).
             if obj_name in tube_home_rack:
@@ -927,12 +968,79 @@ class SimXArmAPI:
                         break
                 if seated_in_other is not None:
                     notes.append(f"{obj_name} in {seated_in_other}")
+                    categorical.add(obj_name)
                     continue
                 # Not in any non-home rack -- fall through to off-bench check.
             # Past the bench edge in xy (but still elevated -- mid-fall or hanging)
             if not (bench_x_min <= p[0] <= bench_x_max and
                     bench_y_min <= p[1] <= bench_y_max):
                 notes.append(f"{obj_name} off bench")
+                categorical.add(obj_name)
+
+        # --- Displacement + proximity facts ---
+        # On top of the categorical events, also emit relative-position
+        # facts for movable bodies (cubes + tubes + bins + racks) so the
+        # grader can check tasks like "push X closer to Y" or "move X
+        # by 100mm". Compared to _initial_positions captured at last
+        # reset_scene().
+        #
+        # Bins / racks are tracked too (they're free bodies in this scene).
+        # Tubes that haven't left their home rack stay silent in the
+        # categorical pass; the displacement pass reports them too.
+        DISPLACE_TOL_M = 0.020      # <20 mm is treated as noise
+        PROX_DELTA_TOL_M = 0.020    # inter-object distance change to call out
+
+        all_positions: dict = dict(object_positions)
+        for bin_name, bpos in bin_positions.items():
+            all_positions[bin_name] = bpos
+        for rack_name, rpos in rack_positions.items():
+            all_positions[rack_name] = rpos
+
+        moved: dict = {}  # name -> (Δx, Δy) in mm
+        for name, p in all_positions.items():
+            init = self._initial_positions.get(name)
+            if init is None:
+                continue
+            dx_m = float(p[0] - init[0])
+            dy_m = float(p[1] - init[1])
+            if (dx_m * dx_m + dy_m * dy_m) ** 0.5 < DISPLACE_TOL_M:
+                continue
+            moved[name] = (dx_m * 1000.0, dy_m * 1000.0)
+            if name not in categorical:
+                notes.append(
+                    f"{name} moved ({moved[name][0]:.0f}, "
+                    f"{moved[name][1]:.0f})mm"
+                )
+
+        # Pairwise proximity facts: for each pair where at least one
+        # member moved measurably, report whether they're closer or
+        # farther than before. Only emitted when the inter-object
+        # distance changed by more than PROX_DELTA_TOL_M. Pair members
+        # are sorted alphabetically so the fact `<a> closer to <b>`
+        # comes out in a stable, predictable order (the dynamic grader's
+        # prompt tells Haiku to expect alphabetical-first first).
+        names_for_pairs = sorted(all_positions.keys())
+        for i, a in enumerate(names_for_pairs):
+            for b in names_for_pairs[i + 1:]:
+                if a not in moved and b not in moved:
+                    continue
+                init_a = self._initial_positions.get(a)
+                init_b = self._initial_positions.get(b)
+                if init_a is None or init_b is None:
+                    continue
+                cur_a, cur_b = all_positions[a], all_positions[b]
+                d_init = float(((init_a[0] - init_b[0]) ** 2 +
+                                (init_a[1] - init_b[1]) ** 2) ** 0.5)
+                d_now  = float(((cur_a[0] - cur_b[0]) ** 2 +
+                                (cur_a[1] - cur_b[1]) ** 2) ** 0.5)
+                delta = d_now - d_init
+                if abs(delta) < PROX_DELTA_TOL_M:
+                    continue
+                if delta < 0:
+                    notes.append(f"{a} closer to {b}")
+                else:
+                    notes.append(f"{a} farther from {b}")
+
         return "; ".join(notes) if notes else "no objects displaced"
 
     def _wait_arm_settled(self, target_rad: np.ndarray,

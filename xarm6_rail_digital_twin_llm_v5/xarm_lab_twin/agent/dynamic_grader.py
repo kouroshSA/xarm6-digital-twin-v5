@@ -44,22 +44,45 @@ in a strict schema; downstream code parses it deterministically.
 ## What `physical_outcome()` looks like
 
 The simulator emits a semicolon-joined list of facts about objects whose
-state has changed. Vocabulary (these are the ONLY shapes the simulator
-ever produces):
+state has changed since the last scene reset. Vocabulary (these are the
+ONLY shapes the simulator ever produces):
 
+Categorical events (exclusive per object -- only one per object per call):
   - `<object> fell to floor`     -- the object's z is near floor level
   - `<object> in <bin>`          -- a cube is sitting in a bin's footprint
   - `<object> in <rack>`         -- a tube is seated in a non-home rack
                                     slot (tubes still in their home rack
                                     are NOT reported)
   - `<object> off bench`         -- xy is past the bench edge, still elevated
-  - `no objects displaced`       -- nothing moved
+
+Displacement / proximity facts (added on top of the above):
+  - `<object> moved (Δx, Δy)mm`         -- emitted for any movable body
+                                           whose xy shifted >=20 mm from
+                                           its position at the last scene
+                                           reset (only for objects that
+                                           did NOT trigger a categorical
+                                           event above)
+  - `<a> closer to <b>`                 -- inter-object xy distance shrank
+                                           by >=20 mm
+  - `<a> farther from <b>`              -- inter-object xy distance grew
+                                           by >=20 mm
+
+  - `no objects displaced`       -- no facts emitted (nothing happened)
 
 Examples:
   - "red_cube in red_bin"
   - "tube_L2 in right_tube_rack"
   - "tube_R3 fell to floor; blue_bin off bench"
+  - "green_bin moved (180, 5)mm; green_bin closer to blue_bin"
+  - "red_cube moved (-50, 100)mm; red_cube closer to green_cube; red_cube farther from blue_cube"
   - "no objects displaced"
+
+For a "push X closer to Y" task, the natural success criterion is
+`<X> closer to <Y>`. Note that `<a>` and `<b>` are in a canonical order
+(both pair members emit just one fact, alphabetical-first first); when
+you don't know which order the simulator will use, list BOTH orderings
+in expected_substrings with mode "any":
+`["green_bin closer to blue_bin", "blue_bin closer to green_bin"]`.
 
 ## Valid object names (use these EXACTLY, including underscores)
 
