@@ -196,10 +196,35 @@ class LLMBrain:
         """Render the active-cap section for the system prompt so the LLM
         produces compliant speeds up-front rather than waiting for the
         dispatch clamp to chop them down."""
+        # The per-command tier vocabulary applies regardless of session
+        # tier, so it's the same in every case.
+        per_command_block = (
+            "\n\n"
+            "**Per-command speed_tier (optional):** any move_to / set_rail / "
+            "set_joints command may include `\"speed_tier\": \"<tier>\"` in "
+            "its params to use a different cap for that one command. Valid "
+            "tier names: `crazy_fast` (no cap), `fast` (120 mm/s), `medium` "
+            "(80 mm/s), `slow` (40 mm/s), `very_slow` (15 mm/s). The "
+            "per-command tier is clamped to the SESSION tier above (you "
+            "can DOWNGRADE per command but you cannot exceed the session "
+            "ceiling). Use this when the task mentions different speeds "
+            "for different phases, e.g. \"pick up quickly then carefully "
+            "insert\":\n"
+            "```\n"
+            "{\"action\": \"move_to\", \"params\": {\"x\":..., \"y\":..., \"z\":..., \"speed_mm_s\": 100, \"speed_tier\": \"fast\"}}    "
+            "// fast pickup phase\n"
+            "...\n"
+            "{\"action\": \"move_to\", \"params\": {\"x\":..., \"y\":..., \"z\":..., \"speed_mm_s\": 30, \"speed_tier\": \"slow\"}}     "
+            "// careful insert phase\n"
+            "```\n"
+            "If you omit `speed_tier` the session cap applies."
+        )
+
         if self.speed_cap_mm_s is None:
-            return ("Tier: **crazy_fast** -- NO speed cap is in effect. "
+            return ("Tier: **crazy_fast** -- NO session-level speed cap. "
                     "You may use any speed_mm_s value, but stay realistic "
-                    "(the arm's mechanical limits still apply).")
+                    "(the arm's mechanical limits still apply)."
+                    + per_command_block)
         cap = self.speed_cap_mm_s
         # Suggest grasp ~ half the cap, transit at the cap. These are
         # ratios that worked in the prior 100-mm/s regime (80 grasp / 100
@@ -207,25 +232,75 @@ class LLMBrain:
         grasp = max(int(round(cap * 0.5)), 5)
         transit = int(round(cap))
         return (
-            f"Tier: **{self.speed_tier}** -- speed_mm_s on every move_to "
-            f"/ set_rail / set_joints command will be CLAMPED to "
-            f"<= {cap:.0f} mm/s (or deg/s for joints). Suggested values "
-            f"within the cap: ~{grasp} mm/s for grasps and approaches, "
-            f"~{transit} mm/s for transit. Do not request speeds above "
-            f"{cap:.0f}; they will be silently clamped and the move will "
-            f"actually go slower than you specified."
+            f"Tier: **{self.speed_tier}** -- session-level ceiling of "
+            f"{cap:.0f} mm/s. speed_mm_s on every motion command will be "
+            f"CLAMPED to <= {cap:.0f} mm/s (or deg/s for joints). "
+            f"Suggested values within the cap: ~{grasp} mm/s for grasps "
+            f"and approaches, ~{transit} mm/s for transit. Do not request "
+            f"speeds above {cap:.0f}; they will be silently clamped and "
+            f"the move will actually go slower than you specified."
+            + per_command_block
         )
 
-    def _clamp_speed(self, requested: float, units: str = "mm/s") -> float:
-        """Clamp a single speed value against the active cap. Logs any
-        clamp so the user can see when the LLM is being held back."""
-        if self.speed_cap_mm_s is None:
+    def _clamp_speed(self, requested: float, units: str = "mm/s",
+                     per_cmd_tier: Optional[str] = None) -> float:
+        """Clamp a single speed value against the effective cap.
+
+        Effective cap = min(per_command_cap, session_cap), honouring None
+        (None means uncapped for whichever side carries it):
+          - both None -> uncapped, passthrough
+          - one None -> the other wins
+          - both set -> the smaller value wins (per-command can downgrade
+            below the session ceiling but cannot exceed it)
+
+        When `per_cmd_tier` is supplied but not a recognised tier name we
+        ignore it and fall back to the session cap. Logs every clamp,
+        attributing it to whichever cap actually bit.
+        """
+        # Look up per-command cap from tier name. We import lazily to avoid
+        # forcing the dynamic_grader module at every import of llm_brain.
+        per_cap = None
+        per_tier_label = None
+        if per_cmd_tier:
+            from agent.dynamic_grader import SPEED_TIERS
+            if per_cmd_tier in SPEED_TIERS:
+                per_cap = SPEED_TIERS[per_cmd_tier]
+                per_tier_label = per_cmd_tier
+            else:
+                print(f"[Agent] Unknown per-command speed_tier "
+                      f"'{per_cmd_tier}'; ignoring.")
+
+        session_cap = self.speed_cap_mm_s
+        # Compute effective cap.
+        if per_cap is None and session_cap is None:
+            effective = None
+            cap_source = None
+        elif per_cap is None:
+            effective = session_cap
+            cap_source = ("session", self.speed_tier)
+        elif session_cap is None:
+            effective = per_cap
+            cap_source = ("per-command", per_tier_label)
+        else:
+            if per_cap <= session_cap:
+                effective = per_cap
+                cap_source = ("per-command", per_tier_label)
+            else:
+                effective = session_cap
+                cap_source = ("session ceiling", self.speed_tier)
+                print(f"[Agent] Per-command tier '{per_tier_label}' "
+                      f"({per_cap:.0f}) exceeds session ceiling "
+                      f"'{self.speed_tier}' ({session_cap:.0f}); using "
+                      f"session ceiling.")
+
+        if effective is None:
             return requested
-        if requested > self.speed_cap_mm_s:
+        if requested > effective:
+            src_kind, src_label = cap_source
             print(f"[Agent] Clamping speed {requested:.0f} -> "
-                  f"{self.speed_cap_mm_s:.0f} {units} "
-                  f"({self.speed_tier} cap)")
-            return self.speed_cap_mm_s
+                  f"{effective:.0f} {units} "
+                  f"({src_kind} cap: {src_label})")
+            return effective
         return requested
 
     def execute_task(self, task_prompt: str, dry_run: bool = False) -> dict:
@@ -316,7 +391,7 @@ class LLMBrain:
 
     def _move_to(self, p):
         speed = p.get("speed_mm_s", p.get("speed", 100.0))
-        speed = self._clamp_speed(speed)
+        speed = self._clamp_speed(speed, per_cmd_tier=p.get("speed_tier"))
         return self.arm.set_position(
             x=p["x"], y=p["y"], z=p["z"],
             roll=p.get("roll", 0.0), pitch=p.get("pitch", 0.0),
@@ -325,7 +400,8 @@ class LLMBrain:
         )
 
     def _set_rail(self, p):
-        speed = self._clamp_speed(p.get("speed_mm_s", 50.0))
+        speed = self._clamp_speed(p.get("speed_mm_s", 50.0),
+                                  per_cmd_tier=p.get("speed_tier"))
         return self.arm.set_rail_position(
             position_mm=p["position_mm"],
             speed_mm_s=speed,
@@ -339,7 +415,8 @@ class LLMBrain:
         # already too fast for cautious operation. Tune separately if joint
         # speed becomes its own concern.
         requested = p.get("speed_deg_s", p.get("speed", 30.0))
-        speed = self._clamp_speed(requested, units="deg/s")
+        speed = self._clamp_speed(requested, units="deg/s",
+                                  per_cmd_tier=p.get("speed_tier"))
         return self.arm.set_servo_angle(
             angle=p["angles_deg"],
             speed=speed,
