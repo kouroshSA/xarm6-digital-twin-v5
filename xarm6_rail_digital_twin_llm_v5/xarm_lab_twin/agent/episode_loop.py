@@ -522,25 +522,19 @@ class EpisodeRetry:
                 print(f"[EpisodeLoop] Dynamic grader unavailable (non-fatal): "
                       f"{type(e).__name__}: {e}")
 
-        # Infer the speed-cap tier from the task prompt and push it to the
-        # brain so dispatch can clamp motion primitives. Defaults to medium
-        # if Haiku is unavailable or the response is malformed.
-        try:
-            from agent.dynamic_grader import (infer_speed_cap, SPEED_TIERS,
-                                              DEFAULT_SPEED_TIER)
-            ctx.speed_tier = infer_speed_cap(task)
-        except Exception as e:
-            print(f"[EpisodeLoop] Speed inference unavailable (non-fatal): "
-                  f"{type(e).__name__}: {e}; using default '{DEFAULT_SPEED_TIER}'.")
-            ctx.speed_tier = DEFAULT_SPEED_TIER
-        ctx.speed_cap_mm_s = SPEED_TIERS[ctx.speed_tier]
-        # Push to the brain so dispatch clamps come into effect immediately.
-        if hasattr(self.brain, "set_speed_cap"):
-            self.brain.set_speed_cap(ctx.speed_tier, ctx.speed_cap_mm_s)
-        cap_str = ("UNCAPPED" if ctx.speed_cap_mm_s is None
-                   else f"{ctx.speed_cap_mm_s:.0f} mm/s")
-        print(f"[EpisodeLoop] Speed cap for this session: "
-              f"{ctx.speed_tier} ({cap_str})")
+        # Infer the speed-cap tier from the task prompt via the brain's
+        # centralised helper. Doing this through prepare_for_task means
+        # all entry points (--loop, single-shot, auto_play, augmented)
+        # share one inference path and one cache, instead of every caller
+        # re-implementing it.
+        if hasattr(self.brain, "prepare_for_task"):
+            self.brain.prepare_for_task(task)
+            # Mirror the resolved cap onto the context so the per-session
+            # summary / future logic can read it without going through the
+            # brain.
+            ctx.speed_tier = getattr(self.brain, "speed_tier", ctx.speed_tier)
+            ctx.speed_cap_mm_s = getattr(self.brain, "speed_cap_mm_s",
+                                         ctx.speed_cap_mm_s)
 
         while ctx.episode_num <= ctx.max_episodes:
             print(f"\n{'=' * 70}")

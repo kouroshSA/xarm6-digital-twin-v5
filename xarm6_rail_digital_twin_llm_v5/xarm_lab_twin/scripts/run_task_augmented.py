@@ -68,6 +68,8 @@ def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
     brain = LLMBrain(arm=arm, registry=registry, recorder=recorder,
                      model=model_short)
     print(f"\n  [Cycle {cycle_index}] prompt: \"{task_prompt}\"")
+    # Per-task speed-cap inference (variant prompts may shift the tier).
+    brain.prepare_for_task(task_prompt)
     try:
         result = brain.execute_task(task_prompt, dry_run=dry_run)
     except Exception as e:

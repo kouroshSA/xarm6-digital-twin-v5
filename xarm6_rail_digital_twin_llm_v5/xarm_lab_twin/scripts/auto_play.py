@@ -106,6 +106,9 @@ def main():
 
         brain = LLMBrain(arm=arm, registry=registry,
                          recorder=recorder, model=args.model)
+        # Per-task speed-cap inference (each task in the auto_play loop may
+        # imply a different tier, e.g. "carefully" vs "quickly").
+        brain.prepare_for_task(task)
         try:
             result = brain.execute_task(task)
         except Exception as e:
