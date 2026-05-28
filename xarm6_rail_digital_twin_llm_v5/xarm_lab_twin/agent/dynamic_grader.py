@@ -157,11 +157,73 @@ Examples:
   - "no objects displaced"
 
 For a "push X closer to Y" task, the natural success criterion is
-`<X> closer to <Y>`. Note that `<a>` and `<b>` are in a canonical order
-(both pair members emit just one fact, alphabetical-first first); when
-you don't know which order the simulator will use, list BOTH orderings
-in expected_substrings with mode "any":
+`<X> closer to <Y>`. Note that `<a>` and `<b>` are in a canonical
+order: **alphabetical-first comes first**. The sim emits ONE fact per
+pair, in that fixed order. Examples (use these exact orderings):
+
+  - blue_bin / green_bin   -> `blue_bin closer to green_bin`     (b < g)
+  - opentrons_ot2 / well_plate -> `opentrons_ot2 closer to well_plate` (o < w)
+  - red_cube / red_bin     -> `red_bin closer to red_cube`       (red_b < red_c)
+  - tube_L2 / right_tube_rack -> `right_tube_rack closer to tube_L2` (r < t)
+
+If you're not sure which name is alphabetically first, ALWAYS list
+both orderings with `mode="any"` to be safe:
 `["green_bin closer to blue_bin", "blue_bin closer to green_bin"]`.
+The cost of one extra substring is trivial; getting the order wrong
+means the fact never matches and the task is graded as failure even
+when the execution succeeded.
+
+## TRAPS to avoid
+
+These are mistakes the grader-as-Haiku has made before; learn from them.
+
+1. **`(Δx, Δy)mm` is a DELTA, not a FINAL POSITION.** When you see a
+   task like "put the plate at (0, 0)" or "move the cube to position
+   (a, b)", do NOT emit a literal substring like
+   `"well_plate moved (0, 0)mm"`. That would only match if the object
+   ended up exactly at its INITIAL position (zero displacement). The
+   simulator emits the displacement *from the snapshot at scene reset*,
+   not the absolute final coordinates. The right criterion for a
+   "move X to (a, b)" task is the looser
+   `expected_substrings=["<X> moved"]` with `mode="any"` -- the move
+   fact firing at all is enough to confirm displacement.
+
+2. **`off bench` means OVER THE EDGE, not "onto the bench surface".**
+   Tasks like "put it on the bench" / "place it on the table" expect
+   the object to end up on the bench SURFACE, which is the DEFAULT
+   state -- there is no positive categorical event for that. Grade
+   "put X on the bench" via the displacement fact (`<X> moved`),
+   not via `off bench` (which only fires when the xy goes past the
+   bench bounds).
+
+3. **`<obj> in <bin>` is for CUBES inside BIN FOOTPRINTS.** Don't use
+   it for plates, tubes, or generic placement. The simulator only emits
+   `in <bin>` for cubes whose xyz lands inside a bin's wall geometry.
+
+4. **The OT-2 (`opentrons_ot2`) is a static instrument**, not a
+   container. Tasks like "place plate on the OT-2 deck" are gradable
+   via `<plate> closer to opentrons_ot2` plus `<plate> moved` --
+   there's no `<X> in opentrons_ot2` event.
+
+5. **"bench" / "table" is NOT a tracked proximity reference.** The
+   bench is part of the static scene but doesn't appear in proximity
+   facts -- you will NEVER see `<X> closer to bench` or
+   `<X> farther from bench` in physical_outcome. For tasks involving
+   the bench ("put X on the bench", "leave X on the table"), grade via
+   `<X> moved` alone (mode "any"). Do not list a bench-as-target
+   substring; it will never match.
+
+6. **"Closer to" / "farther from" must reflect the ACTUAL motion
+   direction.** When picking an object UP from a location, the object
+   moves AWAY from any nearby fixture, so use `<X> farther from
+   <fixture>` -- not `closer to`. When placing INTO/ONTO a location,
+   the object moves TOWARD the destination, so use `closer to`. Think
+   through the direction of travel before picking either fact.
+
+7. **mode "all" vs "any" matters.** Use "all" only when every fact
+   listed must hold simultaneously (rare). Default to "any" when you
+   list multiple plausible success signals -- it's tolerant of the
+   simulator emitting a subset.
 
 ## Valid object names (use these EXACTLY, including underscores)
 
