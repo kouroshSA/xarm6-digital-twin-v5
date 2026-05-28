@@ -73,9 +73,11 @@ def main():
                              "EVERY task in this auto-play run. "
                              "Deterministic safety override. Pass `auto` "
                              "(or omit) to use Haiku inference per task.")
-    parser.add_argument("--led", action="store_true",
-                        help="Turn on the rainbow LED strips beside the rail "
-                             "for every task in this run.")
+    parser.add_argument("--led", dest="led_enabled",
+                        action="store_false", default=True,
+                        help="TURN OFF the rainbow LED strips beside the rail "
+                             "for every task in this run. LEDs are ON by "
+                             "default; pass --led to disable.")
     args = parser.parse_args()
 
     # 1) Ask Claude for diverse task prompts
@@ -121,7 +123,7 @@ def main():
         # over Haiku inference for EVERY task in this run.
         brain.prepare_for_task(task, override_tier=args.speed_tier)
         if hasattr(arm, "set_led"):
-            arm.set_led(args.led, getattr(brain, "speed_tier", "medium"))
+            arm.set_led(args.led_enabled, getattr(brain, "speed_tier", "medium"))
         try:
             result = brain.execute_task(task)
         except Exception as e:

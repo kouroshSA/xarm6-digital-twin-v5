@@ -255,12 +255,18 @@ python scripts/run_task.py \
     --speed-tier auto
 ```
 
-There's a complementary `--led` flag on the same entry points: pass it
-to enable two 700 mm rainbow LED strips beside the rail. When the rail
-moves, the rainbow flows in the direction of motion at a rate matching
-the active speed tier (off by default; flow rates: crazy_fast=5 Hz,
-fast=3, medium=2, slow=1, very_slow=0.5; dim warm-white standby when
-the rail is idle but `--led` is on).
+There's a complementary `--led` flag on the same entry points: two
+700 mm rainbow LED strips beside the rail are **on by default** and
+pass `--led` to **turn them off**. When the rail moves, the rainbow
+flows OPPOSITE to the motion direction (trailing the arm) at a rate
+matching the active speed tier (flow rates: crazy_fast=5 Hz, fast=3,
+medium=2, slow=1, very_slow=0.5; dim warm-white standby when the
+rail is idle).
+
+The Vortex-Genie 2 on the bench also has four small yellow indicator
+LEDs (one on each side of its chassis) that light up automatically
+when an object rests on its platform and the orbital motion starts,
+and turn off when the platform clears. No flag needed.
 
 Tiers and caps: `crazy_fast` = uncapped, `fast` = 120, `medium` = 80,
 `slow` = 40, `very_slow` = 15 mm/s, plus `auto` = use Haiku inference.
