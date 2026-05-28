@@ -309,6 +309,10 @@ def build_default_registry() -> ObjectRegistry:
             "REACH WARNING from rail=700: slots 1-6 reach cleanly; "
             "slots 7-9 are at the edge of arm reach; slots 10-11 + "
             "TRASH are usually unreachable through the front opening. "
+            "Slots are visually identified by coloured corner tags: "
+            "1=red, 2=orange, 3=yellow, 4=yellow-green, 5=green, "
+            "6=teal, 7=cyan, 8=blue, 9=purple, 10=pink, 11=white, "
+            "TRASH=dark grey. "
             "Do NOT try to grasp the OT-2 itself."
         ),
         object_type="instrument",
@@ -363,14 +367,18 @@ def build_default_registry() -> ObjectRegistry:
         name="tip_box",
         aliases=["tip rack", "tip box", "pipette tips", "tips",
                  "tip_rack", "96-tip rack"],
-        position_xyz_m=[0.956, +0.132, 0.795],
+        position_xyz_m=[1.133, +0.132, 0.795],
         optimal_rail_mm=700.0,
         grasp=tip_box_grasp,
         safety_notes=(
             "Opentrons-style 96-position tip rack. 127 x 85 x 80 mm "
-            "(taller than a plate). Start position: OT-2 slot 4 "
-            "(mid-front-left). Body centre z=795; top z=835. Grasp from "
-            "directly above. Heavier than a plate (mass 0.2 kg)."
+            "(taller than a plate). Start position: OT-2 slot 10 "
+            "(back-left, world (1133, +132)). Body centre z=795; "
+            "top z=835. Grasp from directly above. "
+            "REACH WARNING: slot 10 is at the back of the OT-2 deck, "
+            "at the edge of the arm's reach through the front "
+            "opening. Pick may fail with IK errors -- if so, try "
+            "alternative rail positions or wrist orientations."
         ),
         object_type="plate",
     ))

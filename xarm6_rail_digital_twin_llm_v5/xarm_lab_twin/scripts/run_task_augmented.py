@@ -31,7 +31,8 @@ from recording import Recorder
 def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
                   model_short, pos_jitter_mm, rot_jitter_deg, seed,
                   render, no_record, dry_run,
-                  speed_tier_override: Optional[str] = None) -> Optional[Path]:
+                  speed_tier_override: Optional[str] = None,
+                  led_enabled: bool = False) -> Optional[Path]:
     from sim.mujoco_env import SimXArmAPI
     arm = SimXArmAPI(scene_xml="envs/lab_scene.xml", render=render)
 
@@ -72,6 +73,8 @@ def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
     # Per-task speed-cap inference (variant prompts may shift the tier).
     # CLI --speed-tier (when set) wins over Haiku inference.
     brain.prepare_for_task(task_prompt, override_tier=speed_tier_override)
+    if hasattr(arm, "set_led"):
+        arm.set_led(led_enabled, getattr(brain, "speed_tier", "medium"))
     try:
         result = brain.execute_task(task_prompt, dry_run=dry_run)
     except Exception as e:
@@ -159,6 +162,8 @@ def main():
                         help="Override the Haiku-inferred speed cap for "
                              "every cycle. Deterministic safety override. "
                              "Pass `auto` (or omit) to use Haiku inference.")
+    parser.add_argument("--led", action="store_true",
+                        help="Turn on the rainbow LED strips beside the rail.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()
@@ -208,6 +213,7 @@ def main():
             no_record=args.no_record,
             dry_run=args.dry_run,
             speed_tier_override=args.speed_tier,
+            led_enabled=args.led,
         )
         saved_dirs.append(saved)
 

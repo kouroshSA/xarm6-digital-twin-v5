@@ -482,7 +482,8 @@ class EpisodeRetry:
                  max_episodes: int = 10,
                  settle_seconds: float = 1.5,
                  stringency: str = "loose",
-                 speed_tier_override: Optional[str] = None):
+                 speed_tier_override: Optional[str] = None,
+                 led_enabled: bool = False):
         """
         Args:
             brain:            LLMBrain instance (already constructed).
@@ -511,6 +512,7 @@ class EpisodeRetry:
         self.settle_seconds = settle_seconds
         self.stringency = stringency
         self.speed_tier_override = speed_tier_override
+        self.led_enabled = led_enabled
 
     def run(self, task: str) -> Dict[str, Any]:
         ctx = EpisodeContext(task=task, max_episodes=self.max_episodes)
@@ -544,6 +546,11 @@ class EpisodeRetry:
             ctx.speed_tier = getattr(self.brain, "speed_tier", ctx.speed_tier)
             ctx.speed_cap_mm_s = getattr(self.brain, "speed_cap_mm_s",
                                          ctx.speed_cap_mm_s)
+        # Apply --led now that the resolved tier is known. set_led is a
+        # no-op when the sim doesn't include LED strips (e.g. older
+        # scene XMLs).
+        if hasattr(self.arm, "set_led"):
+            self.arm.set_led(self.led_enabled, ctx.speed_tier)
 
         while ctx.episode_num <= ctx.max_episodes:
             print(f"\n{'=' * 70}")
