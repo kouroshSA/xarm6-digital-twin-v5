@@ -106,6 +106,9 @@ JSON array ONLY - no prose, no markdown fences. Example for "put red cube in red
   {{"action": "done",          "params": {{"message": "Red cube placed in red bin"}}}}
 ]
 
+## Active speed cap
+{speed_cap_section}
+
 ## Current scene registry
 {registry_context}
 
@@ -135,7 +138,56 @@ class LLMBrain:
         self.model_full = resolve_model(model)
         self.model_short = model if model in MODELS else "custom"
         self.history = []
+        # Speed cap applied to move_to / set_rail / set_joints. None means
+        # "no clamp" (the crazy_fast tier). Default tier is "medium" with an
+        # 80 mm/s cap -- set explicitly via set_speed_cap() by the episode
+        # loop after it infers the tier from the task prompt.
+        self.speed_tier = "medium"
+        self.speed_cap_mm_s: Optional[float] = 80.0
         print(f"[LLMBrain] Using model: {self.model_short} ({self.model_full})")
+
+    def set_speed_cap(self, tier: str, cap_mm_s: Optional[float]) -> None:
+        """Set the dispatch-time speed clamp. `tier` is the human-readable
+        name for logs ('medium', 'fast', etc.); `cap_mm_s` is the numeric
+        ceiling (None = no clamp, only used for 'crazy_fast')."""
+        self.speed_tier = tier
+        self.speed_cap_mm_s = cap_mm_s
+
+    def _render_speed_cap_section(self) -> str:
+        """Render the active-cap section for the system prompt so the LLM
+        produces compliant speeds up-front rather than waiting for the
+        dispatch clamp to chop them down."""
+        if self.speed_cap_mm_s is None:
+            return ("Tier: **crazy_fast** -- NO speed cap is in effect. "
+                    "You may use any speed_mm_s value, but stay realistic "
+                    "(the arm's mechanical limits still apply).")
+        cap = self.speed_cap_mm_s
+        # Suggest grasp ~ half the cap, transit at the cap. These are
+        # ratios that worked in the prior 100-mm/s regime (80 grasp / 100
+        # transit -> grasp ~ 0.8 * cap, transit = cap).
+        grasp = max(int(round(cap * 0.5)), 5)
+        transit = int(round(cap))
+        return (
+            f"Tier: **{self.speed_tier}** -- speed_mm_s on every move_to "
+            f"/ set_rail / set_joints command will be CLAMPED to "
+            f"<= {cap:.0f} mm/s (or deg/s for joints). Suggested values "
+            f"within the cap: ~{grasp} mm/s for grasps and approaches, "
+            f"~{transit} mm/s for transit. Do not request speeds above "
+            f"{cap:.0f}; they will be silently clamped and the move will "
+            f"actually go slower than you specified."
+        )
+
+    def _clamp_speed(self, requested: float, units: str = "mm/s") -> float:
+        """Clamp a single speed value against the active cap. Logs any
+        clamp so the user can see when the LLM is being held back."""
+        if self.speed_cap_mm_s is None:
+            return requested
+        if requested > self.speed_cap_mm_s:
+            print(f"[Agent] Clamping speed {requested:.0f} -> "
+                  f"{self.speed_cap_mm_s:.0f} {units} "
+                  f"({self.speed_tier} cap)")
+            return self.speed_cap_mm_s
+        return requested
 
     def execute_task(self, task_prompt: str, dry_run: bool = False) -> dict:
         llm_log = None
@@ -152,6 +204,7 @@ class LLMBrain:
                           "\n\n" + wm_section)
         system = SYSTEM_PROMPT_TEMPLATE.format(
             registry_context=self.registry.to_llm_context(),
+            speed_cap_section=self._render_speed_cap_section(),
             world_model_section=wm_section if wm_section
                                 else "(no cross-task world model yet)",
             lessons_section=lessons if lessons else "(no prior lessons yet)",
@@ -224,6 +277,7 @@ class LLMBrain:
 
     def _move_to(self, p):
         speed = p.get("speed_mm_s", p.get("speed", 100.0))
+        speed = self._clamp_speed(speed)
         return self.arm.set_position(
             x=p["x"], y=p["y"], z=p["z"],
             roll=p.get("roll", 0.0), pitch=p.get("pitch", 0.0),
@@ -232,16 +286,24 @@ class LLMBrain:
         )
 
     def _set_rail(self, p):
+        speed = self._clamp_speed(p.get("speed_mm_s", 50.0))
         return self.arm.set_rail_position(
             position_mm=p["position_mm"],
-            speed_mm_s=p.get("speed_mm_s", 50.0),
+            speed_mm_s=speed,
             wait=p.get("wait", True),
         )
 
     def _set_joints(self, p):
+        # set_joints is angular (deg/s), not linear (mm/s). The cap is
+        # nominally a linear speed limit, so we apply it directly to deg/s
+        # only as a conservative ceiling -- a joint moving at >80 deg/s is
+        # already too fast for cautious operation. Tune separately if joint
+        # speed becomes its own concern.
+        requested = p.get("speed_deg_s", p.get("speed", 30.0))
+        speed = self._clamp_speed(requested, units="deg/s")
         return self.arm.set_servo_angle(
             angle=p["angles_deg"],
-            speed=p.get("speed_deg_s", p.get("speed", 30.0)),
+            speed=speed,
             wait=p.get("wait", True),
         )
 
