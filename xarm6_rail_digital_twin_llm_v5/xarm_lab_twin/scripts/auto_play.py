@@ -65,6 +65,13 @@ def main():
                         help="Seed for the prompt generator (forwards to Claude implicitly)")
     parser.add_argument("--save-frames", action="store_true",
                         help="Record image frames at 10Hz per episode (off by default).")
+    from agent.dynamic_grader import SPEED_TIERS
+    parser.add_argument("--speed-tier",
+                        choices=list(SPEED_TIERS.keys()),
+                        default=None,
+                        help="Override the Haiku-inferred speed cap for "
+                             "EVERY task in this auto-play run. "
+                             "Deterministic safety override.")
     args = parser.parse_args()
 
     # 1) Ask Claude for diverse task prompts
@@ -106,9 +113,9 @@ def main():
 
         brain = LLMBrain(arm=arm, registry=registry,
                          recorder=recorder, model=args.model)
-        # Per-task speed-cap inference (each task in the auto_play loop may
-        # imply a different tier, e.g. "carefully" vs "quickly").
-        brain.prepare_for_task(task)
+        # Per-task speed-cap inference. CLI --speed-tier (when set) wins
+        # over Haiku inference for EVERY task in this run.
+        brain.prepare_for_task(task, override_tier=args.speed_tier)
         try:
             result = brain.execute_task(task)
         except Exception as e:

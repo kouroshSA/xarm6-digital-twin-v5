@@ -481,7 +481,8 @@ class EpisodeRetry:
     def __init__(self, brain, arm, registry, recorder_factory,
                  max_episodes: int = 10,
                  settle_seconds: float = 1.5,
-                 stringency: str = "loose"):
+                 stringency: str = "loose",
+                 speed_tier_override: Optional[str] = None):
         """
         Args:
             brain:            LLMBrain instance (already constructed).
@@ -496,6 +497,11 @@ class EpisodeRetry:
                               arm.physical_outcome() to tighten what counts
                               as a placed object. See STRINGENCY_LEVELS in
                               sim/mujoco_env.py.
+            speed_tier_override:
+                              When set (one of SPEED_TIERS keys), skips the
+                              Haiku tier inference and uses this tier as the
+                              session ceiling for every episode. Wired to
+                              the --speed-tier CLI flag.
         """
         self.brain = brain
         self.arm = arm
@@ -504,6 +510,7 @@ class EpisodeRetry:
         self.max_episodes = max_episodes
         self.settle_seconds = settle_seconds
         self.stringency = stringency
+        self.speed_tier_override = speed_tier_override
 
     def run(self, task: str) -> Dict[str, Any]:
         ctx = EpisodeContext(task=task, max_episodes=self.max_episodes)
@@ -526,9 +533,11 @@ class EpisodeRetry:
         # centralised helper. Doing this through prepare_for_task means
         # all entry points (--loop, single-shot, auto_play, augmented)
         # share one inference path and one cache, instead of every caller
-        # re-implementing it.
+        # re-implementing it. CLI --speed-tier override (when present)
+        # wins over Haiku inference.
         if hasattr(self.brain, "prepare_for_task"):
-            self.brain.prepare_for_task(task)
+            self.brain.prepare_for_task(task,
+                                        override_tier=self.speed_tier_override)
             # Mirror the resolved cap onto the context so the per-session
             # summary / future logic can read it without going through the
             # brain.
