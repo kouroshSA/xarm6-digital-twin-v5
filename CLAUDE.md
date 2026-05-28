@@ -44,6 +44,77 @@ When extending the loop:
   across episodes, that's a different feature (multi-objective episodes,
   not yet implemented).
 
+## Learning architecture (Phases 1/2/3 + grader fallback)
+
+Three layers sit on top of the per-episode failure analyser to let the
+system accumulate knowledge across episodes and sessions. Each is
+non-fatal: API failure or malformed output is logged, and the session
+result is returned unchanged.
+
+- **Phase 1 — in-session plan pinning.** `EpisodeContext.successful_plans`
+  records every successful plan and renders them into subsequent
+  episodes' prompts as exploration-friendly references ("plans that
+  succeeded, but the task likely admits cleaner solutions"). The reuse-
+  rate metric in the end-of-session summary tells you whether the
+  planner converged on the pinned shape or kept finding independent
+  solutions. Destructive successes (`off bench`, `fell to floor`) are
+  skipped to avoid pinning false positives.
+- **Phase 2 — Opus session review.** When a session of 3+ episodes
+  finishes, `agent/review_session.py` invokes Opus 4.7 on the full
+  session and asks for *abstracted observations* (phrased as
+  hypotheses, never as rules). Markdown writeup is appended to
+  `reviews.md` at the project root; structured fields (false-positive
+  flags, exploration diagnoses, cross-task observations) come back in
+  a fenced JSON block.
+- **Phase 3 — cross-task world model.** `world_model.md` accumulates
+  *invariants* across sessions in four sections (geometric,
+  object-class, primitive, grader). Each entry tracks a corroboration
+  list; confidence = high (3+ sessions), medium (2), provisional (1).
+  Phase 2's Opus call decides per-observation whether to merge into an
+  existing entry or create a new one. The rendered world model gets
+  injected into every future `LLMBrain` system prompt. A scene-hash
+  banner fires when `envs/lab_scene.xml` has changed since entries were
+  recorded.
+- **Dynamic grader.** `outcome_checker.expected_outcome` only recognises
+  three task templates. For anything else, `agent/dynamic_grader.py`
+  makes one Haiku call at session start to produce a
+  `(mode, expected_substrings)` spec restricted to the
+  `physical_outcome()` vocabulary. The result is cached per session
+  and consulted by `check_outcome` as a fallback. The same module
+  hosts the `--speed-tier` inference (see below).
+
+When extending any of these:
+- New cross-task observation categories: edit `SECTIONS` in
+  `agent/world_model.py` *and* the schema docs in
+  `agent/review_session.py::SYSTEM_PROMPT` together; the index-based
+  merge_with field assumes both sides agree on category names.
+- New regex grader templates go in
+  `agent/outcome_checker.py::expected_outcome` first; if the dynamic
+  fallback keeps grading them, the regex stays out of the LLM call
+  path. Faster *and* deterministic.
+
+## Speed caps and motion pacing
+
+`--speed-tier {crazy_fast,fast,medium,slow,very_slow,auto}` on every LLM
+entry point pins the session ceiling (`auto` or omit = Haiku reads cues
+from the task prompt). Per-command tier downgrades via
+`{"speed_tier": "<tier>"}` in any motion command are clamped to the
+session ceiling. Caps in mm/s: crazy_fast=None (uncapped), fast=120,
+medium=80, slow=40, very_slow=15.
+
+The cap is enforced **twice**:
+1. `LLMBrain._clamp_speed` clamps the LLM-emitted `speed_mm_s` before
+   passing it to the sim.
+2. `SimXArmAPI._execute_paced_arm` / `_execute_paced_rail` interpolate
+   actuator targets at ~50 Hz over `distance / speed` wall-clock
+   seconds. MuJoCo position actuators have no built-in velocity limit,
+   so without this pacing layer the cap would only be cosmetic.
+
+`push_object` takes its own `speed_mm_s` kwarg that's threaded through
+all its internal `set_position` / `set_rail_position` calls. The
+dispatch resolves the effective cap via
+`LLMBrain._effective_speed_mm_s(per_cmd_tier)`.
+
 ## Recording format
 
 Every script that touches the sim writes one folder per session under
@@ -88,3 +159,21 @@ file's "Recording format" section so consumers can find them.
 - **Compound prompts** (e.g. "put all three cubes in all three bins") often
   overrun Haiku. Escalate to Sonnet via `--model sonnet`. The `--loop` flag
   helps: even if the first plan is bad, the loop retries with constraints.
+- **Speed is only paced because of explicit interpolation.** MuJoCo
+  position actuators have no built-in velocity limit -- writing a
+  ctrl target sends the joint there at full PD authority. If you add
+  a new motion primitive on `SimXArmAPI`, you must pace it via
+  `_execute_paced_arm` / `_execute_paced_rail` (or call an existing
+  primitive that already does), otherwise `--speed-tier slow` will be
+  cosmetic for your new path. The bug existed for the first two weeks
+  after `--speed-tier` shipped: `set_position`, `set_rail_position`,
+  and `set_servo_angle` all accepted a `speed` kwarg they then ignored,
+  so the dispatch clamp looked correct in logs while motion ran at
+  full speed. See commit `2e87fe4` for the fix.
+- **Adding a new task to the grader.** Two layers: (1) the regex
+  grader in `agent/outcome_checker.py::expected_outcome` is fastest
+  and deterministic; (2) the Haiku fallback in
+  `agent/dynamic_grader.py::infer_criteria` only fires when the regex
+  returns None. If you add a regex pattern, make sure the existing
+  Haiku call wouldn't have produced the same answer -- otherwise
+  you're paying tokens for nothing.
