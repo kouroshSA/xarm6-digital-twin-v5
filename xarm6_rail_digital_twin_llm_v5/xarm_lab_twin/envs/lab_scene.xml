@@ -687,27 +687,30 @@
             material="vortex_logo_mat"
             contype="0" conaffinity="0" mass="0"/>
 
-      <!-- Power-indicator LEDs: one small yellow disc on each of the
-           chassis's four side faces. SimXArmAPI._vortex_tick switches
-           their rgba on/off when the vortex starts/stops shaking.
-           Default rgba below = the OFF state (dim yellow). -->
+      <!-- Power-indicator LEDs: one yellow disc on each of the chassis's
+           four side faces. Now 2x larger (radius 9mm, length 8mm) than
+           the first pass so they're visible at typical camera distance.
+           Positioned so each LED's inner face is flush with its chassis
+           face and 8mm proud of it. SimXArmAPI._vortex_tick switches
+           their rgba on/off when the vortex starts/stops shaking;
+           default rgba below = the OFF state (dim yellow). -->
       <geom name="vortex_led_front" type="cylinder"
-            size="0.0045 0.0020" pos="0 -0.0625 0.115"
+            size="0.009 0.004" pos="0 -0.0865 0.115"
             euler="1.5708 0 0"
             rgba="0.18 0.15 0.02 1"
             contype="0" conaffinity="0" mass="0"/>
       <geom name="vortex_led_back" type="cylinder"
-            size="0.0045 0.0020" pos="0 +0.0625 0.115"
+            size="0.009 0.004" pos="0 +0.0865 0.115"
             euler="1.5708 0 0"
             rgba="0.18 0.15 0.02 1"
             contype="0" conaffinity="0" mass="0"/>
       <geom name="vortex_led_left" type="cylinder"
-            size="0.0045 0.0020" pos="-0.0830 0 0.115"
+            size="0.009 0.004" pos="-0.0865 0 0.115"
             euler="0 1.5708 0"
             rgba="0.18 0.15 0.02 1"
             contype="0" conaffinity="0" mass="0"/>
       <geom name="vortex_led_right" type="cylinder"
-            size="0.0045 0.0020" pos="+0.0830 0 0.115"
+            size="0.009 0.004" pos="+0.0865 0 0.115"
             euler="0 1.5708 0"
             rgba="0.18 0.15 0.02 1"
             contype="0" conaffinity="0" mass="0"/>
@@ -751,44 +754,44 @@
     ============================================================= -->
     <body name="led_strip_A" pos="0 -0.085 0.766">
       <geom name="led_strip_A_pcb" type="box"
-            size="0.350 0.0075 0.0020" pos="0 0 0"
+            size="0.350 0.0150 0.0030" pos="0 0 0"
             material="led_pcb_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_01" type="box" size="0.020 0.005 0.003" pos="-0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_02" type="box" size="0.020 0.005 0.003" pos="-0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_03" type="box" size="0.020 0.005 0.003" pos="-0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_04" type="box" size="0.020 0.005 0.003" pos="-0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_05" type="box" size="0.020 0.005 0.003" pos="-0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_06" type="box" size="0.020 0.005 0.003" pos="-0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_07" type="box" size="0.020 0.005 0.003" pos="-0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_08" type="box" size="0.020 0.005 0.003" pos=" 0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_09" type="box" size="0.020 0.005 0.003" pos=" 0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_10" type="box" size="0.020 0.005 0.003" pos=" 0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_11" type="box" size="0.020 0.005 0.003" pos=" 0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_12" type="box" size="0.020 0.005 0.003" pos=" 0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_13" type="box" size="0.020 0.005 0.003" pos=" 0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_A_14" type="box" size="0.020 0.005 0.003" pos=" 0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_01" type="box" size="0.024 0.010 0.006" pos="-0.325 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_02" type="box" size="0.024 0.010 0.006" pos="-0.275 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_03" type="box" size="0.024 0.010 0.006" pos="-0.225 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_04" type="box" size="0.024 0.010 0.006" pos="-0.175 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_05" type="box" size="0.024 0.010 0.006" pos="-0.125 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_06" type="box" size="0.024 0.010 0.006" pos="-0.075 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_07" type="box" size="0.024 0.010 0.006" pos="-0.025 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_08" type="box" size="0.024 0.010 0.006" pos=" 0.025 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_09" type="box" size="0.024 0.010 0.006" pos=" 0.075 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_10" type="box" size="0.024 0.010 0.006" pos=" 0.125 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_11" type="box" size="0.024 0.010 0.006" pos=" 0.175 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_12" type="box" size="0.024 0.010 0.006" pos=" 0.225 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_13" type="box" size="0.024 0.010 0.006" pos=" 0.275 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_14" type="box" size="0.024 0.010 0.006" pos=" 0.325 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
     </body>
 
     <body name="led_strip_B" pos="0 -0.015 0.766">
       <geom name="led_strip_B_pcb" type="box"
-            size="0.350 0.0075 0.0020" pos="0 0 0"
+            size="0.350 0.0150 0.0030" pos="0 0 0"
             material="led_pcb_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_01" type="box" size="0.020 0.005 0.003" pos="-0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_02" type="box" size="0.020 0.005 0.003" pos="-0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_03" type="box" size="0.020 0.005 0.003" pos="-0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_04" type="box" size="0.020 0.005 0.003" pos="-0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_05" type="box" size="0.020 0.005 0.003" pos="-0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_06" type="box" size="0.020 0.005 0.003" pos="-0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_07" type="box" size="0.020 0.005 0.003" pos="-0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_08" type="box" size="0.020 0.005 0.003" pos=" 0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_09" type="box" size="0.020 0.005 0.003" pos=" 0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_10" type="box" size="0.020 0.005 0.003" pos=" 0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_11" type="box" size="0.020 0.005 0.003" pos=" 0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_12" type="box" size="0.020 0.005 0.003" pos=" 0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_13" type="box" size="0.020 0.005 0.003" pos=" 0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
-      <geom name="led_B_14" type="box" size="0.020 0.005 0.003" pos=" 0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_01" type="box" size="0.024 0.010 0.006" pos="-0.325 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_02" type="box" size="0.024 0.010 0.006" pos="-0.275 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_03" type="box" size="0.024 0.010 0.006" pos="-0.225 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_04" type="box" size="0.024 0.010 0.006" pos="-0.175 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_05" type="box" size="0.024 0.010 0.006" pos="-0.125 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_06" type="box" size="0.024 0.010 0.006" pos="-0.075 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_07" type="box" size="0.024 0.010 0.006" pos="-0.025 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_08" type="box" size="0.024 0.010 0.006" pos=" 0.025 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_09" type="box" size="0.024 0.010 0.006" pos=" 0.075 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_10" type="box" size="0.024 0.010 0.006" pos=" 0.125 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_11" type="box" size="0.024 0.010 0.006" pos=" 0.175 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_12" type="box" size="0.024 0.010 0.006" pos=" 0.225 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_13" type="box" size="0.024 0.010 0.006" pos=" 0.275 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_14" type="box" size="0.024 0.010 0.006" pos=" 0.325 0 0.0090" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
     </body>
 
   </worldbody>
