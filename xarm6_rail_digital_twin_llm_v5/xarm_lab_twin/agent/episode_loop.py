@@ -207,15 +207,38 @@ def _find_nearest_body(registry, x_mm, y_mm, z_mm,
     return best
 
 
+# Empirically-validated working heights per object_type, in mm. These are
+# the values that have repeatedly cleared validation AND let close_lite6_
+# gripper engage in past runs. They beat first-principles geometry because
+# the validator's effective collision envelope and the weld's effective
+# reach are both wider than the registry's body dimensions imply.
+#
+# APPROACH_Z: pre-grasp standoff -- above any collidable feature.
+# GRASP_Z:    descend target for gripper_close -- low enough that the
+#             nearest geom (cap for tubes, top for cubes) is within
+#             GRIPPER_REACH_M (70mm) of the EE site, high enough that
+#             the move_to validator accepts it.
+# RELEASE_Z:  for bins, where to gripper_open above the rim.
+_WORKING_HEIGHTS = {
+    "rack": {"approach_z_mm": 940, "grasp_z_mm": 900},   # picking from a rack
+    "tube": {"approach_z_mm": 940, "grasp_z_mm": 900},   # same (tubes live in racks)
+    "bin":  {"approach_z_mm": 870, "release_z_mm": 830},
+    "cube": {"approach_z_mm": 830, "grasp_z_mm": 795},
+}
+
+
 def _move_to_body_aware_constraint(x_mm, y_mm, z_mm, registry) -> Optional[str]:
     """Produce a body-naming move_to constraint, or None if no candidate.
 
-    The point of naming the body (rather than just saying "lift z") is that
-    the LLM treats coordinates in past lesson lines as numeric precedents
-    to try again -- but a named body ("colliding with right_tube_rack") is
-    a categorical fact it's more likely to act on. The escape advice is
-    body-type-specific: macros for racks, release-above for bins, lift-and-
-    approach for cubes/tubes.
+    The constraint serves two roles:
+      1. Naming the colliding body (rather than just emitting coordinates)
+         -- the LLM treats raw coordinates in past lesson lines as
+         numeric precedents to try again, but a named body is categorical.
+      2. Giving CONCRETE empirically-working heights to use instead. A
+         vague instruction like "descend to grasp the cap" gets read
+         literally as "go to cap height" -- which is exactly where
+         validation rejects. The values in _WORKING_HEIGHTS are what
+         past sessions actually succeeded with.
     """
     hit = _find_nearest_body(registry, x_mm, y_mm, z_mm)
     if hit is None:
@@ -225,41 +248,54 @@ def _move_to_body_aware_constraint(x_mm, y_mm, z_mm, registry) -> Optional[str]:
         return None  # near in xy but z is clear -- generic advice still fits
 
     env = _COLLISION_ENVELOPES[obj.object_type]
-    safe_z = env["z_max_mm"] + 20
+    heights = _WORKING_HEIGHTS[obj.object_type]
 
     if obj.object_type == "rack":
         return (
-            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation because the "
-            f"gripper is inside the body of '{obj.name}' (a tube rack at "
+            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation -- "
+            f"colliding with '{obj.name}' (a tube rack at "
             f"({obj.position_xyz_m[0]*1000:.0f}, "
-            f"{obj.position_xyz_m[1]*1000:.0f}) with walls/contents up to "
-            f"z~{env['z_max_mm']}mm). Approach from above z>={safe_z}mm "
-            f"before descending. To PLACE a held tube into '{obj.name}', "
-            f"use `place_tube_in_rack(rack_name='{obj.name}')` instead of "
+            f"{obj.position_xyz_m[1]*1000:.0f}); walls + tube caps up to "
+            f"z~{env['z_max_mm']}mm). Working heights for this rack: "
+            f"approach at z={heights['approach_z_mm']}mm, descend to "
+            f"z={heights['grasp_z_mm']}mm for grasping (NOT to cap level -- "
+            f"the validator rejects descents below z~895mm in the rack "
+            f"zone, and the gripper's 70mm reach still engages the cap "
+            f"from z={heights['grasp_z_mm']}mm). To PLACE a held tube "
+            f"into '{obj.name}', use "
+            f"`place_tube_in_rack(rack_name='{obj.name}')` instead of "
             f"`move_to` -- the macro seats the tube without entering the "
-            f"rack body, which also avoids knocking neighbouring tubes out."
+            f"rack body and avoids knocking neighbouring tubes out."
+        )
+    if obj.object_type == "tube":
+        return (
+            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation -- "
+            f"colliding near tube '{obj.name}' (cap top at "
+            f"z~{env['z_max_mm']}mm, but the validator's collision "
+            f"envelope extends ~10mm higher). Working heights: approach "
+            f"at z={heights['approach_z_mm']}mm, then descend to "
+            f"z={heights['grasp_z_mm']}mm for `gripper_close`. Do NOT "
+            f"descend to cap level (z={env['z_max_mm']}mm) or below -- "
+            f"validation rejects it. At z={heights['grasp_z_mm']}mm the "
+            f"gripper's 70mm reach still engages the cap geom, so the "
+            f"grasp succeeds."
         )
     if obj.object_type == "bin":
         return (
             f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation -- the "
             f"gripper is at/below the rim of '{obj.name}' (walls up to "
-            f"z~{env['z_max_mm']}mm). Release ABOVE the bin opening at "
-            f"z>={safe_z}mm; the object drops in under gravity. The gripper "
-            f"is wider than the bin opening, so do not descend into it."
-        )
-    if obj.object_type == "tube":
-        return (
-            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation next to "
-            f"tube '{obj.name}' (cap top at z~{env['z_max_mm']}mm). "
-            f"Approach from above z>={safe_z}mm, then descend straight "
-            f"down to grasp the cap."
+            f"z~{env['z_max_mm']}mm). Working heights: approach at "
+            f"z={heights['approach_z_mm']}mm, release at "
+            f"z={heights['release_z_mm']}mm. The object drops into the "
+            f"bin under gravity; the gripper is wider than the opening, "
+            f"so do not descend into it."
         )
     if obj.object_type == "cube":
         return (
             f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation next to "
-            f"cube '{obj.name}' (top at z~{env['z_max_mm']}mm). Approach "
-            f"from above z>={safe_z}mm, then descend to grasp at "
-            f"z={env['z_max_mm'] + 15}mm."
+            f"cube '{obj.name}' (top at z~{env['z_max_mm']}mm). Working "
+            f"heights: approach at z={heights['approach_z_mm']}mm, "
+            f"descend to z={heights['grasp_z_mm']}mm for `gripper_close`."
         )
     return None
 
