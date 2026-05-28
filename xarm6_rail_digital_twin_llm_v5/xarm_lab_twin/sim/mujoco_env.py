@@ -1,4 +1,5 @@
 # sim/mujoco_env.py
+import colorsys
 import mujoco
 import mujoco.viewer
 import numpy as np
@@ -180,6 +181,25 @@ class SimXArmAPI:
         self._vortex_active = False
         self._vortex_t0 = 0.0
 
+        # LED strip state. Resolved lazily so scenes without LED
+        # strips (or with a different number of LEDs) load fine.
+        # _led_gids holds (strip_index_0or1, position_index, geom_id)
+        # tuples so _led_tick can compute per-LED hue from position.
+        self._led_enabled = False
+        self._led_speed_tier = "medium"
+        self._led_t0 = 0.0
+        self._led_last_update = 0.0
+        self._led_gids = []
+        self._led_per_strip = 14   # matches the LED chip count in lab_scene.xml
+        for strip_idx, prefix in enumerate(("led_A", "led_B")):
+            for i in range(1, self._led_per_strip + 1):
+                try:
+                    gid = self.model.geom(f"{prefix}_{i:02d}").id
+                    self._led_gids.append((strip_idx, i - 1, gid))
+                except Exception:
+                    # Scene doesn't have this LED -- skip silently.
+                    pass
+
         # Baseline positions captured at scene-reset time. physical_outcome()
         # compares current positions against these to emit displacement
         # ("moved (Δx, Δy)mm") and proximity ("closer to <other>") facts on
@@ -225,7 +245,89 @@ class SimXArmAPI:
             with self.lock:
                 mujoco.mj_step(self.model, self.data)
             self._vortex_tick()
+            self._led_tick()
             time.sleep(0.002)
+
+    # ---- LED strip driver ---------------------------------------------------
+    # Two 700mm strips of "LEDs" run parallel to the rail. When the arm is
+    # moving along the rail, the strips show a flowing rainbow whose
+    # direction matches the rail's velocity sign and whose flow rate scales
+    # with the active --speed-tier. When the rail is idle, the strips dim to
+    # a warm white standby colour. When the user hasn't passed --led, the
+    # strips stay dark.
+    #
+    # Implementation: per-tick, recompute geom_rgba for each LED chip from
+    # (per-LED phase = position_along_strip + time * flow_hz * direction).
+    # MuJoCo's geom_rgba can be modified at runtime without an mj_forward
+    # because it's purely a render attribute.
+    _LED_HZ_BY_TIER = {
+        "crazy_fast": 5.0,
+        "fast":       3.0,
+        "medium":     2.0,
+        "slow":       1.0,
+        "very_slow":  0.5,
+    }
+    _LED_UPDATE_PERIOD_S = 1.0 / 30.0   # 30 Hz throttle
+    _LED_RAIL_VEL_THRESHOLD = 0.005     # m/s; below this, rail is "idle"
+
+    def set_led(self, enabled: bool,
+                speed_tier: str = "medium") -> None:
+        """Enable/disable the rail LED strips and set their flow tier.
+        Idempotent. When disabling, immediately turns the LEDs dark."""
+        if speed_tier in self._LED_HZ_BY_TIER:
+            self._led_speed_tier = speed_tier
+        if self._led_enabled and not enabled:
+            self._led_set_all([0.05, 0.05, 0.05, 1.0])
+        self._led_enabled = bool(enabled)
+        self._led_t0 = time.time()
+        cap = self._LED_HZ_BY_TIER.get(self._led_speed_tier, 2.0)
+        state = "ON" if enabled else "OFF"
+        print(f"[SimXArm] LED strips: {state} (tier={self._led_speed_tier}, "
+              f"flow rate {cap:.1f} Hz when rail moves)")
+
+    def _led_set_all(self, rgba) -> None:
+        if not self._led_gids:
+            return
+        with self.lock:
+            for _, _, gid in self._led_gids:
+                self.model.geom_rgba[gid] = rgba
+
+    def _led_tick(self) -> None:
+        """Throttled per-step update of LED chip colours. No-op when
+        LEDs are disabled or the scene doesn't include LED chips."""
+        if not self._led_gids:
+            return
+        now = time.time()
+        if now - self._led_last_update < self._LED_UPDATE_PERIOD_S:
+            return
+        self._led_last_update = now
+
+        if not self._led_enabled:
+            return  # already dark from set_led; no per-tick work needed
+
+        rail_vel = float(self.data.qvel[self.rail_jid])
+        if rail_vel > self._LED_RAIL_VEL_THRESHOLD:
+            direction = 1
+        elif rail_vel < -self._LED_RAIL_VEL_THRESHOLD:
+            direction = -1
+        else:
+            direction = 0
+
+        if direction == 0:
+            # Idle standby: dim warm white so the strips are visibly
+            # "on" but not animated.
+            self._led_set_all([0.18, 0.14, 0.08, 1.0])
+            return
+
+        elapsed = now - self._led_t0
+        flow_hz = self._LED_HZ_BY_TIER.get(self._led_speed_tier, 2.0)
+        phase = elapsed * flow_hz * direction
+        n = float(self._led_per_strip)
+        with self.lock:
+            for _strip_idx, i, gid in self._led_gids:
+                hue = ((i / n) + phase) % 1.0
+                r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+                self.model.geom_rgba[gid] = [r, g, b, 1.0]
 
     # ---- Vortex-Genie 2 orbital-platform driver -----------------------------
     # Real spec: orbit radius 4mm, ~3200 rpm at full speed (~53 Hz). Sim uses

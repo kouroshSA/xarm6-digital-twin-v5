@@ -124,8 +124,14 @@ in a benchmark pick-and-place environment.
    but expect IK failures.
 
    Plate A starts in slot 1 (front-left). Plate B starts on the
-   bench at (+200, -300, 762). Tip box starts in slot 4 at
-   (956, +132, 795).
+   bench at (+200, -300, 762). Tip box starts in slot 10 at
+   (1133, +132, 795) -- which is in the BACK row and likely
+   unreachable through the front opening without alternative
+   rail positions or wrist orientations.
+
+   Each slot has a coloured corner tag identifying its number:
+   1=red, 2=orange, 3=yellow, 4=yellow-green, 5=green, 6=teal,
+   7=cyan, 8=blue, 9=purple, 10=pink, 11=white, TRASH=dark grey.
 
    **Heater-Shaker module:** Opentrons Heater-Shaker on the bench
    at (-300, -250). 152 x 90 x 82 mm, top platform at z=836 mm.

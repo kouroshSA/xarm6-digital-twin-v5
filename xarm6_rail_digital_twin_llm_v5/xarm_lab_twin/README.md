@@ -255,6 +255,13 @@ python scripts/run_task.py \
     --speed-tier auto
 ```
 
+There's a complementary `--led` flag on the same entry points: pass it
+to enable two 700 mm rainbow LED strips beside the rail. When the rail
+moves, the rainbow flows in the direction of motion at a rate matching
+the active speed tier (off by default; flow rates: crazy_fast=5 Hz,
+fast=3, medium=2, slow=1, very_slow=0.5; dim warm-white standby when
+the rail is idle but `--led` is on).
+
 Tiers and caps: `crazy_fast` = uncapped, `fast` = 120, `medium` = 80,
 `slow` = 40, `very_slow` = 15 mm/s, plus `auto` = use Haiku inference.
 A named-tier override skips the Haiku call entirely (small token-cost
@@ -387,7 +394,7 @@ xarm_lab_twin/
 ├── reviews.md              # Opus session-end abstracted writeups (Phase 2)
 ├── world_model.md          # cross-task invariants accumulated over sessions (Phase 3)
 ├── envs/
-│   ├── lab_scene.xml       # MuJoCo scene (arm + rail + cubes/bins + tubes/racks + OT-2 [11 slots, walls] + 2x 96-well plates + tip box + heater-shaker)
+│   ├── lab_scene.xml       # MuJoCo scene (arm + rail + cubes/bins + tubes/racks + OT-2 [11 colored slots + walls] + 2x 96-well plates + tip box + heater-shaker + Vortex-Genie 2 + LED strips)
 │   └── scene_randomizer.py # object-pose jitter for augmented runs
 ├── sim/
 │   ├── mujoco_env.py       # SimXArmAPI -- physical_outcome + paced motion + push macros

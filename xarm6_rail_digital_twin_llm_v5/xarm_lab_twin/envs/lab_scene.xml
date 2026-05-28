@@ -121,6 +121,29 @@
     <material name="vortex_platform_mat" rgba="0.10 0.10 0.12 1"/>
     <material name="vortex_dial_mat"     rgba="0.85 0.85 0.88 1"/>
     <material name="vortex_logo_mat"     rgba="0.80 0.10 0.10 1"/>
+    <!-- OT-2 deck slot color labels (rainbow 1-11 + dark grey TRASH).
+         Each slot gets a unique-coloured corner marker so the slot
+         number is visually identifiable from any angle. Slot number
+         <-> colour mapping is documented in opentrons_ot2's
+         safety_notes and in the LLMBrain system prompt. -->
+    <material name="slot_1_mat"  rgba="0.95 0.20 0.20 1"/>   <!-- red -->
+    <material name="slot_2_mat"  rgba="0.95 0.55 0.10 1"/>   <!-- orange -->
+    <material name="slot_3_mat"  rgba="0.95 0.85 0.20 1"/>   <!-- yellow -->
+    <material name="slot_4_mat"  rgba="0.60 0.85 0.20 1"/>   <!-- yellow-green -->
+    <material name="slot_5_mat"  rgba="0.20 0.80 0.30 1"/>   <!-- green -->
+    <material name="slot_6_mat"  rgba="0.20 0.80 0.70 1"/>   <!-- teal -->
+    <material name="slot_7_mat"  rgba="0.20 0.65 0.95 1"/>   <!-- cyan -->
+    <material name="slot_8_mat"  rgba="0.20 0.30 0.95 1"/>   <!-- blue -->
+    <material name="slot_9_mat"  rgba="0.55 0.20 0.85 1"/>   <!-- purple -->
+    <material name="slot_10_mat" rgba="0.95 0.45 0.75 1"/>   <!-- pink -->
+    <material name="slot_11_mat" rgba="0.95 0.95 0.95 1"/>   <!-- white -->
+    <material name="slot_trash_mat" rgba="0.15 0.15 0.18 1"/> <!-- dark grey -->
+    <!-- LED strip materials. The base PCB is dark grey; the LED chips
+         themselves have their rgba updated at runtime by
+         SimXArmAPI._led_tick, so the material is just a placeholder
+         (the geom_rgba overrides take precedence anyway when set). -->
+    <material name="led_pcb_mat" rgba="0.12 0.12 0.13 1"/>
+    <material name="led_off_mat" rgba="0.05 0.05 0.05 1"/>
   </asset>
 
   <worldbody>
@@ -432,48 +455,98 @@
             contype="1" conaffinity="1" mass="0"/>
 
       <!-- Slot markers: 3 cols x 4 rows + TRASH (= 12 positions).
-           Each marker is a thin coloured rectangle on the deck.
-           Visual only (non-colliding) so plates resting in slots
-           don't catch on the marker geometry.
+           Each slot has TWO visual cues:
+           (1) a thin grey rectangle outlining the slot footprint
+               (lets the user see the SBS slot boundary), AND
+           (2) a colored circular tag in the back-right corner that
+               identifies the slot NUMBER via its unique color
+               (rainbow 1-11; dark grey for TRASH). Look at the
+               opentrons_ot2 safety_notes for the colour <-> slot
+               number mapping.
+           All slot geoms are non-colliding so plates resting in
+           slots don't catch on the marker geometry.
            Col offsets (local y): +0.132, 0, -0.132 (left, mid, right
            from the arm's POV looking +x toward the OT-2).
            Row offsets (local x): -0.133, -0.044, +0.044, +0.133
            (front, mid-front, mid-back, back). -->
-      <geom name="ot2_slot_1"  type="box" size="0.064 0.043 0.0010"
+      <!-- Slot outlines (grey rectangles indicating SBS footprints). -->
+      <geom name="ot2_slot_1_outline"  type="box" size="0.064 0.043 0.0010"
             pos="-0.133 +0.132 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_2"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_2_outline"  type="box" size="0.064 0.043 0.0010"
             pos="-0.133  0.000 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_3"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_3_outline"  type="box" size="0.064 0.043 0.0010"
             pos="-0.133 -0.132 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_4"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_4_outline"  type="box" size="0.064 0.043 0.0010"
             pos="-0.044 +0.132 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_5"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_5_outline"  type="box" size="0.064 0.043 0.0010"
             pos="-0.044  0.000 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_6"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_6_outline"  type="box" size="0.064 0.043 0.0010"
             pos="-0.044 -0.132 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_7"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_7_outline"  type="box" size="0.064 0.043 0.0010"
             pos="+0.044 +0.132 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_8"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_8_outline"  type="box" size="0.064 0.043 0.0010"
             pos="+0.044  0.000 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_9"  type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_9_outline"  type="box" size="0.064 0.043 0.0010"
             pos="+0.044 -0.132 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_10" type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_10_outline" type="box" size="0.064 0.043 0.0010"
             pos="+0.133 +0.132 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_11" type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_11_outline" type="box" size="0.064 0.043 0.0010"
             pos="+0.133  0.000 0.755" material="ot2_slot_mat"
             contype="0" conaffinity="0" mass="0"/>
-      <geom name="ot2_slot_trash" type="box" size="0.064 0.043 0.0010"
+      <geom name="ot2_slot_trash_outline" type="box" size="0.064 0.043 0.0010"
             pos="+0.133 -0.132 0.755" material="ot2_frame_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Colored slot-number identifier tags. Each is a small
+           cylinder in the back-right corner of its slot (back =
+           +x in OT-2 local; right = -y in OT-2 local).
+           Tag offset from slot centre: (+0.055, -0.034). Tag size:
+           radius 0.010m, height 0.004m. Placed at z=0.758 so they
+           sit just above the deck outline. -->
+      <geom name="ot2_slot_1_tag"  type="cylinder" size="0.010 0.004"
+            pos="-0.078 +0.098 0.760" material="slot_1_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_2_tag"  type="cylinder" size="0.010 0.004"
+            pos="-0.078 -0.034 0.760" material="slot_2_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_3_tag"  type="cylinder" size="0.010 0.004"
+            pos="-0.078 -0.166 0.760" material="slot_3_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_4_tag"  type="cylinder" size="0.010 0.004"
+            pos="+0.011 +0.098 0.760" material="slot_4_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_5_tag"  type="cylinder" size="0.010 0.004"
+            pos="+0.011 -0.034 0.760" material="slot_5_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_6_tag"  type="cylinder" size="0.010 0.004"
+            pos="+0.011 -0.166 0.760" material="slot_6_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_7_tag"  type="cylinder" size="0.010 0.004"
+            pos="+0.099 +0.098 0.760" material="slot_7_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_8_tag"  type="cylinder" size="0.010 0.004"
+            pos="+0.099 -0.034 0.760" material="slot_8_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_9_tag"  type="cylinder" size="0.010 0.004"
+            pos="+0.099 -0.166 0.760" material="slot_9_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_10_tag" type="cylinder" size="0.010 0.004"
+            pos="+0.188 +0.098 0.760" material="slot_10_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_11_tag" type="cylinder" size="0.010 0.004"
+            pos="+0.188 -0.034 0.760" material="slot_11_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ot2_slot_trash_tag" type="cylinder" size="0.010 0.004"
+            pos="+0.188 -0.166 0.760" material="slot_trash_mat"
             contype="0" conaffinity="0" mass="0"/>
 
       <!-- Enclosure walls: COLLIDING. Side walls + back wall + top.
@@ -536,9 +609,13 @@
     </body>
 
     <!-- Tip box: standard SBS tip rack (127 x 85 x 80 mm). Sits in
-         OT-2 slot 4 (mid-front-left). Free body so the arm can pick
-         it up and move it. -->
-    <body name="tip_box" pos="0.956 +0.132 0.795">
+         OT-2 slot 10 (back-left). NOTE: slot 10 is at world x=1.133,
+         which is at the edge of the arm's reach through the OT-2's
+         front opening when colliding side walls are in place. The
+         arm may not be able to pick this tip box up from rail=700;
+         that's intentional -- the user explicitly placed it there
+         to test reachability + as a visual fixture. -->
+    <body name="tip_box" pos="1.133 +0.132 0.795">
       <inertial pos="0 0 0" mass="0.20" diaginertia="3e-4 3e-4 4e-4"/>
       <geom name="tip_box_body" class="tip_box_body"
             material="tip_box_mat"/>
@@ -630,6 +707,63 @@
               material="vortex_platform_mat"
               contype="1" conaffinity="1"/>
       </body>
+    </body>
+
+    <!-- =============================================================
+         LED STRIPS (2 x 700mm) flanking the rail.
+         Each strip = a dark PCB base + 15 individually-coloured LED
+         chips spaced 50mm apart. The chip rgbas are updated at
+         runtime by SimXArmAPI._led_tick to show rainbow direction-
+         flow when the rail is moving. The flow speed scales with
+         the active --speed-tier.
+
+         Strip A sits in front of the rail (y=-0.085). Strip B sits
+         behind the rail (y=-0.015). Both are at z=0.766 -- just
+         above the rail body's top, so they stand visibly proud of
+         the rail without colliding with the carriage.
+
+         All LED chip + PCB geoms are non-colliding (contype=0).
+    ============================================================= -->
+    <body name="led_strip_A" pos="0 -0.085 0.766">
+      <geom name="led_strip_A_pcb" type="box"
+            size="0.350 0.0075 0.0020" pos="0 0 0"
+            material="led_pcb_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_01" type="box" size="0.020 0.005 0.003" pos="-0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_02" type="box" size="0.020 0.005 0.003" pos="-0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_03" type="box" size="0.020 0.005 0.003" pos="-0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_04" type="box" size="0.020 0.005 0.003" pos="-0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_05" type="box" size="0.020 0.005 0.003" pos="-0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_06" type="box" size="0.020 0.005 0.003" pos="-0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_07" type="box" size="0.020 0.005 0.003" pos="-0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_08" type="box" size="0.020 0.005 0.003" pos=" 0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_09" type="box" size="0.020 0.005 0.003" pos=" 0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_10" type="box" size="0.020 0.005 0.003" pos=" 0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_11" type="box" size="0.020 0.005 0.003" pos=" 0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_12" type="box" size="0.020 0.005 0.003" pos=" 0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_13" type="box" size="0.020 0.005 0.003" pos=" 0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_A_14" type="box" size="0.020 0.005 0.003" pos=" 0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+    </body>
+
+    <body name="led_strip_B" pos="0 -0.015 0.766">
+      <geom name="led_strip_B_pcb" type="box"
+            size="0.350 0.0075 0.0020" pos="0 0 0"
+            material="led_pcb_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_01" type="box" size="0.020 0.005 0.003" pos="-0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_02" type="box" size="0.020 0.005 0.003" pos="-0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_03" type="box" size="0.020 0.005 0.003" pos="-0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_04" type="box" size="0.020 0.005 0.003" pos="-0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_05" type="box" size="0.020 0.005 0.003" pos="-0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_06" type="box" size="0.020 0.005 0.003" pos="-0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_07" type="box" size="0.020 0.005 0.003" pos="-0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_08" type="box" size="0.020 0.005 0.003" pos=" 0.025 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_09" type="box" size="0.020 0.005 0.003" pos=" 0.075 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_10" type="box" size="0.020 0.005 0.003" pos=" 0.125 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_11" type="box" size="0.020 0.005 0.003" pos=" 0.175 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_12" type="box" size="0.020 0.005 0.003" pos=" 0.225 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_13" type="box" size="0.020 0.005 0.003" pos=" 0.275 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
+      <geom name="led_B_14" type="box" size="0.020 0.005 0.003" pos=" 0.325 0 0.0035" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0" mass="0"/>
     </body>
 
   </worldbody>
