@@ -89,6 +89,9 @@ class FKValidator:
         "R_sep_v2":          "grip_right_rack",
         "R_sep_v3":          "grip_right_rack",
         "R_sep_h1":          "grip_right_rack",
+        # 96-well plate (2 geoms: body + cosmetic top slab)
+        "well_plate_body":   "grip_well_plate",
+        "well_plate_top":    "grip_well_plate",
     }
 
     def __init__(self, model: mujoco.MjModel,

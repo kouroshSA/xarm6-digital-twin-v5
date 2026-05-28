@@ -387,7 +387,7 @@ xarm_lab_twin/
 ├── reviews.md              # Opus session-end abstracted writeups (Phase 2)
 ├── world_model.md          # cross-task invariants accumulated over sessions (Phase 3)
 ├── envs/
-│   ├── lab_scene.xml       # MuJoCo scene (arm + rail + cubes + bins + tubes + racks)
+│   ├── lab_scene.xml       # MuJoCo scene (arm + rail + cubes/bins + tubes/racks + OT-2 + 96-well plate)
 │   └── scene_randomizer.py # object-pose jitter for augmented runs
 ├── sim/
 │   ├── mujoco_env.py       # SimXArmAPI -- physical_outcome + paced motion + push macros
