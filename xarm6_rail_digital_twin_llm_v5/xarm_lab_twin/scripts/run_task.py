@@ -55,11 +55,13 @@ def main():
                              "explicitly request Haiku inference (same as "
                              "omitting the flag); omitting also defaults to "
                              "Haiku inference.")
-    parser.add_argument("--led", action="store_true",
-                        help="Turn on the rainbow LED strips beside the rail. "
-                             "When the rail moves, the rainbow flows in the "
-                             "direction of motion; flow speed matches the "
-                             "active --speed-tier. Off by default.")
+    parser.add_argument("--led", dest="led_enabled",
+                        action="store_false", default=True,
+                        help="TURN OFF the rainbow LED strips beside the rail. "
+                             "By default the strips are ON: when the rail "
+                             "moves, the rainbow flows opposite to the "
+                             "motion direction; flow speed matches the "
+                             "active --speed-tier. Pass --led to disable.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()
@@ -128,7 +130,7 @@ def main():
             max_episodes=args.max_episodes,
             stringency=args.stringency,
             speed_tier_override=args.speed_tier,
-            led_enabled=args.led,
+            led_enabled=args.led_enabled,
         )
         summary = loop.run(args.task)
         loop_summary = summary
@@ -139,7 +141,7 @@ def main():
         # (CLI --speed-tier wins over inference when set).
         brain.prepare_for_task(args.task, override_tier=args.speed_tier)
         if hasattr(arm, "set_led"):
-            arm.set_led(args.led, getattr(brain, "speed_tier", "medium"))
+            arm.set_led(args.led_enabled, getattr(brain, "speed_tier", "medium"))
         try:
             result = brain.execute_task(args.task, dry_run=args.dry_run)
         except Exception as e:

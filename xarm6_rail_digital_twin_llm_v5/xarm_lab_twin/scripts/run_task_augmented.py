@@ -162,8 +162,10 @@ def main():
                         help="Override the Haiku-inferred speed cap for "
                              "every cycle. Deterministic safety override. "
                              "Pass `auto` (or omit) to use Haiku inference.")
-    parser.add_argument("--led", action="store_true",
-                        help="Turn on the rainbow LED strips beside the rail.")
+    parser.add_argument("--led", dest="led_enabled",
+                        action="store_false", default=True,
+                        help="TURN OFF the rainbow LED strips beside the rail. "
+                             "LEDs are ON by default; pass --led to disable.")
     args = parser.parse_args()
 
     model_short = args.model if args.model else prompt_model_choice()
@@ -213,7 +215,7 @@ def main():
             no_record=args.no_record,
             dry_run=args.dry_run,
             speed_tier_override=args.speed_tier,
-            led_enabled=args.led,
+            led_enabled=args.led_enabled,
         )
         saved_dirs.append(saved)
 

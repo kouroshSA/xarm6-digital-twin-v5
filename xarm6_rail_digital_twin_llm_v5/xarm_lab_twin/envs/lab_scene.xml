@@ -687,6 +687,31 @@
             material="vortex_logo_mat"
             contype="0" conaffinity="0" mass="0"/>
 
+      <!-- Power-indicator LEDs: one small yellow disc on each of the
+           chassis's four side faces. SimXArmAPI._vortex_tick switches
+           their rgba on/off when the vortex starts/stops shaking.
+           Default rgba below = the OFF state (dim yellow). -->
+      <geom name="vortex_led_front" type="cylinder"
+            size="0.0045 0.0020" pos="0 -0.0625 0.115"
+            euler="1.5708 0 0"
+            rgba="0.18 0.15 0.02 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="vortex_led_back" type="cylinder"
+            size="0.0045 0.0020" pos="0 +0.0625 0.115"
+            euler="1.5708 0 0"
+            rgba="0.18 0.15 0.02 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="vortex_led_left" type="cylinder"
+            size="0.0045 0.0020" pos="-0.0830 0 0.115"
+            euler="0 1.5708 0"
+            rgba="0.18 0.15 0.02 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="vortex_led_right" type="cylinder"
+            size="0.0045 0.0020" pos="+0.0830 0 0.115"
+            euler="0 1.5708 0"
+            rgba="0.18 0.15 0.02 1"
+            contype="0" conaffinity="0" mass="0"/>
+
       <!-- Orbital platform: child body with two slide joints so it
            can be driven in a 4 mm-radius circle around its rest
            position. Joint range is +/-0.006 m to give the orbital

@@ -180,6 +180,16 @@ class SimXArmAPI:
             pass
         self._vortex_active = False
         self._vortex_t0 = 0.0
+        # Vortex power-indicator LEDs (yellow). Switched ON when the
+        # vortex is shaking and OFF otherwise via _vortex_tick. List of
+        # geom IDs; empty list if the scene doesn't include them.
+        self._vortex_led_gids = []
+        for name in ("vortex_led_front", "vortex_led_back",
+                     "vortex_led_left", "vortex_led_right"):
+            try:
+                self._vortex_led_gids.append(self.model.geom(name).id)
+            except Exception:
+                pass
 
         # LED strip state. Resolved lazily so scenes without LED
         # strips (or with a different number of LEDs) load fine.
@@ -305,11 +315,15 @@ class SimXArmAPI:
         if not self._led_enabled:
             return  # already dark from set_led; no per-tick work needed
 
+        # NOTE: rainbow flows OPPOSITE to rail velocity. When the rail
+        # moves in +x, hues flow in -x along the strip (and vice versa).
+        # User-requested visual convention -- the rainbow "trails" behind
+        # the arm rather than leading it.
         rail_vel = float(self.data.qvel[self.rail_jid])
         if rail_vel > self._LED_RAIL_VEL_THRESHOLD:
-            direction = 1
-        elif rail_vel < -self._LED_RAIL_VEL_THRESHOLD:
             direction = -1
+        elif rail_vel < -self._LED_RAIL_VEL_THRESHOLD:
+            direction = +1
         else:
             direction = 0
 
@@ -376,6 +390,7 @@ class SimXArmAPI:
             if not self._vortex_active:
                 self._vortex_active = True
                 self._vortex_t0 = time.time()
+                self._set_vortex_leds(on=True)
             elapsed = time.time() - self._vortex_t0
             omega = 2.0 * np.pi * self.VORTEX_ORBIT_HZ
             r = self.VORTEX_ORBIT_RADIUS_M
@@ -387,9 +402,25 @@ class SimXArmAPI:
         else:
             if self._vortex_active:
                 self._vortex_active = False
+                self._set_vortex_leds(on=False)
                 with self.lock:
                     self.data.ctrl[self._vortex_x_act_id] = 0.0
                     self.data.ctrl[self._vortex_y_act_id] = 0.0
+
+    # Vortex indicator-LED helpers. The four small yellow geoms on the
+    # chassis sides switch between bright yellow (vortex on) and dim
+    # yellow (vortex off) -- only updated on state transitions, not
+    # every tick, since there's nothing time-varying about them.
+    _VORTEX_LED_ON_RGBA  = (1.0,  0.95, 0.0,  1.0)
+    _VORTEX_LED_OFF_RGBA = (0.18, 0.15, 0.02, 1.0)
+
+    def _set_vortex_leds(self, on: bool) -> None:
+        if not self._vortex_led_gids:
+            return
+        rgba = self._VORTEX_LED_ON_RGBA if on else self._VORTEX_LED_OFF_RGBA
+        with self.lock:
+            for gid in self._vortex_led_gids:
+                self.model.geom_rgba[gid] = rgba
 
     def _launch_viewer(self):
         def _run():
