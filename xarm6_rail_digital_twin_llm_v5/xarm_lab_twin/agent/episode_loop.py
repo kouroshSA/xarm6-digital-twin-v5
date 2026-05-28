@@ -156,13 +156,127 @@ class EpisodeContext:
         return "\n".join(lines) + "\n"
 
 
+# Coarse collision envelopes per object_type. We don't have explicit body
+# dimensions in the registry, so these are conservative bounding boxes
+# tuned to the lab scene (see envs/lab_scene.xml). Half-extents are in mm
+# in the world frame; z_max_mm is the highest point on the body the gripper
+# can collide with, NOT the height at which it's safe to descend to grasp.
+#
+# These don't need to be tight -- they only need to be discriminative
+# enough to separate "you're inside this body" from "you're in clear air."
+_COLLISION_ENVELOPES = {
+    "rack": {"half_xy_mm": 100, "z_min_mm": 755, "z_max_mm": 920},
+    "bin":  {"half_xy_mm":  80, "z_min_mm": 750, "z_max_mm": 810},
+    "cube": {"half_xy_mm":  20, "z_min_mm": 750, "z_max_mm": 780},
+    "tube": {"half_xy_mm":  20, "z_min_mm": 755, "z_max_mm": 885},
+}
+
+
+def _find_nearest_body(registry, x_mm, y_mm, z_mm,
+                       max_dist_mm: float = 120.0):
+    """Return (LabObject, planar_dist_mm, z_in_envelope) for the body most
+    likely responsible for a collision at (x, y, z) in mm -- or None.
+
+    "Nearest" is planar distance to the registry-recorded body center, gated
+    by the body's half-extent + `max_dist_mm`. `z_in_envelope` says whether
+    the failed z is within the body's vertical collision range (which is
+    what discriminates "you're inside the body" from "you're above it").
+    """
+    if registry is None:
+        return None
+    if not (isinstance(x_mm, (int, float)) and isinstance(y_mm, (int, float))):
+        return None
+
+    best = None
+    best_dist = float("inf")
+    for obj in registry.objects.values():
+        env = _COLLISION_ENVELOPES.get(obj.object_type)
+        if env is None:
+            continue
+        ox_mm = obj.position_xyz_m[0] * 1000.0
+        oy_mm = obj.position_xyz_m[1] * 1000.0
+        dist = ((x_mm - ox_mm) ** 2 + (y_mm - oy_mm) ** 2) ** 0.5
+        # Skip bodies clearly out of range.
+        if dist - env["half_xy_mm"] > max_dist_mm:
+            continue
+        if dist < best_dist:
+            best_dist = dist
+            z_in_env = (isinstance(z_mm, (int, float))
+                        and env["z_min_mm"] <= z_mm <= env["z_max_mm"])
+            best = (obj, dist, z_in_env)
+    return best
+
+
+def _move_to_body_aware_constraint(x_mm, y_mm, z_mm, registry) -> Optional[str]:
+    """Produce a body-naming move_to constraint, or None if no candidate.
+
+    The point of naming the body (rather than just saying "lift z") is that
+    the LLM treats coordinates in past lesson lines as numeric precedents
+    to try again -- but a named body ("colliding with right_tube_rack") is
+    a categorical fact it's more likely to act on. The escape advice is
+    body-type-specific: macros for racks, release-above for bins, lift-and-
+    approach for cubes/tubes.
+    """
+    hit = _find_nearest_body(registry, x_mm, y_mm, z_mm)
+    if hit is None:
+        return None
+    obj, _dist, z_in_env = hit
+    if not z_in_env:
+        return None  # near in xy but z is clear -- generic advice still fits
+
+    env = _COLLISION_ENVELOPES[obj.object_type]
+    safe_z = env["z_max_mm"] + 20
+
+    if obj.object_type == "rack":
+        return (
+            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation because the "
+            f"gripper is inside the body of '{obj.name}' (a tube rack at "
+            f"({obj.position_xyz_m[0]*1000:.0f}, "
+            f"{obj.position_xyz_m[1]*1000:.0f}) with walls/contents up to "
+            f"z~{env['z_max_mm']}mm). Approach from above z>={safe_z}mm "
+            f"before descending. To PLACE a held tube into '{obj.name}', "
+            f"use `place_tube_in_rack(rack_name='{obj.name}')` instead of "
+            f"`move_to` -- the macro seats the tube without entering the "
+            f"rack body, which also avoids knocking neighbouring tubes out."
+        )
+    if obj.object_type == "bin":
+        return (
+            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation -- the "
+            f"gripper is at/below the rim of '{obj.name}' (walls up to "
+            f"z~{env['z_max_mm']}mm). Release ABOVE the bin opening at "
+            f"z>={safe_z}mm; the object drops in under gravity. The gripper "
+            f"is wider than the bin opening, so do not descend into it."
+        )
+    if obj.object_type == "tube":
+        return (
+            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation next to "
+            f"tube '{obj.name}' (cap top at z~{env['z_max_mm']}mm). "
+            f"Approach from above z>={safe_z}mm, then descend straight "
+            f"down to grasp the cap."
+        )
+    if obj.object_type == "cube":
+        return (
+            f"move_to ({x_mm}, {y_mm}, {z_mm}) fails validation next to "
+            f"cube '{obj.name}' (top at z~{env['z_max_mm']}mm). Approach "
+            f"from above z>={safe_z}mm, then descend to grasp at "
+            f"z={env['z_max_mm'] + 15}mm."
+        )
+    return None
+
+
 def analyse_command_failure(failed_step: Dict[str, Any],
-                            planned_command: Dict[str, Any]) -> str:
+                            planned_command: Dict[str, Any],
+                            registry: Any = None) -> str:
     """
     Given a failed step from results[], infer a constraint string.
 
     Failed step format: {"action": str, "result": int}
     Planned command:    {"action": str, "params": {...}}
+
+    When `registry` is provided, validation-failure constraints for
+    `move_to` and `place_tube_in_rack` are upgraded with body-aware
+    detail (which object the gripper is colliding with, or which rack
+    the macro needs the rail set near).
 
     Returns a short, actionable constraint string for the next episode's prompt.
     """
@@ -179,6 +293,10 @@ def analyse_command_failure(failed_step: Dict[str, Any],
                     f"Try a different approach pose -- raise z, change xy, or "
                     f"re-orient the wrist.")
         if code == 2:
+            body_msg = _move_to_body_aware_constraint(x, y, z, registry)
+            if body_msg:
+                return body_msg
+            # Fallback when no body sits at those coordinates -- generic.
             new_z = z + 50 if isinstance(z, (int, float)) else "higher"
             return (f"move_to ({x}, {y}, {z}) mm fails collision/FK validation. "
                     f"Lift z to >= {new_z} mm, or change rail position so the "
@@ -203,9 +321,22 @@ def analyse_command_failure(failed_step: Dict[str, Any],
                 f"a closer destination or push from a different side.")
 
     if action == "place_tube_in_rack":
-        return (f"place_tube_in_rack {params.get('rack_name')} failed "
-                f"(code {code}). Either no tube is held, no empty slot, or "
-                f"the slot is unreachable. Make sure a tube is grasped first.")
+        rack_name = params.get("rack_name")
+        rack_obj = registry.find(rack_name) if (registry and rack_name) else None
+        if rack_obj is not None:
+            return (f"place_tube_in_rack('{rack_name}') failed (code {code}). "
+                    f"For this macro to work: (1) a tube must already be "
+                    f"grasped (gripper_close on a tube succeeded earlier in "
+                    f"the sequence), (2) the rail must be near "
+                    f"'{rack_name}'s optimal_rail_mm "
+                    f"({rack_obj.optimal_rail_mm:.0f}mm) so the slots are "
+                    f"reachable, (3) the rack must have an empty slot. "
+                    f"Set rail to {rack_obj.optimal_rail_mm:.0f}mm BEFORE "
+                    f"calling place_tube_in_rack.")
+        return (f"place_tube_in_rack {rack_name} failed (code {code}). Either "
+                f"no tube is held, no empty slot, or the slot is unreachable. "
+                f"Make sure a tube is grasped first and rail is at the rack's "
+                f"optimal position.")
 
     if action == "gripper_close":
         return ("gripper_close did not grasp the intended object. The EE site "
@@ -380,7 +511,8 @@ class EpisodeRetry:
                 idx, failed = cmd_failure
                 planned = result.get("commands", [])[idx] if idx < len(
                     result.get("commands", [])) else {}
-                constraint = analyse_command_failure(failed, planned)
+                constraint = analyse_command_failure(failed, planned,
+                                                    registry=self.registry)
                 ctx.add_constraint(constraint)
                 ctx.failure_history.append({
                     "episode": ctx.episode_num, "kind": "command",
