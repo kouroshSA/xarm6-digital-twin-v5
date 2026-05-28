@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
 
-from agent.outcome_checker import check_outcome, classify_task
+from agent.outcome_checker import check_outcome, classify_task, expected_outcome
 from agent.lessons import append_lesson
 from recording import Recorder
 
@@ -60,6 +60,12 @@ class EpisodeContext:
     success_diversity: List[int] = field(default_factory=list)
     # Hash of each successful plan's action sequence (just the "action"
     # strings, ignoring params). Used to compute reuse rate in the summary.
+
+    dynamic_criteria: Optional[Tuple[str, List[str]]] = None
+    # LLM-grader (Haiku) criteria for tasks the regex grader can't classify.
+    # Inferred once at session start and reused across all episodes; None
+    # when the regex grader already handles this task, or when the LLM
+    # call failed / declined to grade.
 
     def add_constraint(self, constraint: str) -> None:
         if constraint and constraint not in self.learned_constraints:
@@ -492,6 +498,20 @@ class EpisodeRetry:
     def run(self, task: str) -> Dict[str, Any]:
         ctx = EpisodeContext(task=task, max_episodes=self.max_episodes)
 
+        # If the regex grader doesn't recognise this task, consult Haiku once
+        # for a (mode, expected_substrings) spec we can use as a per-episode
+        # fallback. Without this, novel task phrasings produce all-ungraded
+        # sessions (no success/failure attribution).
+        if expected_outcome(task) is None:
+            print(f"[EpisodeLoop] Regex grader doesn't recognise this task -- "
+                  f"consulting Haiku for success criteria...")
+            try:
+                from agent.dynamic_grader import infer_criteria
+                ctx.dynamic_criteria = infer_criteria(task, registry=self.registry)
+            except Exception as e:
+                print(f"[EpisodeLoop] Dynamic grader unavailable (non-fatal): "
+                      f"{type(e).__name__}: {e}")
+
         while ctx.episode_num <= ctx.max_episodes:
             print(f"\n{'=' * 70}")
             print(f"[EpisodeLoop] Episode {ctx.episode_num}/{ctx.max_episodes}: {task}")
@@ -558,7 +578,8 @@ class EpisodeRetry:
                 episode_outcome = False
             else:
                 # All commands returned 0. Did the physical state match the task?
-                success, reason = check_outcome(task, physical)
+                success, reason = check_outcome(
+                    task, physical, fallback_spec=ctx.dynamic_criteria)
                 print(f"[EpisodeLoop] Outcome check: success={success} ({reason})")
 
                 if success is True:
