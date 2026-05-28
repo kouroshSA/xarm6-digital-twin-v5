@@ -227,7 +227,9 @@ def expected_outcome(task: str) -> Optional[Tuple[str, List[str]]]:
     return None  # Unknown task pattern
 
 
-def check_outcome(task: str, physical: str) -> Tuple[Optional[bool], str]:
+def check_outcome(task: str, physical: str,
+                  fallback_spec: Optional[Tuple[str, List[str]]] = None,
+                  ) -> Tuple[Optional[bool], str]:
     """
     Compare expected outcome (from task) to actual physical_outcome() string.
 
@@ -235,21 +237,32 @@ def check_outcome(task: str, physical: str) -> Tuple[Optional[bool], str]:
         (success, reason)
         success: True/False/None (None = couldn't determine)
         reason:  human-readable explanation
+
+    `fallback_spec`, when provided, is consulted ONLY if the regex grader
+    returns None (i.e. the task pattern isn't recognised). It has the same
+    (mode, expected_substrings) shape and is typically produced by
+    agent.dynamic_grader.infer_criteria as a once-per-session Haiku call.
+    The fast path stays free of LLM cost for known task patterns.
     """
     spec = expected_outcome(task)
+    used_fallback = False
+    if spec is None and fallback_spec is not None:
+        spec = fallback_spec
+        used_fallback = True
     if spec is None:
         return (None, f"Task pattern not recognised; physical: {physical or 'no displacement'}")
 
     mode, expected = spec
     phys = physical or ""
+    src = " [LLM-grader]" if used_fallback else ""
 
     if mode == "any":
         if any(e in phys for e in expected):
-            return (True, f"Met physical condition: {phys}")
-        return (False, f"Expected one of {expected}; got: {phys or 'no displacement'}")
+            return (True, f"Met physical condition{src}: {phys}")
+        return (False, f"Expected one of {expected}{src}; got: {phys or 'no displacement'}")
 
     # mode == "all"
     missing = [e for e in expected if e not in phys]
     if not missing:
-        return (True, f"All expected placements present: {phys}")
-    return (False, f"Missing: {missing}; got: {phys or 'no displacement'}")
+        return (True, f"All expected placements present{src}: {phys}")
+    return (False, f"Missing: {missing}{src}; got: {phys or 'no displacement'}")
