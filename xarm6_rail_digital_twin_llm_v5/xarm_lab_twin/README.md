@@ -218,6 +218,41 @@ MUJOCO_GL=egl python scripts/auto_play.py --episodes 5 --save-frames
 The frames land in `recordings/<session>/trajectory.h5` under the `/frames`
 group (`images` at uint8 320×240×3, `t_wall` per frame).
 
+### Capping motion speed (safety override)
+
+By default the loop infers a session-level speed cap from the task prompt
+(Haiku reads cues like "quickly" / "carefully" / "fragile" and picks one
+of `crazy_fast` / `fast` / `medium` / `slow` / `very_slow`; defaults to
+`medium` = 80 mm/s when no cue is present). The LLM may also downgrade
+individual commands by attaching `"speed_tier": "<tier>"` to any
+`move_to` / `set_rail` / `set_joints` it emits, but per-command tiers
+can never exceed the session ceiling.
+
+Pass `--speed-tier <name>` to ANY of the LLM entry points
+(`run_task.py`, `auto_play.py`, `run_task_augmented.py`) to override the
+Haiku inference and pin the session ceiling deterministically:
+
+```bash
+# Force every motion to very_slow (15 mm/s) regardless of prompt phrasing
+python scripts/run_task.py \
+    "pick up the blue-cap tube" \
+    --loop --max-episodes 10 --speed-tier very_slow
+
+# Pin the ceiling to fast (120 mm/s) on a prompt with no speed cue,
+# overriding the medium default
+python scripts/run_task.py \
+    "transfer tube_L2 to the right rack" \
+    --speed-tier fast
+
+# Auto-play a batch of mixed tasks, all bounded to slow (40 mm/s)
+python scripts/auto_play.py --episodes 20 --speed-tier slow
+```
+
+Caps: `crazy_fast` = uncapped, `fast` = 120, `medium` = 80, `slow` = 40,
+`very_slow` = 15 mm/s. The override skips the Haiku call entirely, so
+it's also a small token-cost saver. Per-command tier downgrades within
+the LLM plan continue to work and are clamped to the CLI-set ceiling.
+
 ### Inspecting a recording
 
 ```python
