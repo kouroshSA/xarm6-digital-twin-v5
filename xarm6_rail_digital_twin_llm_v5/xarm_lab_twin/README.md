@@ -400,7 +400,7 @@ xarm_lab_twin/
 ├── reviews.md              # Opus session-end abstracted writeups (Phase 2)
 ├── world_model.md          # cross-task invariants accumulated over sessions (Phase 3)
 ├── envs/
-│   ├── lab_scene.xml       # MuJoCo scene (arm + rail + cubes/bins + tubes/racks + OT-2 [11 colored slots + walls] + 2x 96-well plates + tip box + heater-shaker + Vortex-Genie 2 + LED strips)
+│   ├── lab_scene.xml       # MuJoCo scene (arm + rail + cubes/bins + tubes/racks + OT-2 [11 colored slots + walls] + 2x 96-well plates + tip box + heater-shaker + Vortex-Genie 2 + PCR thermocycler [hinged lid + red/green status LEDs] + rail LED strips)
 │   └── scene_randomizer.py # object-pose jitter for augmented runs
 ├── sim/
 │   ├── mujoco_env.py       # SimXArmAPI -- physical_outcome + paced motion + push macros

@@ -345,11 +345,12 @@ def build_default_registry() -> ObjectRegistry:
         name="well_plate_B",
         aliases=["plate B", "well plate B", "well_plate_b", "plate b",
                  "96-well plate B", "bench plate", "the plate on the bench"],
-        position_xyz_m=[+0.200, -0.300, 0.7625],
-        optimal_rail_mm=550.0,
+        position_xyz_m=[+0.550, -0.200, 0.7625],
+        optimal_rail_mm=400.0,
         grasp=plate_grasp,
         safety_notes=(
-            "96-well SBS plate. Start position: bench at (+200, -300). "
+            "96-well SBS plate. Start position: bench front-right at "
+            "(+550, -200), between the PCR thermocycler and the OT-2. "
             "Plate body centre z=762; top z=770. Standard top-down grasp."
         ),
         object_type="plate",
@@ -421,6 +422,44 @@ def build_default_registry() -> ObjectRegistry:
         grip_orientation_rpy=[180.0, 0.0, 0.0],
         grip_depth=0.0, approach_standoff_mm=0.0,
     )
+    # Opentrons Thermocycler Module (PCR machine). Static fixture
+    # with an actuated lid (open/close via pcr_open / pcr_close
+    # commands). Internal cavity at the chassis centre holds a
+    # 96-well plate on a heated block. Two side LED indicators
+    # auto-report state (RED = empty + lid closed, GREEN = plate
+    # inside, grey = empty + lid open).
+    pcr_grasp = GraspConfig(
+        approach_direction=[0.0, 0.0, -1.0],
+        grip_orientation_rpy=[180.0, 0.0, 0.0],
+        grip_depth=0.0, approach_standoff_mm=0.0,
+    )
+    reg.register(LabObject(
+        name="pcr_module",
+        aliases=["pcr", "thermocycler", "thermocycler module",
+                 "pcr machine", "opentrons thermocycler",
+                 "thermocycler gen2"],
+        position_xyz_m=[+0.200, -0.200, 0.750],
+        optimal_rail_mm=350.0,
+        grasp=pcr_grasp,
+        safety_notes=(
+            "Opentrons Thermocycler Module at world (+200, -200). "
+            "Outer ~170 W x 350 D x 130 H mm. The lid hinges at the "
+            "BACK and must be OPENED (pcr_open command) before any "
+            "plate can be loaded or removed. Cavity centre at world "
+            "(+200, -200, 765); plate sits on the heated block with "
+            "its body centre at ~z=780. To LOAD a plate: pcr_open, "
+            "approach (+200, -200, 870) with plate held, descend to "
+            "(+200, -200, 790), gripper_open, lift to "
+            "(+200, -200, 880), pcr_close. Two side-face LEDs "
+            "indicate state (RED=empty+closed, GREEN=plate inside, "
+            "grey=empty+open) -- read-only, not controllable directly. "
+            "The PCR chassis is heavy (~2 kg implied); do NOT push or "
+            "grasp it. Do NOT issue pcr_close while the gripper is "
+            "still inside the cavity."
+        ),
+        object_type="instrument",
+    ))
+
     reg.register(LabObject(
         name="vortex_genie",
         aliases=["vortex", "vortex-genie", "vortex genie", "genie",

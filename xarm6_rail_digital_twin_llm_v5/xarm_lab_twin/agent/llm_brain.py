@@ -56,6 +56,8 @@ in a benchmark pick-and-place environment.
 - gripper_open    params: {{}}
 - gripper_close   params: {{}}
 - place_tube_in_rack  params: {{"rack_name": "left_tube_rack" | "right_tube_rack"}}  — while holding a tube, this finds the first open slot in the named rack, flies the arm there, and seats the tube. Use this when the task says "put the tube in the other rack" / "place tube in an open slot" / "move tube to rack X".
+- pcr_open       params: {{}}  — open the PCR Thermocycler lid (rotates lid ~90deg upward at the back of the chassis). MUST be called before loading or removing a plate from the PCR.
+- pcr_close      params: {{}}  — close the PCR Thermocycler lid. Call after a plate has been placed/removed.
 - push_object     params: {{"target_name": <body name>, "to_x_mm": <float>, "to_y_mm": <float>}}  — slide/carry an object across the bench to a target xy, or past the bench edge to push it off (it falls to the floor under gravity). Bench extents: x ∈ [-750, +750] mm, y ∈ [-450, +450] mm. To push something OFF the bench, pass a target xy past those bounds (e.g. y=550 for past the front edge).
   Valid `target_name` values (any of these can be pushed):
     - Cubes: `green_cube`, `blue_cube`  (red_cube was removed; its position is now the Vortex-Genie 2)
@@ -66,6 +68,7 @@ in a benchmark pick-and-place environment.
     - Tip rack: `tip_box` (starts on OT-2 deck). Prefer pick-and-place.
     - Heater-shaker module: `heater_shaker` (heavy bench fixture; pushing it usually wrong).
     - Vortex-Genie 2: `vortex_genie` (heavy bench fixture; pushing it usually wrong).
+    - PCR Thermocycler: `pcr_module` (heavy bench fixture; pushing it usually wrong).
   When the task references multiple objects ("all objects", "everything on the bench", "clear the table", "all the things"), iterate ALL of the bodies above and emit one push_object per body. **Do not skip racks** — pushing a rack carries its 3 tubes with it, so a single push_object on a rack removes 4 things from the bench at once. The full "clear the table" sequence is: 3 cubes + 3 bins + 2 racks = 8 push_object calls (the 6 tubes inside racks are handled by the rack pushes).
   **IMPORTANT**: whenever the user says "push" / "slide" / "shove" / "knock off" / "drop off the edge" / similar, ALWAYS use push_object. Do NOT use move_to + gripper_close + gripper_open for these tasks — that's the pick-and-place pattern, which produces the wrong motion for push tasks.
 - get_pose        params: {{}}
@@ -154,6 +157,27 @@ in a benchmark pick-and-place environment.
    pinning it. The vortex stops automatically when the object is
    removed. The vortex chassis is heavy; do not try to push or
    grasp it.
+
+   **PCR Thermocycler Module:** Opentrons thermocycler at world
+   (+200, -200). 170 W x 350 D x 130 H mm (closed). The lid is
+   hinged at the BACK and rotates open. To load a 96-well plate:
+   (1) pcr_open  -- lid rotates ~90deg upward.
+   (2) Move arm above the cavity at (+200, -200, 870) with the
+       plate held.
+   (3) Descend to (+200, -200, 790) -- the plate sits on the heated
+       block inside the chassis.
+   (4) gripper_open.
+   (5) Lift the gripper away to (+200, -200, 880).
+   (6) pcr_close  -- lid swings back down.
+   To remove a plate, reverse: pcr_open, descend with empty gripper,
+   gripper_close, lift, pcr_close.
+   The PCR has two side LED indicators that report state automatically:
+   RED = no plate AND lid closed; GREEN = plate inside; dim grey =
+   no plate AND lid open. The LEDs are diagnostic -- you don't
+   control them directly.
+   The cavity is small (~150 x 86 mm internal) so the plate must
+   be positioned within +/-10 mm of the cavity centre to drop in
+   cleanly. Approach from above only when the lid is open.
 6. If a task is ambiguous, output done() with a message asking for clarification.
 
 ## Output format
@@ -559,6 +583,8 @@ class LLMBrain:
             "gripper_close":    lambda p: self.arm.close_lite6_gripper(),
             "place_tube_in_rack": lambda p: self.arm.place_tube_in_rack(
                                       rack_name=p["rack_name"]),
+            "pcr_open":         lambda p: self.arm.set_pcr_lid("open"),
+            "pcr_close":        lambda p: self.arm.set_pcr_lid("closed"),
             "push_object":      lambda p: self.arm.push_object(
                                       target_name=p["target_name"],
                                       to_x_mm=float(p["to_x_mm"]),
