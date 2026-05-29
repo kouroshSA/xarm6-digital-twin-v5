@@ -151,6 +151,15 @@
     <material name="pcr_block_mat"   rgba="0.18 0.18 0.22 1"/>
     <material name="pcr_display_mat" rgba="0.10 0.30 0.55 1"/>
     <material name="pcr_logo_mat"    rgba="0.10 0.50 0.85 1"/>
+    <!-- Bio-gripper attachment: a wider plate-handling end-effector
+         used automatically when the task references a 96-well plate
+         or tip rack. The rubber lining is the bright orange silicone
+         pad typical of real UFactory bio-grippers. Default alphas
+         are 0 (hidden); SimXArmAPI.set_gripper("bio") flips them on
+         while hiding the standard gripper geom + fingers. -->
+    <material name="bio_gripper_body_mat"   rgba="0.20 0.20 0.22 0"/>
+    <material name="bio_gripper_pad_mat"    rgba="0.30 0.30 0.32 0"/>
+    <material name="bio_gripper_rubber_mat" rgba="0.95 0.55 0.30 0"/>
   </asset>
 
   <worldbody>
@@ -249,6 +258,37 @@
                                 rgba="0.2 0.2 0.2 1" mass="0.02"
                                 contype="0" conaffinity="0"/>
                         </body>
+                        <!-- Bio-gripper attachment (wider, rubber-lined,
+                             auto-attached for 96-well plate / tip-rack
+                             tasks). All geoms are non-colliding and
+                             initially hidden via material alpha=0;
+                             SimXArmAPI.set_gripper("bio") flips them on
+                             and the standard gripper/fingers off. -->
+                        <geom name="bio_gripper_body" type="box"
+                              size="0.045 0.030 0.010"
+                              pos="0 0 0.010"
+                              material="bio_gripper_body_mat" mass="0"
+                              contype="0" conaffinity="0"/>
+                        <geom name="bio_gripper_pad_left" type="box"
+                              size="0.005 0.030 0.020"
+                              pos="-0.040 0 0.045"
+                              material="bio_gripper_pad_mat" mass="0"
+                              contype="0" conaffinity="0"/>
+                        <geom name="bio_gripper_pad_right" type="box"
+                              size="0.005 0.030 0.020"
+                              pos="+0.040 0 0.045"
+                              material="bio_gripper_pad_mat" mass="0"
+                              contype="0" conaffinity="0"/>
+                        <geom name="bio_gripper_rubber_left" type="box"
+                              size="0.001 0.028 0.018"
+                              pos="-0.034 0 0.045"
+                              material="bio_gripper_rubber_mat" mass="0"
+                              contype="0" conaffinity="0"/>
+                        <geom name="bio_gripper_rubber_right" type="box"
+                              size="0.001 0.028 0.018"
+                              pos="+0.034 0 0.045"
+                              material="bio_gripper_rubber_mat" mass="0"
+                              contype="0" conaffinity="0"/>
                       </body>
                     </body>
                   </body>

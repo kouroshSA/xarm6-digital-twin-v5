@@ -184,9 +184,14 @@ in a benchmark pick-and-place environment.
    to z=790, gripper_close, lift to z=920, pcr_close.
    The PCR has two LED indicators (one on the front face, one on
    the back face) that report state automatically:
-   RED = no plate AND lid closed; GREEN = plate inside; dim grey =
-   no plate AND lid open. The LEDs are diagnostic -- you don't
-   control them directly.
+     - GREEN = a plate is correctly seated (centred on the heated
+       block, upright) AND the lid is closed.
+     - RED   = a plate IS inside the cavity but is mis-positioned
+       (off-centre or tilted) AND the lid is closed -- the LLM
+       should re-pick and re-place this plate.
+     - OFF   = the lid is open, OR the lid is closed but no plate
+       is inside (device inactive).
+   The LEDs are diagnostic -- you don't control them directly.
    The cavity is long along x (~330 mm) and narrow along y (~150 mm),
    so plates are best dropped near the chassis centre xy.
 6. If a task is ambiguous, output done() with a message asking for clarification.
@@ -207,6 +212,20 @@ JSON array ONLY - no prose, no markdown fences. Example for "put green cube in g
 
 ## Active speed cap
 {speed_cap_section}
+
+## End-effector / gripper
+The arm auto-equips ONE of two gripper attachments at the start of
+each task, based on a keyword scan of the prompt:
+  - **standard** (default): the 2-finger gripper. Used for cubes,
+    tubes, bins, racks, and any non-SBS-footprint object.
+  - **bio**: a wider, rubber-lined attachment auto-selected when the
+    task mentions any of: plate, well_plate, microplate, 96-well,
+    tip box, tip rack. The bio-gripper is visually distinct (wider
+    pads with bright orange rubber pads) and tolerates ~30 mm more
+    positioning slop on the grasp (effective reach 100 mm vs the
+    standard 70 mm), so plate / tip-rack picks are more forgiving.
+You don't issue a swap command -- the swap is automatic and happens
+before you see any of this prompt. Just plan as usual.
 
 ## Current scene registry
 {registry_context}
@@ -252,6 +271,21 @@ class LLMBrain:
         self.speed_tier = tier
         self.speed_cap_mm_s = cap_mm_s
 
+    # Keywords in the task prompt that trigger the bio-gripper attachment
+    # (wider, rubber-lined end-effector for SBS-footprint objects). Plain
+    # substring matching, case-insensitive. The check runs in
+    # prepare_for_task before the planner sees the prompt, so the LLM
+    # sees the wider grasp envelope from its first plan.
+    _BIO_GRIPPER_KEYWORDS = (
+        "plate", "well_plate", "well-plate", "wellplate",
+        "microplate", "96-well", "96 well",
+        "tip box", "tip_box", "tip-box", "tip rack", "tip_rack",
+    )
+
+    def _task_wants_bio_gripper(self, task: str) -> bool:
+        t = task.lower()
+        return any(kw in t for kw in self._BIO_GRIPPER_KEYWORDS)
+
     def prepare_for_task(self, task: str,
                          override_tier: Optional[str] = None) -> None:
         """Per-task setup hook: infer the speed tier from the task prompt
@@ -275,6 +309,14 @@ class LLMBrain:
         the brain keeps the default medium cap regardless of what the
         prompt says.
         """
+        # Auto-equip the bio-gripper for SBS-footprint manipulation
+        # tasks (plates, tip racks). Cheap keyword scan; idempotent on
+        # the sim side. Runs first so the gripper is correctly set even
+        # if the cached-task check below short-circuits below it.
+        if hasattr(self.arm, "set_gripper"):
+            wants_bio = self._task_wants_bio_gripper(task)
+            self.arm.set_gripper("bio" if wants_bio else "standard")
+
         # Cache key is the raw task string so a per-episode call from
         # EpisodeRetry (which augments the task with constraints/successes
         # blocks) won't trigger re-inference if the underlying task is

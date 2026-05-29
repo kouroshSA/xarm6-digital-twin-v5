@@ -53,6 +53,10 @@ GRIPPABLE_CUBES = GRIPPABLE_BODIES
 GRIPPER_REACH_M = 0.07  # 70mm from EE site to body center (Claude's move_to targets
                         # the EE site, and the EE site is ~30mm below the gripper
                         # body in world frame when the arm points down)
+# The bio-gripper attachment (auto-equipped for 96-well-plate / tip-rack
+# tasks) has wider pads with rubber lining, giving it a more forgiving
+# grasp envelope on SBS-footprint objects.
+GRIPPER_REACH_BIO_M = 0.10  # 100mm
 
 # Cosmetic finger animation. The two finger joints have range [0, 0.015] m
 # where 0 = open, 0.015 = closed (inward). Both joints are driven to the
@@ -210,6 +214,26 @@ class SimXArmAPI:
         except Exception:
             pass
         self._pcr_last_state = None   # cache so we only rewrite LEDs on change
+
+        # Gripper-attachment state. Default is the standard 2-finger
+        # gripper; set_gripper("bio") swaps in the wider rubber-lined
+        # bio-gripper attachment (purely visual swap, the magnetic
+        # weld still does the actual grasping). Auto-equipped by
+        # LLMBrain.prepare_for_task based on task keywords.
+        self._gripper_mode = "standard"
+        self._bio_mat_ids = []
+        for n in ("bio_gripper_body_mat", "bio_gripper_pad_mat",
+                  "bio_gripper_rubber_mat"):
+            try:
+                self._bio_mat_ids.append(self.model.material(n).id)
+            except Exception:
+                pass
+        self._std_gripper_gids = []
+        for n in ("gripper_geom", "finger_left_geom", "finger_right_geom"):
+            try:
+                self._std_gripper_gids.append(self.model.geom(n).id)
+            except Exception:
+                pass
 
         # LED strip state. Resolved lazily so scenes without LED
         # strips (or with a different number of LEDs) load fine.
@@ -372,22 +396,48 @@ class SimXArmAPI:
     #   RED    : no plate AND lid is closed
     #   GREY   : no plate AND lid is open (transient / loading state)
 
-    # Cavity detection envelope, expressed in WORLD-axis half-extents
-    # around the PCR body origin. A plate body whose centre is within
-    # +/-PCR_CAVITY_HALF_XY_M[i] AND whose z is within
-    # PCR_CAVITY_Z_RANGE_M above the chassis floor is "inside".
-    # Tuned for the current PCR pose: rotated 90deg CCW around z so the
-    # chassis is long along world x. Generous symmetric envelope rather
-    # than the exact cavity dims, so plates within +/-80mm in x and
-    # +/-75mm in y of the PCR centre are reliably detected regardless
-    # of plate orientation.
-    PCR_CAVITY_HALF_XY_M = (0.080, 0.075)
-    PCR_CAVITY_Z_RANGE_M = (0.005, 0.060)
-    PCR_LID_OPEN_ANGLE_RAD = 0.5   # >this counts as "open"
+    # Two-tier cavity detection envelopes, expressed in WORLD-axis
+    # half-extents around the PCR body origin:
+    #
+    #   LOOSE: "plate is somewhere inside the cavity" (xy within
+    #          +/-80mm in x and +/-75mm in y). If a plate clears the
+    #          LOOSE envelope it counts as "present in the PCR".
+    #   TIGHT: "plate is correctly seated on the heated block" (xy
+    #          within +/-20mm of cavity centre, upright orientation).
+    #          A plate clearing both LOOSE and TIGHT envelopes lights
+    #          the LEDs GREEN; clearing LOOSE but not TIGHT lights
+    #          them RED (plate is there but mis-positioned).
+    PCR_CAVITY_HALF_XY_M       = (0.080, 0.075)
+    PCR_TIGHT_SEAT_HALF_XY_M   = (0.020, 0.020)
+    PCR_CAVITY_Z_RANGE_M       = (0.005, 0.060)
+    PCR_LID_OPEN_ANGLE_RAD     = 0.5    # >this counts as "open"
+    PCR_UPRIGHT_TILT_RAD       = 0.20   # ~11 deg max tilt for "seated"
 
     _PCR_LED_GREEN = (0.0, 1.0, 0.0, 1.0)
     _PCR_LED_RED   = (1.0, 0.0, 0.0, 1.0)
-    _PCR_LED_GREY  = (0.15, 0.15, 0.15, 1.0)
+    _PCR_LED_OFF   = (0.05, 0.05, 0.05, 1.0)
+
+    # ---- Bio-gripper attachment swap -----------------------------------------
+    # Toggling between "standard" and "bio" gripper. Purely visual: the
+    # underlying weld-based grasp mechanism doesn't change, only the
+    # rendered geoms swap (and close_lite6_gripper widens its reach
+    # tolerance when bio is active).
+    def set_gripper(self, mode: str) -> int:
+        if mode not in ("standard", "bio"):
+            print(f"[SimXArm] set_gripper: invalid mode {mode!r}")
+            return 2
+        if mode == self._gripper_mode:
+            return 0  # already set; no-op
+        bio_alpha = 1.0 if mode == "bio" else 0.0
+        std_alpha = 0.0 if mode == "bio" else 1.0
+        with self.lock:
+            for mid in self._bio_mat_ids:
+                self.model.mat_rgba[mid, 3] = bio_alpha
+            for gid in self._std_gripper_gids:
+                self.model.geom_rgba[gid, 3] = std_alpha
+        self._gripper_mode = mode
+        print(f"[SimXArm] Gripper -> {mode}")
+        return 0
 
     def set_pcr_lid(self, state: str, wait: bool = True,
                     timeout_s: float = 3.0) -> int:
@@ -415,6 +465,12 @@ class SimXArmAPI:
         return 0
 
     def _pcr_tick(self) -> None:
+        """LED state machine:
+          - lid open                             -> OFF
+          - lid closed AND no plate inside       -> OFF (inactive)
+          - lid closed AND plate inside, seated  -> GREEN
+          - lid closed AND plate inside, off-cnt -> RED  (misplaced)
+        """
         if self._pcr_module_bid is None or not self._pcr_led_gids:
             return
 
@@ -425,11 +481,11 @@ class SimXArmAPI:
                 > self.PCR_LID_OPEN_ANGLE_RAD
         )
 
-        # Plate-inside-cavity check: iterate all plate bodies (both
-        # well_plate_A and well_plate_B) and see if any sits in the
-        # PCR's internal cavity (local frame). We do the check in
-        # world coords by translating relative to pcr_pos.
-        has_plate = False
+        # Scan both plate bodies for one inside the LOOSE cavity envelope.
+        # If found, also check the TIGHT seating envelope + upright
+        # orientation to decide GREEN vs RED.
+        plate_inside = False
+        plate_seated = False
         for name in ("well_plate_A", "well_plate_B"):
             bid = self.cube_bids.get(name)
             if bid is None:
@@ -438,26 +494,34 @@ class SimXArmAPI:
             dx = abs(float(p[0] - pcr_pos[0]))
             dy = abs(float(p[1] - pcr_pos[1]))
             dz = float(p[2] - pcr_pos[2])
-            if (dx < self.PCR_CAVITY_HALF_XY_M[0]
+            if not (dx < self.PCR_CAVITY_HALF_XY_M[0]
                     and dy < self.PCR_CAVITY_HALF_XY_M[1]
                     and self.PCR_CAVITY_Z_RANGE_M[0]
                         < dz <
                         self.PCR_CAVITY_Z_RANGE_M[1]):
-                has_plate = True
-                break
+                continue
+            plate_inside = True
+            # Tight seating envelope + upright check.
+            tight_xy = (dx < self.PCR_TIGHT_SEAT_HALF_XY_M[0]
+                        and dy < self.PCR_TIGHT_SEAT_HALF_XY_M[1])
+            xmat = self.data.xmat[bid].reshape(3, 3)
+            local_z_world = xmat[:, 2]
+            cos_tilt = float(np.clip(local_z_world[2], -1.0, 1.0))
+            tilt_ok = (np.arccos(cos_tilt) < self.PCR_UPRIGHT_TILT_RAD)
+            if tight_xy and tilt_ok:
+                plate_seated = True
+            break
 
-        if has_plate:
+        if lid_open or not plate_inside:
+            state = "off"
+            rgba  = self._PCR_LED_OFF
+        elif plate_seated:
             state = "green"
             rgba  = self._PCR_LED_GREEN
-        elif not lid_open:
+        else:
             state = "red"
             rgba  = self._PCR_LED_RED
-        else:
-            state = "grey"
-            rgba  = self._PCR_LED_GREY
 
-        # Only push to the model when state actually changes (avoids
-        # writing identical rgba ~500 times/sec).
         if state == self._pcr_last_state:
             return
         self._pcr_last_state = state
@@ -1208,9 +1272,14 @@ class SimXArmAPI:
             # Animate fingers closing regardless of whether anything is in
             # reach -- a "tried to grasp but missed" visual is informative.
             self._set_finger_ctrl(GRIPPER_CLOSED_CTRL_M)
-            if nearest is None or nearest_d > GRIPPER_REACH_M:
+            # Bio-gripper widens the effective grasp envelope so plate
+            # picks tolerate more positioning slop.
+            reach = (GRIPPER_REACH_BIO_M if self._gripper_mode == "bio"
+                     else GRIPPER_REACH_M)
+            if nearest is None or nearest_d > reach:
                 print(f"[SimXArm] Gripper close (no cube in reach; "
-                      f"nearest={nearest} at {nearest_d*1000:.1f}mm)")
+                      f"nearest={nearest} at {nearest_d*1000:.1f}mm, "
+                      f"mode={self._gripper_mode}, reach={reach*1000:.0f}mm)")
                 return 0
 
             # Compute cube pose in gripper's local frame and stamp it into
