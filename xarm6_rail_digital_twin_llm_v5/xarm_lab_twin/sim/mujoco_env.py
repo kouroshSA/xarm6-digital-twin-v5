@@ -191,6 +191,26 @@ class SimXArmAPI:
             except Exception:
                 pass
 
+        # PCR Thermocycler Module state. _pcr_lid_act_id drives the
+        # lid hinge actuator; _pcr_lid_jnt_qpos_adr lets us read the
+        # current hinge angle to detect open/closed state. The two
+        # LED geom IDs are written by _pcr_tick based on plate-in-
+        # cavity + lid-closed conditions.
+        self._pcr_module_bid = None
+        self._pcr_lid_act_id = None
+        self._pcr_lid_jnt_qpos_adr = None
+        self._pcr_led_gids = []
+        try:
+            self._pcr_module_bid = self.model.body("pcr_module").id
+            self._pcr_lid_act_id = self.model.actuator("act_pcr_lid").id
+            lid_jid = self.model.joint("pcr_lid_hinge").id
+            self._pcr_lid_jnt_qpos_adr = int(self.model.jnt_qposadr[lid_jid])
+            for n in ("pcr_led_left", "pcr_led_right"):
+                self._pcr_led_gids.append(self.model.geom(n).id)
+        except Exception:
+            pass
+        self._pcr_last_state = None   # cache so we only rewrite LEDs on change
+
         # LED strip state. Resolved lazily so scenes without LED
         # strips (or with a different number of LEDs) load fine.
         # _led_gids holds (strip_index_0or1, position_index, geom_id)
@@ -242,7 +262,7 @@ class SimXArmAPI:
             for fixture in ("green_bin", "blue_bin",
                             "left_tube_rack", "right_tube_rack",
                             "opentrons_ot2", "heater_shaker",
-                            "vortex_genie"):
+                            "vortex_genie", "pcr_module"):
                 try:
                     fbid = self.model.body(fixture).id
                 except Exception:
@@ -256,6 +276,7 @@ class SimXArmAPI:
                 mujoco.mj_step(self.model, self.data)
             self._vortex_tick()
             self._led_tick()
+            self._pcr_tick()
             time.sleep(0.002)
 
     # ---- LED strip driver ---------------------------------------------------
@@ -342,6 +363,102 @@ class SimXArmAPI:
                 hue = ((i / n) + phase) % 1.0
                 r, g, b = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
                 self.model.geom_rgba[gid] = [r, g, b, 1.0]
+
+    # ---- PCR Thermocycler Module driver -------------------------------------
+    # Lid open/close is driven by the LLM via the pcr_open / pcr_close
+    # commands (see LLMBrain._dispatch). The two side-face LEDs auto-update
+    # each step based on (plate-inside-cavity, lid-open-state):
+    #   GREEN  : a plate is detected inside the cavity (regardless of lid)
+    #   RED    : no plate AND lid is closed
+    #   GREY   : no plate AND lid is open (transient / loading state)
+
+    # Cavity detection envelope (PCR-local frame). A plate body whose
+    # centre is within +/-PCR_CAVITY_HALF_XY_M of (0, 0) and whose z is
+    # within PCR_CAVITY_Z_RANGE_M above the chassis floor is "inside".
+    PCR_CAVITY_HALF_XY_M = (0.075, 0.060)
+    PCR_CAVITY_Z_RANGE_M = (0.005, 0.060)
+    PCR_LID_OPEN_ANGLE_RAD = 0.5   # >this counts as "open"
+
+    _PCR_LED_GREEN = (0.0, 1.0, 0.0, 1.0)
+    _PCR_LED_RED   = (1.0, 0.0, 0.0, 1.0)
+    _PCR_LED_GREY  = (0.15, 0.15, 0.15, 1.0)
+
+    def set_pcr_lid(self, state: str, wait: bool = True,
+                    timeout_s: float = 3.0) -> int:
+        """Open or close the PCR Thermocycler lid. `state` is "open"
+        or "closed". Returns 0 on success, 1 if the scene doesn't
+        include a PCR module, 2 on invalid state."""
+        if self._pcr_lid_act_id is None:
+            print("[SimXArm] set_pcr_lid: scene has no PCR module.")
+            return 1
+        if state not in ("open", "closed"):
+            print(f"[SimXArm] set_pcr_lid: invalid state {state!r}; "
+                  f"use 'open' or 'closed'.")
+            return 2
+        target = np.pi / 2 if state == "open" else 0.0
+        with self.lock:
+            self.data.ctrl[self._pcr_lid_act_id] = target
+        if wait and self._pcr_lid_jnt_qpos_adr is not None:
+            t0 = time.time()
+            while time.time() - t0 < timeout_s:
+                if abs(float(self.data.qpos[self._pcr_lid_jnt_qpos_adr])
+                       - target) < 0.05:
+                    break
+                time.sleep(0.05)
+        print(f"[SimXArm] PCR lid -> {state}")
+        return 0
+
+    def _pcr_tick(self) -> None:
+        if self._pcr_module_bid is None or not self._pcr_led_gids:
+            return
+
+        pcr_pos = self.data.xpos[self._pcr_module_bid].copy()
+        lid_open = (
+            self._pcr_lid_jnt_qpos_adr is not None
+            and float(self.data.qpos[self._pcr_lid_jnt_qpos_adr])
+                > self.PCR_LID_OPEN_ANGLE_RAD
+        )
+
+        # Plate-inside-cavity check: iterate all plate bodies (both
+        # well_plate_A and well_plate_B) and see if any sits in the
+        # PCR's internal cavity (local frame). We do the check in
+        # world coords by translating relative to pcr_pos.
+        has_plate = False
+        for name in ("well_plate_A", "well_plate_B"):
+            bid = self.cube_bids.get(name)
+            if bid is None:
+                continue
+            p = self.data.xpos[bid]
+            dx = abs(float(p[0] - pcr_pos[0]))
+            dy = abs(float(p[1] - pcr_pos[1]))
+            dz = float(p[2] - pcr_pos[2])
+            if (dx < self.PCR_CAVITY_HALF_XY_M[0]
+                    and dy < self.PCR_CAVITY_HALF_XY_M[1]
+                    and self.PCR_CAVITY_Z_RANGE_M[0]
+                        < dz <
+                        self.PCR_CAVITY_Z_RANGE_M[1]):
+                has_plate = True
+                break
+
+        if has_plate:
+            state = "green"
+            rgba  = self._PCR_LED_GREEN
+        elif not lid_open:
+            state = "red"
+            rgba  = self._PCR_LED_RED
+        else:
+            state = "grey"
+            rgba  = self._PCR_LED_GREY
+
+        # Only push to the model when state actually changes (avoids
+        # writing identical rgba ~500 times/sec).
+        if state == self._pcr_last_state:
+            return
+        self._pcr_last_state = state
+        with self.lock:
+            for gid in self._pcr_led_gids:
+                self.model.geom_rgba[gid] = rgba
+
 
     # ---- Vortex-Genie 2 orbital-platform driver -----------------------------
     # Real spec: orbit radius 4mm, ~3200 rpm at full speed (~53 Hz). Sim uses
@@ -1230,7 +1347,8 @@ class SimXArmAPI:
             # one of these still loads (a missing fixture is silently
             # skipped, so its proximity facts just won't fire).
             static_positions = {}
-            for fx in ("opentrons_ot2", "heater_shaker", "vortex_genie"):
+            for fx in ("opentrons_ot2", "heater_shaker", "vortex_genie",
+                       "pcr_module"):
                 try:
                     fbid = self.model.body(fx).id
                     static_positions[fx] = self.data.xpos[fbid].copy()

@@ -144,6 +144,13 @@
          (the geom_rgba overrides take precedence anyway when set). -->
     <material name="led_pcb_mat" rgba="0.12 0.12 0.13 1"/>
     <material name="led_off_mat" rgba="0.05 0.05 0.05 1"/>
+    <!-- Opentrons Thermocycler Module materials. Off-white chassis with
+         dark anodised heated-block + tiny blue display. -->
+    <material name="pcr_chassis_mat" rgba="0.92 0.92 0.94 1"/>
+    <material name="pcr_lid_mat"     rgba="0.92 0.92 0.94 1"/>
+    <material name="pcr_block_mat"   rgba="0.18 0.18 0.22 1"/>
+    <material name="pcr_display_mat" rgba="0.10 0.30 0.55 1"/>
+    <material name="pcr_logo_mat"    rgba="0.10 0.50 0.85 1"/>
   </asset>
 
   <worldbody>
@@ -594,11 +601,12 @@
       <joint type="free" name="well_plate_A_joint"/>
     </body>
 
-    <!-- 96-well plate B: sits on the bench at the front, between
-         the bench's tube racks. Free body so the arm can pick it up
-         and place it elsewhere (e.g. on the heater_shaker or on the
-         OT-2 deck). -->
-    <body name="well_plate_B" pos="+0.200 -0.300 0.7625">
+    <!-- 96-well plate B: sits on the bench front-right, between the
+         PCR thermocycler (at +0.20, -0.20) and the OT-2 (at +1.00, 0).
+         Free body so the arm can pick it up and place it elsewhere
+         (e.g. into the PCR, onto the heater_shaker, or onto an OT-2
+         deck slot). -->
+    <body name="well_plate_B" pos="+0.550 -0.200 0.7625">
       <inertial pos="0 0 0" mass="0.10" diaginertia="2e-4 2e-4 3e-4"/>
       <geom name="well_plate_B_body" class="well_plate_body"
             material="well_plate_mat"/>
@@ -738,6 +746,106 @@
     </body>
 
     <!-- =============================================================
+         OPENTRONS THERMOCYCLER MODULE (PCR machine).
+         Approx outer dimensions 170 W x 350 D x 130 H mm (slightly
+         compressed from the real ~172 W x 396 D so the unit fits
+         within the bench front-right area).
+
+         Layout: open-top chassis (floor + 4 walls, collidable) + a
+         dark heated-block inside where a 96-well plate sits +
+         hinged lid that rotates 0 to pi/2 around an axis along
+         x (world). When the lid is closed, the plate is inside the
+         box. When the lid is open, the arm can descend from above
+         to load or remove a plate.
+
+         Two LED indicators on the LEFT and RIGHT faces show state:
+           - GREEN = a plate is detected inside the cavity
+           - RED   = no plate inside AND lid is closed
+           - dim grey = no plate inside AND lid is open (no useful
+                       state to report yet)
+         SimXArmAPI._pcr_tick updates the LED rgba each step.
+
+         Lid actuator: act_pcr_lid (see <actuator>). ctrl=0 -> closed
+         (lid flat over chassis). ctrl=pi/2 -> open (lid stands
+         vertical at the back).
+    ============================================================= -->
+    <body name="pcr_module" pos="0.20 -0.20 0.75">
+      <!-- Chassis: open-top box. Floor + 4 walls. Half-extents
+           ~(0.085, 0.175, 0.005-0.045) on each piece. -->
+      <geom name="pcr_chassis_floor" type="box"
+            size="0.085 0.175 0.005" pos="0 0 0.005"
+            material="pcr_chassis_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <geom name="pcr_chassis_back" type="box"
+            size="0.085 0.005 0.045" pos="0 +0.170 0.055"
+            material="pcr_chassis_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <geom name="pcr_chassis_front" type="box"
+            size="0.085 0.005 0.045" pos="0 -0.170 0.055"
+            material="pcr_chassis_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <geom name="pcr_chassis_left" type="box"
+            size="0.005 0.175 0.045" pos="-0.080 0 0.055"
+            material="pcr_chassis_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <geom name="pcr_chassis_right" type="box"
+            size="0.005 0.175 0.045" pos="+0.080 0 0.055"
+            material="pcr_chassis_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <!-- Heated block: where the 96-well plate sits. Slightly
+           smaller than SBS footprint so the plate can drop into
+           the recess without snagging. -->
+      <geom name="pcr_block" type="box"
+            size="0.060 0.043 0.005" pos="0 0 0.015"
+            material="pcr_block_mat"
+            contype="1" conaffinity="1" mass="0"/>
+      <!-- Display panel on the front face (visual only). -->
+      <geom name="pcr_display" type="box"
+            size="0.045 0.001 0.015" pos="0 -0.176 0.030"
+            material="pcr_display_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Opentrons logo strip on the front face (visual only). -->
+      <geom name="pcr_logo" type="box"
+            size="0.020 0.001 0.005" pos="0 -0.176 0.080"
+            material="pcr_logo_mat"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- LED indicators: one on each side face (left/right). Default
+           rgba = dim grey (off). SimXArmAPI._pcr_tick writes
+           red/green based on state. -->
+      <geom name="pcr_led_left" type="cylinder"
+            size="0.009 0.004" pos="-0.089 0 0.070"
+            euler="0 1.5708 0"
+            rgba="0.15 0.15 0.15 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="pcr_led_right" type="cylinder"
+            size="0.009 0.004" pos="+0.089 0 0.070"
+            euler="0 1.5708 0"
+            rgba="0.15 0.15 0.15 1"
+            contype="0" conaffinity="0" mass="0"/>
+
+      <!-- Lid: child body hinged at the back-top edge of the chassis.
+           Hinge axis = world x; range [0, pi/2]. Lid extends FORWARD
+           (in -y direction) from the hinge when closed. -->
+      <body name="pcr_lid" pos="0 0.170 0.110">
+        <inertial pos="0 -0.087 0" mass="0.3"
+                  diaginertia="3e-3 3e-3 5e-3"/>
+        <joint name="pcr_lid_hinge" type="hinge" axis="1 0 0"
+               range="0 1.5708" limited="true"
+               damping="2.0"/>
+        <!-- Lid panel: 170 W x 175 D x 15 H mm. -->
+        <geom name="pcr_lid_top" type="box"
+              size="0.085 0.0875 0.0075" pos="0 -0.0875 0"
+              material="pcr_lid_mat"
+              contype="1" conaffinity="1"/>
+        <!-- Lid handle / front lip (cosmetic). -->
+        <geom name="pcr_lid_handle" type="box"
+              size="0.030 0.005 0.012" pos="0 -0.170 -0.012"
+              material="pcr_logo_mat"
+              contype="0" conaffinity="0" mass="0"/>
+      </body>
+    </body>
+
+    <!-- =============================================================
          LED STRIPS (2 x 700mm) flanking the rail.
          Each strip = a dark PCB base + 15 individually-coloured LED
          chips spaced 50mm apart. The chip rgbas are updated at
@@ -857,6 +965,11 @@
               kp="1000" kv="8" ctrlrange="-0.006 0.006"/>
     <position name="act_vortex_y" joint="vortex_orbit_y"
               kp="1000" kv="8" ctrlrange="-0.006 0.006"/>
+    <!-- PCR thermocycler lid hinge. ctrl=0 -> closed; ctrl=pi/2 ->
+         fully open (lid stands vertical at the back of the chassis).
+         SimXArmAPI.set_pcr_lid drives this actuator. -->
+    <position name="act_pcr_lid" joint="pcr_lid_hinge"
+              kp="80" kv="10" ctrlrange="0 1.5708"/>
   </actuator>
 
 </mujoco>
