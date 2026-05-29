@@ -77,6 +77,12 @@ class EpisodeContext:
     # Used by LLMBrain dispatch to clamp speed parameters on motion
     # primitives.
 
+    human_feedback: List[str] = field(default_factory=list)
+    # Free-form human-supplied feedback collected between episodes when
+    # --hloop is active. Empty unless the user typed something at the
+    # post-episode prompt. Rendered into the NEXT episode's prompt via
+    # human_feedback_block() so the planner can react to it.
+
     def add_constraint(self, constraint: str) -> None:
         if constraint and constraint not in self.learned_constraints:
             self.learned_constraints.append(constraint)
@@ -134,6 +140,25 @@ class EpisodeContext:
             recent = [p for p in self.successful_plans[-3:] if p is not best]
             self.successful_plans = [best] + recent[-2:]
             self.best_plan_idx = 0
+
+    def human_feedback_block(self) -> str:
+        """Render any human-supplied feedback collected via --hloop into
+        a markdown block the planner sees in the next episode's prompt.
+        Most recent feedback first; older items also retained so the
+        planner has the full corrective history.
+        """
+        if not self.human_feedback:
+            return ""
+        lines = [
+            "",
+            "## Operator feedback from earlier episodes",
+            "(A human watching the run typed these between episodes. "
+            "They override or refine the automated learning above. "
+            "Most recent first.)",
+        ]
+        for i, fb in enumerate(reversed(self.human_feedback), start=1):
+            lines.append(f"{i}. {fb}")
+        return "\n".join(lines) + "\n"
 
     def successes_block(self) -> str:
         """Render successful plans with EXPLORATION-FRIENDLY framing.
@@ -483,7 +508,8 @@ class EpisodeRetry:
                  settle_seconds: float = 1.5,
                  stringency: str = "loose",
                  speed_tier_override: Optional[str] = None,
-                 led_enabled: bool = False):
+                 led_enabled: bool = False,
+                 human_feedback_enabled: bool = False):
         """
         Args:
             brain:            LLMBrain instance (already constructed).
@@ -513,6 +539,7 @@ class EpisodeRetry:
         self.stringency = stringency
         self.speed_tier_override = speed_tier_override
         self.led_enabled = led_enabled
+        self.human_feedback_enabled = human_feedback_enabled
 
     def run(self, task: str) -> Dict[str, Any]:
         ctx = EpisodeContext(task=task, max_episodes=self.max_episodes)
@@ -578,7 +605,8 @@ class EpisodeRetry:
             #    to llm_brain.py required.)
             episode_task = (task
                             + ctx.constraints_block()
-                            + ctx.successes_block())
+                            + ctx.successes_block()
+                            + ctx.human_feedback_block())
 
             # 3. Execute.
             try:
@@ -652,6 +680,22 @@ class EpisodeRetry:
             _record_lesson(task, self.brain, result, physical, ctx,
                            episode_outcome, self.stringency)
             _close_recorder(recorder)
+
+            # Human-in-the-loop feedback: prompt the operator between
+            # episodes. Empty input -> just continue. Non-empty input
+            # is added to ctx.human_feedback and will appear in the
+            # next episode's prompt via human_feedback_block(). Skip
+            # after the FINAL episode -- no next episode to inform.
+            if (self.human_feedback_enabled
+                    and ctx.episode_num < ctx.max_episodes):
+                fb = _collect_human_feedback(ctx.episode_num,
+                                             ctx.max_episodes)
+                if fb:
+                    ctx.human_feedback.append(
+                        f"After ep {ctx.episode_num}: {fb}")
+                    print(f"[EpisodeLoop] Recorded operator feedback "
+                          f"({len(fb)} chars) for next episode.")
+
             ctx.episode_num += 1
 
         # --- End of loop. Build the training-quality summary. ---
@@ -859,6 +903,25 @@ def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]
         print(f"[EpisodeLoop] Review pass failed (non-fatal): "
               f"{type(e).__name__}: {e}")
         return None
+
+
+def _collect_human_feedback(current_ep: int, max_ep: int) -> str:
+    """Block on stdin for operator feedback between episodes. Returns
+    the trimmed input string (possibly empty if the user just hit
+    Enter). Catches EOFError / KeyboardInterrupt so an unusual stdin
+    state (e.g. headless run with no terminal) doesn't crash the loop
+    -- in those cases we just skip the prompt."""
+    sep = "=" * 70
+    print(f"\n{sep}")
+    print(f"[hloop] Episode {current_ep}/{max_ep} finished. Operator "
+          f"feedback for next episode?")
+    print(f"[hloop] (Press Enter to skip; type any text + Enter to "
+          f"record feedback)")
+    try:
+        return input("[hloop] > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("[hloop] (stdin unavailable -- skipping)")
+        return ""
 
 
 def _close_recorder(recorder) -> None:

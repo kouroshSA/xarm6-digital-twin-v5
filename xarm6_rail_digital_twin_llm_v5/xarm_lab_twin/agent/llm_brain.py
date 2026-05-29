@@ -142,6 +142,11 @@ in a benchmark pick-and-place environment.
    (-300, -250, 870), lower to (-300, -250, 845), open gripper.
    The shaker is heavy (2 kg) and should be left in place; do not
    push or pick it up unless the task explicitly says so.
+   Two status LEDs on the left and right faces report plate
+   placement: GREEN = plate seated correctly (within +/-15 mm of
+   platform centre, upright); RED = plate present but mis-aligned
+   (re-pick and re-place); OFF = no plate. Read-only diagnostic
+   indicators, not controllable directly.
 
    **Vortex-Genie 2:** classic benchtop vortex mixer on the bench
    at world (-200, +250). 165 W x 122 D x 165 H mm. Top orbital
