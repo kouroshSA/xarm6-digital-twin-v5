@@ -159,25 +159,28 @@ in a benchmark pick-and-place environment.
    grasp it.
 
    **PCR Thermocycler Module:** Opentrons thermocycler at world
-   (+200, -200). 170 W x 350 D x 130 H mm (closed). The lid is
-   hinged at the BACK and rotates open. To load a 96-well plate:
+   (+200, -300). Outer dimensions after rotation: ~350 W (along x)
+   x 170 D (along y) x 130 H mm. The lid hinges on the -x edge
+   and opens UP AND AWAY FROM the OT-2 (when open, the lid stands
+   vertical at world x ~30 mm). The arm approaches the cavity from
+   above only when the lid is open. To load a 96-well plate:
    (1) pcr_open  -- lid rotates ~90deg upward.
-   (2) Move arm above the cavity at (+200, -200, 870) with the
+   (2) Move arm above the cavity at (+200, -300, 870) with the
        plate held.
-   (3) Descend to (+200, -200, 790) -- the plate sits on the heated
+   (3) Descend to (+200, -300, 790) -- the plate sits on the heated
        block inside the chassis.
    (4) gripper_open.
-   (5) Lift the gripper away to (+200, -200, 880).
+   (5) Lift the gripper away to (+200, -300, 880).
    (6) pcr_close  -- lid swings back down.
    To remove a plate, reverse: pcr_open, descend with empty gripper,
    gripper_close, lift, pcr_close.
-   The PCR has two side LED indicators that report state automatically:
+   The PCR has two LED indicators (one on the front face, one on
+   the back face) that report state automatically:
    RED = no plate AND lid closed; GREEN = plate inside; dim grey =
    no plate AND lid open. The LEDs are diagnostic -- you don't
    control them directly.
-   The cavity is small (~150 x 86 mm internal) so the plate must
-   be positioned within +/-10 mm of the cavity centre to drop in
-   cleanly. Approach from above only when the lid is open.
+   The cavity is long along x (~330 mm) and narrow along y (~150 mm),
+   so plates are best dropped near the chassis centre xy.
 6. If a task is ambiguous, output done() with a message asking for clarification.
 
 ## Output format

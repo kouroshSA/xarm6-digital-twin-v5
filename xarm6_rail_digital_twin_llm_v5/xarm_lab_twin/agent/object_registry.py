@@ -438,24 +438,28 @@ def build_default_registry() -> ObjectRegistry:
         aliases=["pcr", "thermocycler", "thermocycler module",
                  "pcr machine", "opentrons thermocycler",
                  "thermocycler gen2"],
-        position_xyz_m=[+0.200, -0.200, 0.750],
+        position_xyz_m=[+0.200, -0.300, 0.750],
         optimal_rail_mm=350.0,
         grasp=pcr_grasp,
         safety_notes=(
-            "Opentrons Thermocycler Module at world (+200, -200). "
-            "Outer ~170 W x 350 D x 130 H mm. The lid hinges at the "
-            "BACK and must be OPENED (pcr_open command) before any "
-            "plate can be loaded or removed. Cavity centre at world "
-            "(+200, -200, 765); plate sits on the heated block with "
-            "its body centre at ~z=780. To LOAD a plate: pcr_open, "
-            "approach (+200, -200, 870) with plate held, descend to "
-            "(+200, -200, 790), gripper_open, lift to "
-            "(+200, -200, 880), pcr_close. Two side-face LEDs "
-            "indicate state (RED=empty+closed, GREEN=plate inside, "
-            "grey=empty+open) -- read-only, not controllable directly. "
-            "The PCR chassis is heavy (~2 kg implied); do NOT push or "
-            "grasp it. Do NOT issue pcr_close while the gripper is "
-            "still inside the cavity."
+            "Opentrons Thermocycler Module at world (+200, -300). "
+            "Outer ~350 W (along x) x 170 D (along y) x 130 H mm. "
+            "Footprint: x in (25..375)mm, y in (-385..-215)mm. The "
+            "lid hinges on the -x side and OPENS UPWARD AWAY FROM "
+            "THE OT-2 (i.e. when open the lid stands vertical at "
+            "world x ~30mm, pointing UP). The lid must be OPENED "
+            "(pcr_open command) before any plate can be loaded or "
+            "removed. Cavity centre at world (+200, -300, 765); "
+            "plate sits on the heated block with its body centre at "
+            "~z=780. To LOAD a plate: pcr_open, approach "
+            "(+200, -300, 870) with plate held, descend to "
+            "(+200, -300, 790), gripper_open, lift to "
+            "(+200, -300, 880), pcr_close. Two LEDs on the front and "
+            "back faces of the chassis indicate state (RED=empty+"
+            "closed, GREEN=plate inside, grey=empty+open) -- "
+            "read-only, not controllable directly. The PCR chassis "
+            "is heavy; do NOT push or grasp it. Do NOT issue "
+            "pcr_close while the gripper is still inside the cavity."
         ),
         object_type="instrument",
     ))

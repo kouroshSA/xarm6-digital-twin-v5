@@ -372,10 +372,16 @@ class SimXArmAPI:
     #   RED    : no plate AND lid is closed
     #   GREY   : no plate AND lid is open (transient / loading state)
 
-    # Cavity detection envelope (PCR-local frame). A plate body whose
-    # centre is within +/-PCR_CAVITY_HALF_XY_M of (0, 0) and whose z is
-    # within PCR_CAVITY_Z_RANGE_M above the chassis floor is "inside".
-    PCR_CAVITY_HALF_XY_M = (0.075, 0.060)
+    # Cavity detection envelope, expressed in WORLD-axis half-extents
+    # around the PCR body origin. A plate body whose centre is within
+    # +/-PCR_CAVITY_HALF_XY_M[i] AND whose z is within
+    # PCR_CAVITY_Z_RANGE_M above the chassis floor is "inside".
+    # Tuned for the current PCR pose: rotated 90deg CCW around z so the
+    # chassis is long along world x. Generous symmetric envelope rather
+    # than the exact cavity dims, so plates within +/-80mm in x and
+    # +/-75mm in y of the PCR centre are reliably detected regardless
+    # of plate orientation.
+    PCR_CAVITY_HALF_XY_M = (0.080, 0.075)
     PCR_CAVITY_Z_RANGE_M = (0.005, 0.060)
     PCR_LID_OPEN_ANGLE_RAD = 0.5   # >this counts as "open"
 
