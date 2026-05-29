@@ -407,7 +407,11 @@ def build_default_registry() -> ObjectRegistry:
             "96-well plate. To PLACE a plate on the shaker: approach "
             "(-300, -250, 870), descend to (-300, -250, 845), open "
             "gripper. Heavy (2 kg); do NOT push or pick up unless the "
-            "task explicitly asks."
+            "task explicitly asks. Two status LEDs on the left and "
+            "right faces of the chassis indicate plate placement: "
+            "GREEN = plate seated correctly (within +/-15 mm of "
+            "platform centre, upright); RED = plate present but "
+            "mis-aligned (re-pick and re-place); OFF = no plate."
         ),
         object_type="instrument",
     ))

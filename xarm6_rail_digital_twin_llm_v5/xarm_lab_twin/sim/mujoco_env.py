@@ -215,6 +215,19 @@ class SimXArmAPI:
             pass
         self._pcr_last_state = None   # cache so we only rewrite LEDs on change
 
+        # Heater-shaker status LEDs (same red/green/off semantics as the
+        # PCR module: GREEN=plate seated centred + upright, RED=plate
+        # present but mis-aligned, OFF=no plate).
+        self._shaker_bid = None
+        self._shaker_led_gids = []
+        try:
+            self._shaker_bid = self.model.body("heater_shaker").id
+            for n in ("shaker_led_left", "shaker_led_right"):
+                self._shaker_led_gids.append(self.model.geom(n).id)
+        except Exception:
+            pass
+        self._shaker_last_state = None
+
         # Gripper-attachment state. Default is the standard 2-finger
         # gripper; set_gripper("bio") swaps in the wider rubber-lined
         # bio-gripper attachment (purely visual swap, the magnetic
@@ -301,6 +314,7 @@ class SimXArmAPI:
             self._vortex_tick()
             self._led_tick()
             self._pcr_tick()
+            self._shaker_tick()
             time.sleep(0.002)
 
     # ---- LED strip driver ---------------------------------------------------
@@ -527,6 +541,75 @@ class SimXArmAPI:
         self._pcr_last_state = state
         with self.lock:
             for gid in self._pcr_led_gids:
+                self.model.geom_rgba[gid] = rgba
+
+    # ---- Heater-Shaker status-LED driver ------------------------------------
+    # Same red/green/off semantics as the PCR LEDs, applied to the
+    # heater_shaker platform: a plate resting on the platform within a
+    # tight xy envelope of the centre AND upright lights GREEN; a plate
+    # present but off-centre or tilted lights RED; no plate -> OFF.
+    SHAKER_PLATFORM_TOP_Z_M     = 0.836   # world z of platform top surface
+    SHAKER_LOOSE_HALF_XY_M      = (0.050, 0.045)
+    SHAKER_TIGHT_HALF_XY_M      = (0.015, 0.015)
+    SHAKER_PLATE_Z_RANGE_M      = (0.000, 0.030)   # plate centre above platform top
+    SHAKER_UPRIGHT_TILT_RAD     = 0.20             # ~11 deg
+
+    _SHAKER_LED_GREEN = (0.0, 1.0, 0.0, 1.0)
+    _SHAKER_LED_RED   = (1.0, 0.0, 0.0, 1.0)
+    _SHAKER_LED_OFF   = (0.05, 0.05, 0.05, 1.0)
+
+    def _shaker_tick(self) -> None:
+        if self._shaker_bid is None or not self._shaker_led_gids:
+            return
+
+        shaker_pos = self.data.xpos[self._shaker_bid].copy()
+        platform_top_world_z = (
+            float(shaker_pos[2])
+            + (self.SHAKER_PLATFORM_TOP_Z_M - 0.791)
+        )
+
+        plate_present = False
+        plate_seated  = False
+        for name in ("well_plate_A", "well_plate_B"):
+            bid = self.cube_bids.get(name)
+            if bid is None:
+                continue
+            p = self.data.xpos[bid]
+            dx = abs(float(p[0] - shaker_pos[0]))
+            dy = abs(float(p[1] - shaker_pos[1]))
+            dz = float(p[2] - platform_top_world_z)
+            if not (dx < self.SHAKER_LOOSE_HALF_XY_M[0]
+                    and dy < self.SHAKER_LOOSE_HALF_XY_M[1]
+                    and self.SHAKER_PLATE_Z_RANGE_M[0]
+                        < dz <
+                        self.SHAKER_PLATE_Z_RANGE_M[1]):
+                continue
+            plate_present = True
+            tight_xy = (dx < self.SHAKER_TIGHT_HALF_XY_M[0]
+                        and dy < self.SHAKER_TIGHT_HALF_XY_M[1])
+            xmat = self.data.xmat[bid].reshape(3, 3)
+            local_z_world = xmat[:, 2]
+            cos_tilt = float(np.clip(local_z_world[2], -1.0, 1.0))
+            tilt_ok = (np.arccos(cos_tilt) < self.SHAKER_UPRIGHT_TILT_RAD)
+            if tight_xy and tilt_ok:
+                plate_seated = True
+            break
+
+        if not plate_present:
+            state = "off"
+            rgba  = self._SHAKER_LED_OFF
+        elif plate_seated:
+            state = "green"
+            rgba  = self._SHAKER_LED_GREEN
+        else:
+            state = "red"
+            rgba  = self._SHAKER_LED_RED
+
+        if state == self._shaker_last_state:
+            return
+        self._shaker_last_state = state
+        with self.lock:
+            for gid in self._shaker_led_gids:
                 self.model.geom_rgba[gid] = rgba
 
 

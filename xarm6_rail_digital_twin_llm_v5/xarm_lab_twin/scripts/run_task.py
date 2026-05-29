@@ -32,6 +32,13 @@ def main():
     parser.add_argument("--loop", action="store_true",
                         help="Enable episode learning loop: retry on failure, "
                              "learning constraints between attempts.")
+    parser.add_argument("--hloop", action="store_true",
+                        help="Human-in-the-loop variant of --loop. Pauses at "
+                             "the end of each episode and prompts the operator "
+                             "for free-form feedback that's injected into the "
+                             "NEXT episode's prompt. Press Enter to skip a "
+                             "given prompt; type anything to record. Implies "
+                             "--loop.")
     parser.add_argument("--max-episodes", type=int, default=10,
                         help="Max episodes for --loop (default: 10).")
     parser.add_argument("--stringency",
@@ -105,6 +112,11 @@ def main():
                          # so the [Planned sequence]/etc. blocks below don't
                          # scroll the per-episode stats out of view.
 
+    # --hloop implies --loop (no point asking for feedback if the loop
+    # isn't running).
+    if args.hloop:
+        args.loop = True
+
     if args.loop and not args.dry_run:
         from agent.episode_loop import EpisodeRetry
 
@@ -131,6 +143,7 @@ def main():
             stringency=args.stringency,
             speed_tier_override=args.speed_tier,
             led_enabled=args.led_enabled,
+            human_feedback_enabled=args.hloop,
         )
         summary = loop.run(args.task)
         loop_summary = summary
