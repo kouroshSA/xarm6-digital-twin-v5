@@ -689,7 +689,8 @@ class EpisodeRetry:
             if (self.human_feedback_enabled
                     and ctx.episode_num < ctx.max_episodes):
                 fb = _collect_human_feedback(ctx.episode_num,
-                                             ctx.max_episodes)
+                                             ctx.max_episodes,
+                                             arm=self.arm)
                 if fb:
                     ctx.human_feedback.append(
                         f"After ep {ctx.episode_num}: {fb}")
@@ -905,23 +906,97 @@ def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]
         return None
 
 
-def _collect_human_feedback(current_ep: int, max_ep: int) -> str:
-    """Block on stdin for operator feedback between episodes. Returns
-    the trimmed input string (possibly empty if the user just hit
-    Enter). Catches EOFError / KeyboardInterrupt so an unusual stdin
-    state (e.g. headless run with no terminal) doesn't crash the loop
-    -- in those cases we just skip the prompt."""
+def _collect_human_feedback(current_ep: int, max_ep: int,
+                             arm=None) -> str:
+    """Block on stdin for operator feedback between episodes.
+
+    Multi-line input: read until the operator hits Enter on an empty
+    line. Lines starting with '/nudge' are parsed as scene-adjustment
+    commands and applied to the running sim via arm.nudge_body. All
+    other lines are joined with newlines and returned as the feedback
+    text for the LLM.
+
+    /nudge syntax (everything in mm and deg, deltas applied to the
+    body's current pose):
+      /nudge <body> xy <dx> <dy>
+      /nudge <body> xyz <dx> <dy> <dz>
+      /nudge <body> yaw <deg>
+      /nudge <body> pitch <deg>
+      /nudge <body> roll <deg>
+      /nudge <body> rpy <roll> <pitch> <yaw>
+
+    Returns the trimmed text feedback (possibly empty). Catches
+    EOFError / KeyboardInterrupt so headless runs don't crash.
+    """
     sep = "=" * 70
     print(f"\n{sep}")
     print(f"[hloop] Episode {current_ep}/{max_ep} finished. Operator "
           f"feedback for next episode?")
-    print(f"[hloop] (Press Enter to skip; type any text + Enter to "
-          f"record feedback)")
-    try:
-        return input("[hloop] > ").strip()
-    except (EOFError, KeyboardInterrupt):
-        print("[hloop] (stdin unavailable -- skipping)")
-        return ""
+    print(f"[hloop] Multi-line input. Blank line submits.")
+    print(f"[hloop] /nudge <body> yaw +30           rotate by 30 deg")
+    print(f"[hloop] /nudge <body> xy +50 -20        translate (mm)")
+    print(f"[hloop] /nudge <body> rpy 0 0 +45       rotate (deg)")
+    print(f"[hloop] /nudge <body> xyz 0 0 +20       translate 3D (mm)")
+    text_lines = []
+    while True:
+        try:
+            line = input("[hloop] > ")
+        except (EOFError, KeyboardInterrupt):
+            print("[hloop] (stdin unavailable -- skipping)")
+            return ""
+        if line.strip() == "":
+            break
+        if line.lstrip().startswith("/nudge"):
+            _apply_nudge_line(line, arm)
+            continue
+        text_lines.append(line)
+    return "\n".join(text_lines).strip()
+
+
+def _apply_nudge_line(line: str, arm) -> None:
+    """Parse and apply one /nudge ... line. Logs errors instead of raising
+    so a malformed entry doesn't crash the hloop pause."""
+    if arm is None:
+        print("[hloop] /nudge: arm not available, ignoring")
+        return
+    parts = line.strip().split()
+    # parts[0] == '/nudge'
+    if len(parts) < 3:
+        print("[hloop] /nudge: usage: /nudge <body> <op> <values...>")
+        return
+    name = parts[1]
+    op = parts[2].lower()
+    nums = []
+    for token in parts[3:]:
+        try:
+            nums.append(float(token))
+        except ValueError:
+            print(f"[hloop] /nudge: '{token}' is not a number")
+            return
+    kwargs = {}
+    if op == "xy" and len(nums) == 2:
+        kwargs.update(dx_mm=nums[0], dy_mm=nums[1])
+    elif op == "xyz" and len(nums) == 3:
+        kwargs.update(dx_mm=nums[0], dy_mm=nums[1], dz_mm=nums[2])
+    elif op == "yaw" and len(nums) == 1:
+        kwargs.update(dyaw_deg=nums[0])
+    elif op == "pitch" and len(nums) == 1:
+        kwargs.update(dpitch_deg=nums[0])
+    elif op == "roll" and len(nums) == 1:
+        kwargs.update(droll_deg=nums[0])
+    elif op == "rpy" and len(nums) == 3:
+        kwargs.update(droll_deg=nums[0], dpitch_deg=nums[1],
+                      dyaw_deg=nums[2])
+    else:
+        print(f"[hloop] /nudge: unknown op '{op}' or wrong arg count")
+        return
+    rc = arm.nudge_body(name, **kwargs)
+    if rc == 0:
+        rc2, pose = arm.get_body_pose(name)
+        if rc2 == 0 and pose is not None:
+            x, y, z, r, p, ya = pose
+            print(f"[hloop] /nudge ok: {name} -> ({x:.1f}, {y:.1f}, "
+                  f"{z:.1f}) mm, rpy=({r:+.1f}, {p:+.1f}, {ya:+.1f}) deg")
 
 
 def _close_recorder(recorder) -> None:

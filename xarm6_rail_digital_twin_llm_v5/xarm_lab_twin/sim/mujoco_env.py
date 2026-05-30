@@ -8,7 +8,7 @@ import time
 from typing import Optional
 
 try:
-    from transforms3d.euler import mat2euler
+    from transforms3d.euler import mat2euler, euler2quat
     HAS_TRANSFORMS3D = True
 except ImportError:
     HAS_TRANSFORMS3D = False
@@ -118,6 +118,26 @@ RACK_TUBE_GROUPS = {
     "left_tube_rack":  ("tube_L1", "tube_L2", "tube_L3"),
     "right_tube_rack": ("tube_R1", "tube_R2", "tube_R3"),
 }
+
+
+def _euler_xyz_to_mat(roll_deg: float, pitch_deg: float,
+                       yaw_deg: float) -> np.ndarray:
+    """Extrinsic XYZ Euler angles (degrees) -> 3x3 rotation matrix.
+
+    Matches the convention used by get_position via mat2euler(..., 'sxyz').
+    With (roll=180, pitch=0, yaw=0) the gripper's body-local +z axis maps
+    to world -z, i.e. the gripper points downward.
+    """
+    r = float(np.deg2rad(roll_deg))
+    p = float(np.deg2rad(pitch_deg))
+    y = float(np.deg2rad(yaw_deg))
+    cr, sr = np.cos(r), np.sin(r)
+    cp, sp = np.cos(p), np.sin(p)
+    cy, sy = np.cos(y), np.sin(y)
+    Rx = np.array([[1.0, 0.0, 0.0], [0.0, cr, -sr], [0.0, sr, cr]])
+    Ry = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]])
+    Rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
+    return Rz @ Ry @ Rx
 
 
 class SimXArmAPI:
@@ -694,7 +714,10 @@ class SimXArmAPI:
 
     def _launch_viewer(self):
         def _run():
-            v = mujoco.viewer.launch_passive(self.model, self.data)
+            v = mujoco.viewer.launch_passive(
+                self.model, self.data,
+                key_callback=self._viewer_key_callback,
+            )
             self._viewer = v   # remember handle so disconnect() can close it
             # Frame the bench/arm: lookat the working area, pull the
             # camera back enough to see the whole arm and the cubes/bins.
@@ -703,6 +726,7 @@ class SimXArmAPI:
             v.cam.azimuth   = 135.0              # front-right
             v.cam.elevation = -20.0              # slight downward tilt
             v.sync()
+            self._print_viewer_keymap()
             try:
                 while v.is_running() and self._running:
                     with self.lock:
@@ -716,6 +740,65 @@ class SimXArmAPI:
                 self._viewer = None
         threading.Thread(target=_run, daemon=True).start()
         time.sleep(0.4)
+
+    # ---- viewer keyboard nudges --------------------------------------------
+    # Map GLFW keycodes (what the passive viewer hands to key_callback) to
+    # (kwargs for nudge_body). Designed for `double-click a body, then nudge
+    # it without typing its name`: read the selected body via
+    # viewer.perturb.select and apply the delta. Pairs of keys for +/-.
+    _VIEWER_KEYMAP = {
+        # rotation (deg): R/E = +/- yaw, T/G = +/- pitch, Y/H = +/- roll
+        82: dict(dyaw_deg=  15.0),   # 'R'
+        69: dict(dyaw_deg= -15.0),   # 'E'
+        84: dict(dpitch_deg= 15.0),  # 'T'
+        71: dict(dpitch_deg=-15.0),  # 'G'
+        89: dict(droll_deg=  15.0),  # 'Y'
+        72: dict(droll_deg= -15.0),  # 'H'
+        # translation (mm): arrow keys in xy plane, PgUp/PgDn for z
+        263: dict(dx_mm= -10.0),     # LEFT
+        262: dict(dx_mm=  10.0),     # RIGHT
+        265: dict(dy_mm=  10.0),     # UP
+        264: dict(dy_mm= -10.0),     # DOWN
+        266: dict(dz_mm=  10.0),     # PAGE_UP
+        267: dict(dz_mm= -10.0),     # PAGE_DOWN
+    }
+
+    def _viewer_key_callback(self, keycode: int) -> None:
+        """Handle keyboard nudges on the body currently selected in the viewer.
+
+        Selection comes from MuJoCo's built-in double-click flow
+        (viewer.perturb.select holds the selected body id, 0 = none).
+        Unknown keycodes are ignored so MuJoCo's own bindings still work.
+        """
+        kwargs = self._VIEWER_KEYMAP.get(keycode)
+        if kwargs is None:
+            return
+        v = self._viewer
+        if v is None:
+            return
+        sel_bid = int(getattr(v.perturb, "select", 0))
+        if sel_bid <= 0:
+            print("[viewer] No body selected -- double-click a body first.")
+            return
+        try:
+            name = self.model.body(sel_bid).name
+        except Exception:
+            return
+        rc = self.nudge_body(name, **kwargs)
+        if rc == 0:
+            _, pose = self.get_body_pose(name)
+            if pose is not None:
+                x, y, z, r, p, ya = pose
+                print(f"[viewer] nudged {name}: ({x:.1f}, {y:.1f}, {z:.1f}) mm  "
+                      f"rpy=({r:+.1f}, {p:+.1f}, {ya:+.1f}) deg")
+
+    def _print_viewer_keymap(self) -> None:
+        print("[viewer] Keyboard nudge (after double-clicking a body):")
+        print("[viewer]   R / E    yaw   +/- 15 deg")
+        print("[viewer]   T / G    pitch +/- 15 deg")
+        print("[viewer]   Y / H    roll  +/- 15 deg")
+        print("[viewer]   arrows   translate xy (10 mm)")
+        print("[viewer]   PgUp/Dn  translate z  (10 mm)")
 
     def motion_enable(self, enable: bool = True) -> int:  return 0
     def set_mode(self, mode: int) -> int:                 return 0
@@ -1202,10 +1285,11 @@ class SimXArmAPI:
                      roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0,
                      speed: float = 100.0, wait: bool = True, **kwargs) -> int:
         target_pos = np.array([x, y, z]) / 1000.0
+        target_rot = _euler_xyz_to_mat(roll, pitch, yaw)
 
         # First attempt: IK from current qpos
         with self.lock:
-            joint_angles = self.ik_solver.solve(target_pos)
+            joint_angles = self.ik_solver.solve(target_pos, target_rot=target_rot)
         result = (self.validator.validate(joint_angles, target_pos)
                   if joint_angles is not None else None)
 
@@ -1230,7 +1314,9 @@ class SimXArmAPI:
             ]
             for seed in fallback_seeds:
                 with self.lock:
-                    retry_angles = self.ik_solver.solve(target_pos, seed_q=seed)
+                    retry_angles = self.ik_solver.solve(
+                        target_pos, target_rot=target_rot, seed_q=seed,
+                    )
                 if retry_angles is None:
                     continue
                 retry_result = self.validator.validate(retry_angles, target_pos)
@@ -1300,6 +1386,93 @@ class SimXArmAPI:
         else:
             result += [0.0, 0.0, 0.0]
         return 0, result
+
+    def get_body_pose(self, name: str) -> tuple:
+        """Live (x_mm, y_mm, z_mm, roll_deg, pitch_deg, yaw_deg) for a body.
+
+        Reads the current pose from the running sim, so it reflects any
+        adjustments the operator made via mouse perturbation in the viewer.
+        Returns (1, None) if the body name is not in the model.
+        """
+        try:
+            bid = self.model.body(name).id
+        except (KeyError, ValueError):
+            return 1, None
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            pos = self.data.xpos[bid].copy()
+            mat = self.data.xmat[bid].reshape(3, 3).copy()
+        result = list(pos * 1000.0)
+        if HAS_TRANSFORMS3D:
+            result += list(np.rad2deg(mat2euler(mat, axes='sxyz')))
+        else:
+            result += [0.0, 0.0, 0.0]
+        return 0, result
+
+    def nudge_body(self, name: str,
+                   dx_mm: float = 0.0, dy_mm: float = 0.0, dz_mm: float = 0.0,
+                   droll_deg: float = 0.0, dpitch_deg: float = 0.0,
+                   dyaw_deg: float = 0.0) -> int:
+        """Programmatically translate + rotate a free-jointed body.
+
+        Replacement for fiddly mouse perturbations: writes the body's
+        free-joint qpos directly. All deltas are RELATIVE to the body's
+        current pose. Rotations compose with the body's current quaternion
+        using the sxyz convention (matches get_body_pose).
+
+        Returns 0 on success, 1 if the body or its free joint isn't in
+        the model. Welded bodies (e.g. anything currently held by the
+        gripper) will fight the constraint until released.
+        """
+        try:
+            self.model.body(name).id
+        except (KeyError, ValueError):
+            print(f"[SimXArm] nudge_body: '{name}' not in scene")
+            return 1
+        # Look up the free joint named '<body>_joint'. This is the
+        # convention used everywhere in lab_scene.xml for graspable bodies.
+        joint_name = f"{name}_joint"
+        try:
+            jid = self.model.joint(joint_name).id
+        except (KeyError, ValueError):
+            print(f"[SimXArm] nudge_body: '{name}' has no free joint "
+                  f"'{joint_name}' (welded or static)")
+            return 1
+        if int(self.model.jnt_type[jid]) != int(mujoco.mjtJoint.mjJNT_FREE):
+            print(f"[SimXArm] nudge_body: '{joint_name}' is not a free joint")
+            return 1
+
+        if not HAS_TRANSFORMS3D:
+            print("[SimXArm] nudge_body: transforms3d not available")
+            return 1
+
+        qadr = int(self.model.jnt_qposadr[jid])
+        # Free joint qpos: [x, y, z, qw, qx, qy, qz]
+        delta_quat = euler2quat(
+            float(np.deg2rad(droll_deg)),
+            float(np.deg2rad(dpitch_deg)),
+            float(np.deg2rad(dyaw_deg)),
+            axes='sxyz',
+        )  # (w, x, y, z)
+        with self.lock:
+            self.data.qpos[qadr + 0] += dx_mm / 1000.0
+            self.data.qpos[qadr + 1] += dy_mm / 1000.0
+            self.data.qpos[qadr + 2] += dz_mm / 1000.0
+            cur_quat = self.data.qpos[qadr + 3:qadr + 7].copy()
+            new_quat = np.zeros(4)
+            # Compose: new = delta * current so deltas are applied in the
+            # world frame, matching what a viewer-side rotation would do.
+            mujoco.mju_mulQuat(new_quat, delta_quat, cur_quat)
+            n = float(np.linalg.norm(new_quat))
+            if n > 1e-9:
+                new_quat /= n
+            self.data.qpos[qadr + 3:qadr + 7] = new_quat
+            # Zero out the body's velocity so the nudge doesn't impart a
+            # kick from the discrete jump.
+            qvel_adr = int(self.model.jnt_dofadr[jid])
+            self.data.qvel[qvel_adr:qvel_adr + 6] = 0.0
+            mujoco.mj_forward(self.model, self.data)
+        return 0
 
     def get_servo_angle(self) -> tuple:
         with self.lock:

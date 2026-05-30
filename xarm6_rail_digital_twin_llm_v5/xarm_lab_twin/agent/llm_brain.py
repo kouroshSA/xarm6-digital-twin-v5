@@ -71,7 +71,8 @@ in a benchmark pick-and-place environment.
     - PCR Thermocycler: `pcr_module` (heavy bench fixture; pushing it usually wrong).
   When the task references multiple objects ("all objects", "everything on the bench", "clear the table", "all the things"), iterate ALL of the bodies above and emit one push_object per body. **Do not skip racks** — pushing a rack carries its 3 tubes with it, so a single push_object on a rack removes 4 things from the bench at once. The full "clear the table" sequence is: 3 cubes + 3 bins + 2 racks = 8 push_object calls (the 6 tubes inside racks are handled by the rack pushes).
   **IMPORTANT**: whenever the user says "push" / "slide" / "shove" / "knock off" / "drop off the edge" / similar, ALWAYS use push_object. Do NOT use move_to + gripper_close + gripper_open for these tasks — that's the pick-and-place pattern, which produces the wrong motion for push tasks.
-- get_pose        params: {{}}
+- get_pose        params: {{}}  — print current end-effector + rail pose to the operator log. Useful for self-checks / debugging; the LLM does not see the printed value in this turn.
+- get_body_pose   params: {{"name": "<body_name>"}}  — print the live xyz + RPY of any named body (cube, plate, tube, rack, bin, instrument) to the operator log. Reflects mouse-perturbation adjustments the operator made between episodes. Live poses for all registered bodies are already injected into your system prompt registry each episode -- use this command only to confirm/dump a specific body for the human log.
 - search_workspace  params: object_name
 - wait            params: seconds
 - done            params: message
@@ -508,6 +509,13 @@ class LLMBrain:
             wm_section = ("**Scene XML has changed since these observations "
                           "were recorded -- treat all entries as untested.**"
                           "\n\n" + wm_section)
+        # Refresh registry from the live sim so operator mouse-perturbations
+        # in the viewer (between episodes, during --hloop pauses) show up in
+        # the rendered context this turn.
+        try:
+            self.registry.refresh_from_sim(self.arm)
+        except Exception as e:
+            print(f"[LLMBrain] registry refresh skipped: {e}")
         system = SYSTEM_PROMPT_TEMPLATE.format(
             registry_context=self.registry.to_llm_context(),
             speed_cap_section=self._render_speed_cap_section(),
@@ -576,7 +584,8 @@ class LLMBrain:
                 self.recorder.log_command("llm_dispatch",
                     {"action": action, "params": params, "result": result})
             print(f"[Agent] {action}({params}) -> {result}")
-            if result != 0 and action not in ("done", "wait", "get_pose"):
+            if result != 0 and action not in ("done", "wait", "get_pose",
+                                                "get_body_pose"):
                 print("[Agent] Command failed - halting sequence")
                 break
         return results
@@ -621,6 +630,18 @@ class LLMBrain:
         print(f"[Agent] Pose: ee={ee}  rail={rail}")
         return 0
 
+    def _get_body_pose(self, p):
+        name = p.get("name") or p.get("body_name")
+        if not name:
+            print("[Agent] get_body_pose requires 'name' param"); return 1
+        rc, pose = self.arm.get_body_pose(name)
+        if rc != 0 or pose is None:
+            print(f"[Agent] get_body_pose: '{name}' not in scene"); return rc or 1
+        x, y, z, r, pi, ya = pose
+        print(f"[Agent] Body '{name}': x={x:.1f}mm y={y:.1f}mm z={z:.1f}mm  "
+              f"rpy=({r:+.1f}, {pi:+.1f}, {ya:+.1f}) deg")
+        return 0
+
     def _search(self, name):
         obj = self.registry.find(name)
         if obj is None:
@@ -650,6 +671,7 @@ class LLMBrain:
                                       speed_mm_s=self._effective_speed_mm_s(
                                           p.get("speed_tier"))),
             "get_pose":         self._get_pose,
+            "get_body_pose":    self._get_body_pose,
             "wait":             lambda p: time.sleep(p.get("seconds", 1)) or 0,
             "done":             lambda p: print(f"[Done] {p.get('message','')}") or 0,
             "search_workspace": lambda p: self._search(p["object_name"]),
