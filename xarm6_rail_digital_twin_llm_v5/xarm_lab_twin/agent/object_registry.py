@@ -48,6 +48,23 @@ class ObjectRegistry:
                 return obj
         return None
 
+    def refresh_from_sim(self, arm) -> None:
+        """Overwrite each object's position + live yaw from the running sim.
+
+        Called before each LLM call so operator mouse-perturbations made
+        in the viewer between episodes appear in the rendered context.
+        Objects whose `name` does not exist as a MuJoCo body are skipped
+        silently (registry can carry virtual or legacy entries).
+        """
+        self._live_yaw_deg = {}
+        for name, obj in self.objects.items():
+            rc, pose = arm.get_body_pose(name)
+            if rc != 0 or pose is None:
+                continue
+            x_mm, y_mm, z_mm, _r, _p, yaw_deg = pose
+            obj.position_xyz_m = [x_mm / 1000.0, y_mm / 1000.0, z_mm / 1000.0]
+            self._live_yaw_deg[name] = yaw_deg
+
     def to_llm_context(self) -> str:
         cubes = [o for o in self.objects.values() if o.object_type == "cube"]
         tubes = [o for o in self.objects.values() if o.object_type == "tube"]
@@ -58,12 +75,21 @@ class ObjectRegistry:
                        if o.object_type == "instrument"]
         lines = []
 
+        live_yaw = getattr(self, "_live_yaw_deg", {})
+
         def fmt_basic(obj):
             x, y, z = obj.position_xyz_m
+            yaw_line = ""
+            yaw = live_yaw.get(obj.name)
+            # Surface yaw whenever it has actually moved (>1 deg from 0).
+            # Idle scenes stay quiet so the prompt doesn't bloat.
+            if yaw is not None and abs(yaw) > 1.0:
+                yaw_line = f"  Current yaw: {yaw:+.1f} deg (operator-adjusted)\n"
             return (
                 f"- **{obj.name}**  aliases: {', '.join(obj.aliases)}\n"
                 f"  Position: x={x*1000:.0f}mm  y={y*1000:.0f}mm  z={z*1000:.0f}mm\n"
                 f"  Optimal rail: {obj.optimal_rail_mm:.0f}mm\n"
+                f"{yaw_line}"
             )
 
         if cubes:
