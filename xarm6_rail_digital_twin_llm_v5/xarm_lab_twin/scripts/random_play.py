@@ -19,7 +19,6 @@ import shutil
 import sys
 import time
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -43,24 +42,6 @@ WORKSPACE = {
 }
 ORIENTATION_RPY_DEG = (180.0, 0.0, 0.0)  # consistent grasp-down for valid IK
 MAX_SAMPLES_PER_MOVE = 15                 # how hard to try before giving up
-
-
-def stop_recorder_silent(recorder, kept: bool = True) -> Path:
-    if not recorder.is_recording:
-        return None
-    recorder._recording = False
-    if recorder._state_thread is not None:
-        recorder._state_thread.join(timeout=1.0)
-    recorder._session.ended_at_iso = datetime.now().isoformat()
-    recorder._session.duration_s = time.time() - recorder._start_wall_time
-    recorder._session.n_state_samples = len(recorder._state_buffer)
-    if recorder._commands_file is not None:
-        recorder._commands_file.close()
-        recorder._commands_file = None
-    recorder._write_trajectory()
-    recorder._session.kept = kept
-    recorder._write_metadata()
-    return recorder._session_dir
 
 
 def sample_pose(rng: np.random.Generator) -> dict:
@@ -191,7 +172,7 @@ def main():
             elif ans.startswith("d"):
                 kept = False
 
-        saved = stop_recorder_silent(recorder, kept=kept)
+        saved = recorder.stop(kept=kept)
         if kept and saved:
             saved_dirs.append(saved)
             print(f"  Saved: {saved.name}")

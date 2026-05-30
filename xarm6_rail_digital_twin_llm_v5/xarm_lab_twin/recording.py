@@ -163,7 +163,12 @@ class Recorder:
             self._session.task_label = auto_task_label
         if self._commands_file is not None:
             self._commands_file.close(); self._commands_file = None
-        self._write_trajectory()
+        try:
+            self._write_trajectory()
+        except Exception as e:
+            # A trajectory-write failure must not skip metadata — otherwise the
+            # session is left with no metadata.json and reads as corrupt.
+            print(f"[Recorder] trajectory write failed: {e}")
         if prompt:
             self._prompt_metadata()
         self._write_metadata()
@@ -185,6 +190,38 @@ class Recorder:
             path = self._session_dir
         self._session = None; self._session_dir = None
         return path
+
+    def stop(self, kept: bool = True, task_label: str = "") -> Optional[Path]:
+        """Stop recording non-interactively and return the session dir (or None
+        if not recording).
+
+        This is the public, non-prompting counterpart to stop_and_prompt(): it
+        joins the sampler thread, closes the command log, and writes the
+        trajectory + metadata. The trajectory write is guarded so that a write
+        failure still produces a metadata.json (otherwise the session reads as
+        corrupt). Pass kept=False to mark the session discarded — the caller is
+        responsible for deleting the directory if it wants it gone.
+        """
+        if not self._recording:
+            return None
+        self._recording = False
+        if self._state_thread is not None:
+            self._state_thread.join(timeout=1.0)
+        self._session.ended_at_iso = datetime.now().isoformat()
+        self._session.duration_s = time.time() - self._start_wall_time
+        self._session.n_state_samples = len(self._state_buffer)
+        if task_label and not self._session.task_label:
+            self._session.task_label = task_label
+        if self._commands_file is not None:
+            self._commands_file.close(); self._commands_file = None
+        try:
+            self._write_trajectory()
+        except Exception as e:
+            print(f"[Recorder] trajectory write failed: {e}")
+        finally:
+            self._session.kept = kept
+            self._write_metadata()
+        return self._session_dir
 
     def _cleanup_session_dir(self):
         try:
