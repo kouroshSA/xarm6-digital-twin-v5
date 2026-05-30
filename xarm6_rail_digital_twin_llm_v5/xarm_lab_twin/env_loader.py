@@ -27,7 +27,12 @@ def load_env(env_path: str = None, override: bool = False) -> dict:
             continue
         key, _, val = line.partition("=")
         key = key.strip()
-        val = val.strip().strip("'").strip('"')
+        val = val.strip()
+        # Strip exactly one matched pair of surrounding quotes. The old
+        # .strip("'").strip('"') chomped unmatched/nested quotes that are
+        # legitimate value characters (e.g. an API key containing a quote).
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1]
         if override or key not in os.environ:
             os.environ[key] = val
             loaded[key] = val

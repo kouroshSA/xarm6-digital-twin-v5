@@ -5,7 +5,6 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -32,7 +31,8 @@ def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
                   model_short, pos_jitter_mm, rot_jitter_deg, seed,
                   render, no_record, dry_run,
                   speed_tier_override: Optional[str] = None,
-                  led_enabled: bool = False) -> Optional[Path]:
+                  led_enabled: bool = True,
+                  save_frames: bool = False) -> Optional[Path]:
     from sim.mujoco_env import SimXArmAPI
     arm = SimXArmAPI(scene_xml="envs/lab_scene.xml", render=render)
 
@@ -53,6 +53,7 @@ def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
         recorder = Recorder(
             model=arm.model, data=arm.data, lock=arm.lock,
             interface="llm_brain_augmented", scene_xml="envs/lab_scene.xml",
+            enable_frames=save_frames,
         )
         recorder.start()
         recorder.session.parent_session_id = parent_session_id
@@ -87,25 +88,9 @@ def run_one_cycle(task_prompt, cycle_index, parent_session_id, original_prompt,
     saved_path = None
     if recorder is not None:
         time.sleep(1.5)
-        saved_path = _stop_silent(recorder)
+        saved_path = recorder.stop(kept=True)
     arm.disconnect()
     return saved_path
-
-
-def _stop_silent(recorder):
-    if not recorder.is_recording: return None
-    recorder._recording = False
-    if recorder._state_thread is not None:
-        recorder._state_thread.join(timeout=1.0)
-    recorder._session.ended_at_iso = datetime.now().isoformat()
-    recorder._session.duration_s = time.time() - recorder._start_wall_time
-    recorder._session.n_state_samples = len(recorder._state_buffer)
-    if recorder._commands_file is not None:
-        recorder._commands_file.close(); recorder._commands_file = None
-    recorder._write_trajectory()
-    recorder._session.kept = True
-    recorder._write_metadata()
-    return recorder._session_dir
 
 
 def batch_annotate(saved_dirs):
@@ -152,6 +137,8 @@ def main():
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--no-render", action="store_true")
     parser.add_argument("--no-record", action="store_true")
+    parser.add_argument("--save-frames", action="store_true",
+                        help="Record image frames at 10Hz per cycle (off by default).")
     parser.add_argument("--no-annotate", action="store_true")
     parser.add_argument("--auto-accept-variants", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
@@ -216,6 +203,7 @@ def main():
             dry_run=args.dry_run,
             speed_tier_override=args.speed_tier,
             led_enabled=args.led_enabled,
+            save_frames=args.save_frames,
         )
         saved_dirs.append(saved)
 

@@ -17,7 +17,6 @@ import shutil
 import sys
 import time
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,24 +31,6 @@ from agent.lessons import append_lesson
 from recording import Recorder
 
 
-def stop_recorder_silent(recorder, kept: bool = True) -> Path:
-    if not recorder.is_recording:
-        return None
-    recorder._recording = False
-    if recorder._state_thread is not None:
-        recorder._state_thread.join(timeout=1.0)
-    recorder._session.ended_at_iso = datetime.now().isoformat()
-    recorder._session.duration_s = time.time() - recorder._start_wall_time
-    recorder._session.n_state_samples = len(recorder._state_buffer)
-    if recorder._commands_file is not None:
-        recorder._commands_file.close()
-        recorder._commands_file = None
-    recorder._write_trajectory()
-    recorder._session.kept = kept
-    recorder._write_metadata()
-    return recorder._session_dir
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--episodes", type=int, default=5,
@@ -61,8 +42,6 @@ def main():
                             help="Prompt s/f/d between episodes")
     eval_group.add_argument("--save-all", action="store_true",
                             help="Save every episode without prompting (default)")
-    parser.add_argument("--seed", type=int, default=None,
-                        help="Seed for the prompt generator (forwards to Claude implicitly)")
     parser.add_argument("--save-frames", action="store_true",
                         help="Record image frames at 10Hz per episode (off by default).")
     from agent.dynamic_grader import SPEED_TIERS
@@ -156,7 +135,7 @@ def main():
             elif ans.startswith("d"):
                 kept = False
 
-        saved = stop_recorder_silent(recorder, kept=kept)
+        saved = recorder.stop(kept=kept)
         if kept and saved:
             saved_dirs.append(saved)
             print(f"  Saved: {saved.name}")

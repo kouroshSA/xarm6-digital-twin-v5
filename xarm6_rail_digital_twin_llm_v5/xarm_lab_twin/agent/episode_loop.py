@@ -1001,20 +1001,6 @@ def _apply_nudge_line(line: str, arm) -> None:
 
 def _close_recorder(recorder) -> None:
     """Stop the recorder without prompting the user (loop mode is non-interactive)."""
-    if recorder is None or not recorder.is_recording:
+    if recorder is None:
         return
-    # Replicate auto_play.stop_recorder_silent: write trajectory + metadata
-    # without asking for input.
-    from datetime import datetime
-    recorder._recording = False
-    if recorder._state_thread is not None:
-        recorder._state_thread.join(timeout=1.0)
-    recorder._session.ended_at_iso = datetime.now().isoformat()
-    recorder._session.duration_s = time.time() - recorder._start_wall_time
-    recorder._session.n_state_samples = len(recorder._state_buffer)
-    if recorder._commands_file is not None:
-        recorder._commands_file.close()
-        recorder._commands_file = None
-    recorder._write_trajectory()
-    recorder._session.kept = True
-    recorder._write_metadata()
+    recorder.stop(kept=True)
