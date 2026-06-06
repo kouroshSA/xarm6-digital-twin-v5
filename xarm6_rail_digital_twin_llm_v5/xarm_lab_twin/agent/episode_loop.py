@@ -46,6 +46,12 @@ class EpisodeContext:
     #   None  = grader couldn't classify the task (no learning possible)
     episode_outcomes: List[Optional[bool]] = field(default_factory=list)
 
+    episode_tasks: List[str] = field(default_factory=list)
+    # Per-episode task text, in run order. For single-task retry sessions
+    # every entry equals `self.task`; for auto-play diverse sessions each
+    # entry is that episode's own prompt. Used by the reviewer so Opus can
+    # see task diversity when emitting cross_task_observations.
+
     # Phase 1: soft positive-signal learning. Successful plans are exposed
     # to subsequent episodes as exploration-friendly references, NOT as
     # prescriptive exemplars. See successes_block() for the framing.
@@ -677,6 +683,7 @@ class EpisodeRetry:
                     episode_outcome = None
 
             ctx.episode_outcomes.append(episode_outcome)
+            ctx.episode_tasks.append(task)
             _record_lesson(task, self.brain, result, physical, ctx,
                            episode_outcome, self.stringency)
             _close_recorder(recorder)
