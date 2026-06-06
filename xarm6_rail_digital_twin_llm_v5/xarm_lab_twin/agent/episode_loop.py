@@ -139,13 +139,58 @@ class EpisodeContext:
             print(f"[EpisodeLoop] New best plan: {n_cmds} commands "
                   f"(episode {self.episode_num}).")
 
-        # Cap at the most recent 3 to bound prompt growth, but always keep
-        # the best one even if it would otherwise fall out of the window.
+        # Cap at 3 to bound prompt growth. Always keep the BEST plan and the
+        # MOST RECENT plan (the latter is pending quality scoring this
+        # episode -- see EpisodeRetry.run), then fill remaining slots with the
+        # HIGHEST-QUALITY others (FIX 6). When quality is absent everywhere
+        # this degrades to keeping the most-recent plans, close to the old
+        # behaviour.
         if len(self.successful_plans) > 3:
-            best = self.successful_plans[self.best_plan_idx]
-            recent = [p for p in self.successful_plans[-3:] if p is not best]
-            self.successful_plans = [best] + recent[-2:]
-            self.best_plan_idx = 0
+            plans = self.successful_plans
+            n = len(plans)
+            best_i = self.best_plan_idx if self.best_plan_idx is not None else n - 1
+            recent_i = n - 1
+            anchor_idxs: List[int] = []
+            for i in (best_i, recent_i):
+                if i not in anchor_idxs:
+                    anchor_idxs.append(i)
+
+            def _q(i: int) -> float:
+                q = plans[i].get("quality")
+                return q if isinstance(q, (int, float)) else -1.0
+
+            other_idxs = [i for i in range(n) if i not in anchor_idxs]
+            # Quality desc, then episode desc (recency) as a tiebreaker.
+            other_idxs.sort(key=lambda i: (_q(i), plans[i]["episode"]),
+                            reverse=True)
+            keep_idxs = sorted((anchor_idxs + other_idxs)[:3])
+            self.successful_plans = [plans[i] for i in keep_idxs]
+            self.best_plan_idx = keep_idxs.index(best_i)
+
+    def rerank_best_by_quality(self) -> None:
+        """Pick best_plan_idx by quality desc, then n_commands asc. Plans
+        without a 'quality' key sort last (treated as quality -1.0).
+
+        Called after a plan's trajectory has been scored so the loop prefers
+        the CLEANEST success, not merely the shortest one (FIX 6)."""
+        if not self.successful_plans:
+            self.best_plan_idx = None
+            return
+
+        def key(i: int):
+            p = self.successful_plans[i]
+            q = p.get("quality")
+            q = q if isinstance(q, (int, float)) else -1.0
+            return (-q, p["n_commands"])
+
+        new_best = min(range(len(self.successful_plans)), key=key)
+        if new_best != self.best_plan_idx:
+            p = self.successful_plans[new_best]
+            qstr = (f"quality={p['quality']:.2f}"
+                    if isinstance(p.get("quality"), (int, float)) else "unscored")
+            print(f"[EpisodeLoop] Best plan re-ranked by quality: "
+                  f"episode {p['episode']} ({p['n_commands']} commands, {qstr}).")
+        self.best_plan_idx = new_best
 
     def human_feedback_block(self) -> str:
         """Render any human-supplied feedback collected via --hloop into
@@ -684,9 +729,37 @@ class EpisodeRetry:
 
             ctx.episode_outcomes.append(episode_outcome)
             ctx.episode_tasks.append(task)
-            _record_lesson(task, self.brain, result, physical, ctx,
-                           episode_outcome, self.stringency)
+
+            # Close the recorder FIRST so trajectory.h5 is flushed to disk,
+            # then score it offline. Capture the session dir before closing
+            # (the path is stable, but grab it while the recorder still holds
+            # a reference).
+            session_dir = recorder.session_dir if recorder is not None else None
             _close_recorder(recorder)
+
+            quality = None
+            if session_dir is not None:
+                try:
+                    from agent.quality import score_trajectory
+                    quality = score_trajectory(session_dir / "trajectory.h5", task,
+                                                registry=self.registry)
+                except Exception as e:
+                    print(f"[EpisodeLoop] Quality scoring failed (non-fatal): {e}")
+
+            # Attach the score to the plan pinned THIS episode (match by
+            # episode number, not list position -- the cap-to-3 retention can
+            # reorder the list), then re-rank so the cleanest success wins.
+            if (episode_outcome is True and quality
+                    and quality.get("quality") is not None):
+                for p in ctx.successful_plans:
+                    if p["episode"] == ctx.episode_num:
+                        p["quality"] = quality["quality"]
+                        p["quality_components"] = quality["components"]
+                        break
+                ctx.rerank_best_by_quality()
+
+            _record_lesson(task, self.brain, result, physical, ctx,
+                           episode_outcome, self.stringency, quality=quality)
 
             # Human-in-the-loop feedback: prompt the operator between
             # episodes. Empty input -> just continue. Non-empty input
@@ -826,7 +899,8 @@ def _first_command_failure(results: List[Dict[str, Any]]
 def _record_lesson(task: str, brain, result: Dict[str, Any],
                    physical: str, ctx: EpisodeContext,
                    episode_outcome: Optional[bool],
-                   stringency: str = "loose") -> None:
+                   stringency: str = "loose",
+                   quality: Optional[Dict[str, Any]] = None) -> None:
     """Append a one-liner to lessons.md for this episode.
 
     `episode_outcome` is the grader's verdict (True/False/None) -- it gets
@@ -837,14 +911,28 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
 
     `stringency` is the grading mode the episode was scored under; passed
     through so the entry can be tagged in lessons.md.
+
+    `quality`, when present, is the dict from agent.quality.score_trajectory;
+    its one-line breakdown is folded into the recorded physical-outcome string
+    (e.g. "... | quality=0.42 disturbed green_cube 38mm") so the lesson steers
+    away from messy wins instead of rubber-stamping them (FIX 6).
     """
     label = f"{task} [ep {ctx.episode_num}/{ctx.max_episodes}]"
+    physical_str = physical
+    if quality is not None and quality.get("quality") is not None:
+        try:
+            from agent.quality import summarize_quality
+            q_str = summarize_quality(quality)
+        except Exception:
+            q_str = ""
+        if q_str:
+            physical_str = f"{physical} | {q_str}" if physical else q_str
     append_lesson(
         task_prompt=label,
         model_short=brain.model_short,
         planned_commands=result.get("commands", []),
         results=result.get("results", []),
-        physical_outcome=physical,
+        physical_outcome=physical_str,
         task_success=episode_outcome,
         stringency=stringency,
     )
