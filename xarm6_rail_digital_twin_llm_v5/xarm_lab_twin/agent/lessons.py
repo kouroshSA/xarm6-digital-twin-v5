@@ -21,8 +21,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-LESSONS_FILE = Path("lessons.md")
-REVIEWS_FILE = Path("reviews.md")
+# Anchor memory files to the project root (.../xarm_lab_twin) rather than
+# the CWD. Launched from any other directory (Claude Code at the repo root,
+# a cron wrapper, an IDE run config), bare relative paths would resolve
+# elsewhere and cross-run memory would be silently lost.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent   # .../xarm_lab_twin
+LESSONS_FILE = _PROJECT_ROOT / "lessons.md"
+REVIEWS_FILE = _PROJECT_ROOT / "reviews.md"
 MAX_LESSONS = 20
 MAX_REVIEWS = 10
 
