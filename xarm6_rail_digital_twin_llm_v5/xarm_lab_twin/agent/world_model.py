@@ -353,6 +353,26 @@ def update_from_review(wm: WorldModel,
     return log
 
 
+def persist_constraints(constraints: List[str], task_label: str,
+                        category: str = "geometric",
+                        wm_file: Path = None, scene_path: Path = None) -> Optional[Path]:
+    """Append free-text learned constraints as provisional entries.
+
+    Deterministic fallback for when the Opus review didn't run. Entries land
+    with a single corroboration (confidence='provisional') so the prompt
+    injector labels them untested and trims them first under budget pressure.
+    Returns the path written, or None if there was nothing to persist.
+    """
+    constraints = [c.strip() for c in (constraints or []) if c and c.strip()]
+    if not constraints:
+        return None
+    wm = read_world_model(wm_file, scene_path)
+    obs = [{"text": c, "category": category, "merge_with_index": None}
+           for c in constraints]
+    update_from_review(wm, obs, task_label=task_label)
+    return write_world_model(wm, wm_file, scene_path)
+
+
 # ---------------------------------------------------------------------------
 # Rendering for system-prompt injection.
 # ---------------------------------------------------------------------------
