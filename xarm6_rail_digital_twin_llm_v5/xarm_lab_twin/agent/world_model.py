@@ -50,8 +50,13 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 
-WORLD_MODEL_FILE = Path("world_model.md")
-SCENE_XML_PATH   = Path("envs/lab_scene.xml")
+# Anchor to the project root (.../xarm_lab_twin) so reads/writes resolve to
+# the same files regardless of the CWD the entry point was launched from.
+# Without this, a run started outside xarm_lab_twin/ silently splits its
+# cross-run memory across directories and misflags scene_changed.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent   # .../xarm_lab_twin
+WORLD_MODEL_FILE = _PROJECT_ROOT / "world_model.md"
+SCENE_XML_PATH   = _PROJECT_ROOT / "envs" / "lab_scene.xml"
 
 # Section name in the file -> internal category key.
 SECTIONS: Tuple[Tuple[str, str], ...] = (
