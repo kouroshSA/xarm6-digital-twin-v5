@@ -675,6 +675,43 @@ class EpisodeRetry:
             print(f"[EpisodeLoop] Physical outcome: {physical or '(none)'} "
                   f"(stringency={self.stringency})")
 
+            # 4b. Close the recorder so trajectory.h5 is flushed, then grade
+            #     the trajectory offline (quality + milestones) BEFORE
+            #     deciding the episode outcome. Milestone process-grading both
+            #     gates false-positive successes and supplies a specific
+            #     failure constraint. Capture the session dir before closing.
+            session_dir = recorder.session_dir if recorder is not None else None
+            _close_recorder(recorder)
+
+            quality = None
+            milestones = None
+            if session_dir is not None:
+                traj = session_dir / "trajectory.h5"
+                try:
+                    from agent.quality import score_trajectory
+                    quality = score_trajectory(traj, task, registry=self.registry)
+                except Exception as e:
+                    print(f"[EpisodeLoop] Quality scoring failed (non-fatal): {e}")
+                try:
+                    from agent.milestones import (grade_milestones,
+                                                  milestone_constraint)
+                    milestones = grade_milestones(traj, task,
+                                                  registry=self.registry)
+                except Exception as e:
+                    print(f"[EpisodeLoop] Milestone grading failed (non-fatal): {e}")
+            milestone_fraction = (milestones.get("fraction")
+                                  if isinstance(milestones, dict) else None)
+            implausible = bool(milestones and milestones.get("implausible_success"))
+
+            def _milestone_constraint():
+                """First-unmet-milestone constraint, or None."""
+                if not milestones:
+                    return None
+                try:
+                    return milestone_constraint(milestones.get("milestones", []))
+                except Exception:
+                    return None
+
             # 5. Classify this episode's outcome (success / failure / ungraded).
             #    The loop runs ALL episodes regardless -- we never short-circuit
             #    on success, because the goal is to measure whether the model
@@ -693,6 +730,7 @@ class EpisodeRetry:
                     "episode": ctx.episode_num, "kind": "command",
                     "step": idx, "action": failed.get("action"),
                     "code": failed.get("result"), "constraint": constraint,
+                    "milestone_fraction": milestone_fraction,
                 })
                 episode_outcome = False
             else:
@@ -701,7 +739,29 @@ class EpisodeRetry:
                     task, physical, fallback_spec=ctx.dynamic_criteria)
                 print(f"[EpisodeLoop] Outcome check: success={success} ({reason})")
 
-                if success is True:
+                if success is True and implausible:
+                    # False-positive gate (FIX 7): the grader declared success
+                    # but the milestone trace could not have produced it
+                    # legitimately (e.g. the object ended in the bin but was
+                    # never grasped -- it bounced in). Treat it as a flagged
+                    # win: do NOT pin the plan, and learn from the suspicious
+                    # trace instead.
+                    print(f"[EpisodeLoop] Grader says SUCCESS but milestone "
+                          f"trace is IMPLAUSIBLE -- not pinning this plan.")
+                    for note in milestones.get("notes", []):
+                        print(f"  ! {note}")
+                    constraint = _milestone_constraint()
+                    if constraint:
+                        ctx.add_constraint(constraint)
+                    ctx.failure_history.append({
+                        "episode": ctx.episode_num,
+                        "kind": "implausible_success",
+                        "physical": physical, "reason": reason,
+                        "milestone_fraction": milestone_fraction,
+                        "constraint": constraint,
+                    })
+                    episode_outcome = False
+                elif success is True:
                     print(f"[EpisodeLoop] SUCCESS on episode {ctx.episode_num}")
                     ctx.success = True
                     ctx.add_successful_plan(
@@ -711,12 +771,18 @@ class EpisodeRetry:
                     )
                     episode_outcome = True
                 elif success is False:
-                    constraint = analyse_physical_failure(task, physical, reason)
+                    # Prefer the milestone-specific constraint (it names the
+                    # exact sub-goal that broke) over the generic
+                    # physical-failure text.
+                    m_constraint = _milestone_constraint()
+                    constraint = (m_constraint
+                                  or analyse_physical_failure(task, physical, reason))
                     if constraint:
                         ctx.add_constraint(constraint)
                     ctx.failure_history.append({
                         "episode": ctx.episode_num, "kind": "physical",
                         "physical": physical, "reason": reason,
+                        "milestone_fraction": milestone_fraction,
                         "constraint": constraint,
                     })
                     episode_outcome = False
@@ -727,28 +793,9 @@ class EpisodeRetry:
                     print(f"[EpisodeLoop] UNGRADED (grader cannot classify this task)")
                     episode_outcome = None
 
-            ctx.episode_outcomes.append(episode_outcome)
-            ctx.episode_tasks.append(task)
-
-            # Close the recorder FIRST so trajectory.h5 is flushed to disk,
-            # then score it offline. Capture the session dir before closing
-            # (the path is stable, but grab it while the recorder still holds
-            # a reference).
-            session_dir = recorder.session_dir if recorder is not None else None
-            _close_recorder(recorder)
-
-            quality = None
-            if session_dir is not None:
-                try:
-                    from agent.quality import score_trajectory
-                    quality = score_trajectory(session_dir / "trajectory.h5", task,
-                                                registry=self.registry)
-                except Exception as e:
-                    print(f"[EpisodeLoop] Quality scoring failed (non-fatal): {e}")
-
-            # Attach the score to the plan pinned THIS episode (match by
-            # episode number, not list position -- the cap-to-3 retention can
-            # reorder the list), then re-rank so the cleanest success wins.
+            # Attach the quality score to the plan pinned THIS episode (match
+            # by episode number, not list position -- the cap-to-3 retention
+            # can reorder the list), then re-rank so the cleanest success wins.
             if (episode_outcome is True and quality
                     and quality.get("quality") is not None):
                 for p in ctx.successful_plans:
@@ -758,8 +805,11 @@ class EpisodeRetry:
                         break
                 ctx.rerank_best_by_quality()
 
+            ctx.episode_outcomes.append(episode_outcome)
+            ctx.episode_tasks.append(task)
             _record_lesson(task, self.brain, result, physical, ctx,
-                           episode_outcome, self.stringency, quality=quality)
+                           episode_outcome, self.stringency, quality=quality,
+                           milestones=milestones)
 
             # Human-in-the-loop feedback: prompt the operator between
             # episodes. Empty input -> just continue. Non-empty input
@@ -900,7 +950,8 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
                    physical: str, ctx: EpisodeContext,
                    episode_outcome: Optional[bool],
                    stringency: str = "loose",
-                   quality: Optional[Dict[str, Any]] = None) -> None:
+                   quality: Optional[Dict[str, Any]] = None,
+                   milestones: Optional[Dict[str, Any]] = None) -> None:
     """Append a one-liner to lessons.md for this episode.
 
     `episode_outcome` is the grader's verdict (True/False/None) -- it gets
@@ -926,7 +977,16 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
         except Exception:
             q_str = ""
         if q_str:
-            physical_str = f"{physical} | {q_str}" if physical else q_str
+            physical_str = f"{physical_str} | {q_str}" if physical_str else q_str
+    # Fold a compact milestone note in too: the achieved fraction, plus an
+    # IMPLAUSIBLE marker when the grader was overruled by the trace (FIX 7).
+    if isinstance(milestones, dict) and milestones.get("milestones"):
+        ms = milestones["milestones"]
+        achieved = sum(1 for m in ms if m.get("achieved"))
+        m_str = f"milestones {achieved}/{len(ms)}"
+        if milestones.get("implausible_success"):
+            m_str += " IMPLAUSIBLE"
+        physical_str = f"{physical_str} | {m_str}" if physical_str else m_str
     append_lesson(
         task_prompt=label,
         model_short=brain.model_short,
