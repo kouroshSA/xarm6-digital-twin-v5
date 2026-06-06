@@ -223,28 +223,90 @@ class EpisodeContext:
             return ""
 
         import json
-        best = self.successful_plans[self.best_plan_idx]
-        best_n = best["n_commands"]
 
+        def qval(e) -> float:
+            q = e.get("quality")
+            return q if isinstance(q, (int, float)) else -1.0
+
+        def tier(e) -> str:
+            q = e.get("quality")
+            if not isinstance(q, (int, float)):
+                return "unscored"
+            if q >= 0.75:
+                return "clean"
+            if q >= 0.5:
+                return "ok"
+            return "rough"
+
+        best = self.successful_plans[self.best_plan_idx]
+
+        # Highest execution-quality first (absent quality sorts last) so the
+        # planner sees the cleanest reference before any messy ones (FIX 8).
+        ordered = sorted(self.successful_plans, key=qval, reverse=True)
+
+        # Cap rough plans shown to 1 so bad examples can't dominate the prompt
+        # and reinforce the messy behaviour we're trying to move away from.
+        shown: List[Dict[str, Any]] = []
+        rough_shown = 0
+        rough_dropped = 0
+        for e in ordered:
+            if tier(e) == "rough":
+                if rough_shown >= 1:
+                    rough_dropped += 1
+                    continue
+                rough_shown += 1
+            shown.append(e)
+
+        best_q = best.get("quality")
+        best_q_str = (f"quality {best_q:.2f}"
+                      if isinstance(best_q, (int, float)) else "unscored")
         lines = [
             "",
             "## Plans that have succeeded on this task",
-            f"(The current best plan has {best_n} commands. Plans below "
-            f"satisfied the grader, but this task likely admits shorter "
-            f"or cleaner solutions. You may adapt these approaches, but "
-            f"a plan that achieves the goal in fewer commands or with "
-            f"a safer trajectory is preferred.)",
+            f"(The current best plan has {best['n_commands']} commands "
+            f"({best_q_str}). These satisfied the grader, but this task "
+            f"likely admits cleaner solutions -- a plan that reaches the goal "
+            f"with fewer commands, a safer trajectory, and without disturbing "
+            f"other objects is preferred. Each plan is labelled by execution "
+            f"quality; treat it accordingly.)",
             "",
         ]
-        for entry in self.successful_plans:
-            marker = " (current best)" if entry is best else ""
+
+        tier_frame = {
+            "clean": "CLEAN reference solution -- match or beat it.",
+            "ok": "worked, but a cleaner solution is preferred.",
+            "rough": ("satisfied the grader but was MESSY (disturbed other "
+                      "objects / fumbled the grasp). Do NOT copy it -- find a "
+                      "cleaner approach."),
+            "unscored": "worked (unscored) -- a cleaner solution is preferred.",
+        }
+
+        for entry in shown:
+            t = tier(entry)
+            q = entry.get("quality")
+            q_str = f", quality {q:.2f}" if isinstance(q, (int, float)) else ""
+            # Never label a rough plan "current best" unless it's the only
+            # success we have.
+            is_best = (entry is best
+                       and (t != "rough" or len(self.successful_plans) == 1))
+            marker = " (current best)" if is_best else ""
             lines.append(f"- Episode {entry['episode']} "
-                         f"({entry['n_commands']} commands){marker}:")
+                         f"({entry['n_commands']} commands{q_str}){marker}: "
+                         f"{tier_frame[t]}")
+            if t == "rough":
+                comps = entry.get("quality_components") or {}
+                if comps:
+                    comp_str = ", ".join(f"{k}={v:.2f}"
+                                         for k, v in comps.items())
+                    lines.append(f"  (quality breakdown: {comp_str})")
             lines.append("  ```json")
             plan_json = json.dumps(entry["commands"], indent=2)
             for jline in plan_json.split("\n"):
                 lines.append(f"  {jline}")
             lines.append("  ```")
+        if rough_dropped:
+            lines.append(f"_({rough_dropped} additional low-quality plan(s) "
+                         f"hidden to avoid reinforcing messy behaviour.)_")
         return "\n".join(lines) + "\n"
 
 
