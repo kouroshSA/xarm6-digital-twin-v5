@@ -9,6 +9,10 @@ Both projects share the same scene layout (xArm6 + bench + 3 RGB cubes + 3 match
 
 ![xArm6 digital-twin lab scene](docs/lab_scene_render.png)
 
+![Dual-track self-learning loop with GROOT integration](docs/dual_track_self_learning_loop_groot.svg)
+
+*Current and upcoming NVIDIA GROOT integration — the dual-track self-learning loop.*
+
 ---
 
 ## Repository layout
