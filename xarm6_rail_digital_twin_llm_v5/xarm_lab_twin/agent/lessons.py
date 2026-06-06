@@ -191,9 +191,18 @@ def read_lessons_section(lessons_file: Path = None,
             kept.append(line)  # malformed -- be permissive, keep it
             continue
         fam = classify_task(embedded)
-        # Keep same-family lessons + unknown-family (generally applicable).
-        if fam == current_family or fam == "unknown":
-            kept.append(line)
+        # Keep cross-family lessons by default (world_model.md is the proper
+        # cross-task channel now, FIX 1). Drop only the one genuinely
+        # poisonous case: a SUCCESS from another family whose outcome string
+        # carries a destructive marker that would teach the current
+        # (non-push-off) task that knocking things off counts as a win.
+        is_other_family = (fam != current_family and fam != "unknown")
+        destructive = ("off bench" in line) or ("fell to floor" in line)
+        is_success = "-> SUCCESS" in line
+        if is_other_family and is_success and destructive \
+                and current_family != "push_off":
+            continue  # the one poisonous case: drop it
+        kept.append(line)
 
     filtered_text = "\n".join(kept).strip()
     n_kept = sum(1 for ln in kept if ln.startswith("- "))
