@@ -28,6 +28,8 @@ from agent.llm_brain import LLMBrain, MODELS
 from agent.object_registry import build_default_registry
 from agent.prompt_variants import generate_episodes
 from agent.lessons import append_lesson
+from agent.outcome_checker import check_outcome
+from agent.episode_loop import EpisodeContext, _maybe_run_review
 from recording import Recorder
 
 
@@ -78,6 +80,13 @@ def main():
     run_id = uuid.uuid4().hex[:8]
     print(f"\n[AutoPlay] Run ID: {run_id}  (each episode's metadata links here)")
 
+    # One session-level context so the diverse auto-play run can feed the
+    # cross-task world model the same way EpisodeRetry does. Without this,
+    # the one driver that runs genuinely diverse tasks never populates
+    # world_model.md (see FIX 1 in CLAUDE_CODE_FIXES.md).
+    ctx = EpisodeContext(task=f"auto-play diverse session ({len(tasks)} episodes)",
+                         max_episodes=len(tasks))
+
     # 3) Execute each prompt
     saved_dirs = []
     for i, task in enumerate(tasks, start=1):
@@ -113,13 +122,44 @@ def main():
         physical = arm.physical_outcome()
         print(f"  [Physical outcome] {physical}")
 
-        # Auto-append lesson regardless of eval mode
+        # Grade once per episode; reuse the verdict for both the lesson and
+        # the session-context recording so they never disagree.
+        task_success, reason = check_outcome(task, physical)
+        print(f"  [Outcome check] success={task_success} ({reason})")
+
+        # Auto-append lesson regardless of eval mode, now WITH the grader's
+        # verdict so persisted lessons carry SUCCESS/FAILED instead of
+        # "EXECUTED (ungraded)".
         append_lesson(
             task_prompt=task, model_short=args.model,
             planned_commands=result.get("commands", []),
             results=result.get("results", []),
             physical_outcome=physical,
+            task_success=task_success,
+            stringency="loose",
         )
+
+        # Record this episode into the session context for the end-of-run
+        # Opus review (FIX 1c). Mirrors EpisodeRetry's bookkeeping.
+        commands = result.get("commands", [])
+        ctx.episode_num = i
+        ctx.episode_tasks.append(task)
+        ctx.episode_outcomes.append(task_success)
+        if task_success is True:
+            ctx.successful_plans.append({
+                "episode": i, "commands": commands,
+                "n_commands": len(commands), "physical": physical,
+                "stringency": "loose",
+            })
+            ctx.success = True
+        elif task_success is False:
+            ctx.failure_history.append({
+                "episode": i, "kind": "physical",
+                "physical": physical, "reason": reason,
+                "constraint": None,
+            })
+        ctx.final_result = result
+        ctx.final_physical = physical
 
         # Eval prompt (only if --eval)
         kept = True
@@ -142,6 +182,13 @@ def main():
         elif saved:
             shutil.rmtree(saved)
             print(f"  Deleted: {saved.name}")
+
+    # End-of-session Opus review: abstract this diverse run into cross-task
+    # observations and merge them into world_model.md. Non-fatal; skipped for
+    # thin sessions (<3 episodes). This is the path that finally lets
+    # auto-play feed the cross-task store (FIX 1c).
+    if len(ctx.episode_outcomes) >= 3:
+        _maybe_run_review(ctx.task, ctx)
 
     arm.disconnect()
     print(f"\n[AutoPlay] Done. {len(saved_dirs)} episodes saved under recordings/.")

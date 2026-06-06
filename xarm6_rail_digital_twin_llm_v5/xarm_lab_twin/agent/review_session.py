@@ -190,6 +190,8 @@ def _serialize_episode(idx: int, ctx) -> Dict[str, Any]:
 
     entry: Dict[str, Any] = {
         "episode": ep_num,
+        "task": (ctx.episode_tasks[idx]
+                 if idx < len(ctx.episode_tasks) else ctx.task),
         "outcome": ("success" if outcome is True
                     else "failure" if outcome is False
                     else "ungraded"),
