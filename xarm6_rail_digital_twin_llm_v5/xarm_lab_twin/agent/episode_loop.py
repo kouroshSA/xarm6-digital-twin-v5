@@ -779,6 +779,20 @@ class EpisodeRetry:
         if total >= 3:
             review_result = _maybe_run_review(task, ctx)
 
+        # Deterministic fallback: if the Opus review didn't run (or failed)
+        # but we still learned constraints this session, persist them as
+        # PROVISIONAL world-model entries so within-run knowledge survives
+        # across runs. They're labelled untested and trimmed first under
+        # budget pressure; only later corroboration graduates them.
+        if (review_result is None) and ctx.learned_constraints:
+            try:
+                from agent.world_model import persist_constraints
+                persist_constraints(ctx.learned_constraints, task_label=task)
+                print(f"[EpisodeLoop] Persisted {len(ctx.learned_constraints)} "
+                      f"constraint(s) to world_model.md (provisional fallback).")
+            except Exception as e:
+                print(f"[EpisodeLoop] Constraint persistence failed (non-fatal): {e}")
+
         return {
             "success": ctx.success,
             "episodes_run": total,
