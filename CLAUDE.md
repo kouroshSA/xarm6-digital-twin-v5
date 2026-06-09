@@ -93,6 +93,32 @@ When extending any of these:
   fallback keeps grading them, the regex stays out of the LLM call
   path. Faster *and* deterministic.
 
+## VR teleop
+
+Meta Quest 3 teleoperation of the digital twin lives in
+`xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/vr/` and runs via
+`scripts/run_vr.py` — see [`vr/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/vr/README.md)
+for setup, the HTTPS/secure-context requirement, Quest pairing, and the
+control map. It is **sim-only** and depends on nothing from GR00T: it reuses
+the existing `SimXArmAPI → IKSolver → ctrl → MuJoCo → Recorder` path, with a
+human hand (Touch controllers, streamed over WebXR) as the EE-target source
+instead of the LLM.
+
+- Run with `render=False` — the headset is the viewer, so the GLFW passive
+  viewer is **not** launched (it would contend with the EGL offscreen
+  renderer for GL). Export `MUJOCO_GL=egl` (run_vr.py does this before
+  importing mujoco).
+- Two display modes: `--mode mono` (single flat panel, also viewable in a
+  browser tab) and `--mode stereo` (per-eye cameras `cam_left`/`cam_right` on
+  the `vr_head` mocap body added to `envs/lab_scene.xml`, head-tracked).
+- Two servo paths: `--servo direct` (IK→ctrl per tick, smooth, bypasses the
+  validator — fine in sim) and `--servo validated` (routes through
+  `set_position`). All tunables are in `vr/config.py`.
+- The **A** button records standard `Recorder` takes, so VR demos land as
+  ordinary `recordings/` sessions and replay through `replay.py` unchanged.
+- All `arm.data`/`arm.model` access in `vr/` holds `arm.lock`. Tests:
+  `python -m vr.test_transforms` and `MUJOCO_GL=egl python -m vr.smoke_test`.
+
 ## Speed caps and motion pacing
 
 `--speed-tier {crazy_fast,fast,medium,slow,very_slow,auto}` on every LLM

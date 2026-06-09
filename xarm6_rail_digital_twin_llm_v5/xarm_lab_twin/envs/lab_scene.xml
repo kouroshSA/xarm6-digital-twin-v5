@@ -68,11 +68,13 @@
             solref="0.005 1" solimp="0.95 0.99 0.001"/>
     </default>
     <!-- Heater-shaker module (152 x 90 x 82mm). Heavy-ish; meant to
-         stay put on the bench. Free body so it CAN be pushed in
-         principle, but the LLM should usually leave it alone. -->
+         stay put on the bench. Free body so it CAN still be pushed
+         deliberately (operator nudge / explicit push), but it's heavy
+         (20 kg inertial) and high-friction so incidental contact from a
+         descending plate placement no longer slides it ~140 mm aside. -->
     <default class="heater_shaker_body">
       <geom type="box" size="0.076 0.045 0.041" mass="2.0"
-            friction="1.0 0.05 0.0001"
+            friction="2.0 0.1 0.01"
             solref="0.005 1" solimp="0.95 0.99 0.001"/>
     </default>
     <!-- Vortex-Genie 2 platform: high-friction top surface so objects
@@ -166,6 +168,21 @@
 
     <light pos="0 0 2.5" dir="0 0 -1" diffuse="0.7 0.7 0.7"/>
     <light pos="0.5 0.5 1.8" dir="-0.3 -0.3 -1" diffuse="0.4 0.4 0.4"/>
+
+    <!-- VR head: a mocap body the teleop receiver drives with the headset
+         pose every frame (data.mocap_pos / data.mocap_quat). It carries the
+         two stereo eye cameras used by vr/stereo_renderer.py "stereo" mode.
+         The mono renderer uses a free camera in code instead, so this body
+         only matters when an immersive-vr session is streaming stereo.
+         IPD default 63 mm -> +/-0.0315 m on the head's local X.
+         MuJoCo cameras look down their local -Z, +X right, +Y up. The quat
+         below makes -Z point along world +Y (toward the bench) and +Y point
+         along world +Z (up) when mocap_quat is identity, so an identity
+         headset orientation looks "forward at the bench, upright". -->
+    <body name="vr_head" mocap="true" pos="0 -0.6 1.4">
+      <camera name="cam_left"  pos="-0.0315 0 0" quat="0.7071 0.7071 0 0" fovy="90"/>
+      <camera name="cam_right" pos=" 0.0315 0 0" quat="0.7071 0.7071 0 0" fovy="90"/>
+    </body>
 
     <geom name="floor" type="plane" size="3 3 0.1"
           rgba="0.7 0.7 0.65 1" contype="1" conaffinity="1"/>
@@ -679,7 +696,7 @@
          unless deliberately pushed. The flat top is a plate-sized
          surface the arm can place a 96-well plate onto. -->
     <body name="heater_shaker" pos="-0.300 -0.250 0.791">
-      <inertial pos="0 0 0" mass="2.0" diaginertia="3e-3 3e-3 5e-3"/>
+      <inertial pos="0 0 0" mass="20.0" diaginertia="3e-2 3e-2 5e-2"/>
       <geom name="heater_shaker_body" class="heater_shaker_body"
             material="heater_shaker_mat"/>
       <!-- Flat shaker platform on top (slightly recessed). -->

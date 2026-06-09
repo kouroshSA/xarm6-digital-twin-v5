@@ -1,0 +1,13 @@
+# VR teleop dependencies (install into the xarm6sim conda env).
+#   conda activate xarm6sim
+#   pip install -r vr/requirements-vr.txt
+#
+# Already present in the base env: mujoco, numpy, transforms3d, h5py.
+fastapi
+uvicorn[standard]
+websockets
+pillow
+
+# Optional low-latency upgrade (Phase 2, WebRTC transport — see vr/README.md):
+# aiortc
+# av
