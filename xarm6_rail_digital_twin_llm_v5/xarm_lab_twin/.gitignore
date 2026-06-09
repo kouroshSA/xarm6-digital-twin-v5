@@ -4,3 +4,9 @@ __pycache__/
 recordings/
 agent/objects.json
 MUJOCO_LOG.TXT
+
+# VR teleop: TLS material and render-test artifacts
+vr/*.pem
+vr/key.pem
+vr/cert.pem
+vr/*.jpg

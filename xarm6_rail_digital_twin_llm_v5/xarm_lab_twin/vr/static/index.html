@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<!-- vr/static/index.html — WebXR client for xArm6 digital-twin teleop.
+     Self-contained: raw WebXR + WebGL, no Unity / framework. Serves as both
+     the display (mono panel or stereo eyes) and the input (streams Touch
+     controller + head pose back up the WebSocket). See vr/static/xr-client.js
+     and vr/README.md. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>xArm6 VR teleop</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #111; color: #ddd;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    #ui {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 18px; padding: 24px;
+      box-sizing: border-box; z-index: 10;
+    }
+    h1 { font-size: 1.4rem; margin: 0; font-weight: 600; }
+    #enter {
+      font-size: 1.25rem; padding: 14px 34px; border: 0; border-radius: 10px;
+      background: #2d7; color: #062; font-weight: 700; cursor: pointer;
+    }
+    #enter:disabled { background: #444; color: #888; cursor: not-allowed; }
+    #status { font-size: .9rem; color: #9ab; min-height: 1.2em; text-align: center; }
+    #controls {
+      font-size: .82rem; color: #9aa; max-width: 460px; line-height: 1.5;
+      background: #1a1a1f; border: 1px solid #333; border-radius: 8px; padding: 12px 16px;
+    }
+    #controls b { color: #cde; }
+    #preview {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      object-fit: contain; background: #000; z-index: 1;
+    }
+    #glcanvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; }
+    .hud { position: absolute; top: 10px; left: 10px; z-index: 11; font-size: .8rem;
+           color: #6f8; text-shadow: 0 0 3px #000; }
+  </style>
+</head>
+<body>
+  <!-- Flat preview for monitoring in a plain browser tab (mono frames). -->
+  <canvas id="preview"></canvas>
+  <!-- WebGL surface XR renders into. -->
+  <canvas id="glcanvas"></canvas>
+
+  <div class="hud" id="hud"></div>
+
+  <div id="ui">
+    <h1>xArm6 — MuJoCo digital twin (VR teleop)</h1>
+    <button id="enter" disabled>Checking VR support…</button>
+    <div id="status"></div>
+    <div id="controls">
+      <b>Right controller</b><br>
+      &nbsp;• <b>Grip</b> (hold) — clutch: arm follows your hand<br>
+      &nbsp;• <b>Trigger</b> — toggle gripper open/closed<br>
+      &nbsp;• <b>A</b> — start / stop recording a take<br>
+      &nbsp;• <b>B</b> — reset the scene<br>
+      <b>Left controller</b><br>
+      &nbsp;• <b>Thumbstick X</b> — jog the rail (0–700 mm)<br>
+      <b>Head</b> — moves the stereo viewpoint (stereo mode).
+    </div>
+  </div>
+
+  <script src="/static/xr-client.js?v=3"></script>
+</body>
+</html>
