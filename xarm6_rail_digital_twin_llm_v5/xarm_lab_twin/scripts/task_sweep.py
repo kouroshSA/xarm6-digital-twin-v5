@@ -21,7 +21,7 @@ import numpy as np, mujoco
 sys.path.insert(0, os.getcwd())
 from sim.mujoco_env import SimXArmAPI
 
-SCENES = {"primitive": "envs/lab_scene.xml", "meshes": "envs/lab_scene_meshes.xml"}
+SCENES = {"primitive": "envs/lab_scene_primitive.xml", "meshes": "envs/lab_scene.xml"}
 
 
 def bpos(arm, n):

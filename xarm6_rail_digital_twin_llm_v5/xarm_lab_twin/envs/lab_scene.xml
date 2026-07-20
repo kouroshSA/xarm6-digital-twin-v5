@@ -1,4 +1,7 @@
-<!-- envs/lab_scene.xml -->
+<!-- GENERATED FILE - DO NOT EDIT BY HAND.
+     Produced by envs/build_mesh_scene.py from envs/lab_scene_primitive.xml
+     (primitive arm -> realistic UFACTORY xArm6 meshes). Edit the
+     source scene there and rerun the generator. -->
 <mujoco model="xarm6_rail_cubes_bins">
 
   <compiler angle="radian" meshdir="assets/"/>
@@ -162,6 +165,18 @@
     <material name="bio_gripper_body_mat"   rgba="0.20 0.20 0.22 0"/>
     <material name="bio_gripper_pad_mat"    rgba="0.30 0.30 0.32 0"/>
     <material name="bio_gripper_rubber_mat" rgba="0.95 0.55 0.30 0"/>
+    <!-- xArm6 visual meshes (UFACTORY / xarm_ros2 xarm_description, BSD-3).
+         Meshes are in metres; no scaling. Used for both visual + (convex-hull)
+         collision in this spike variant. Paths are relative to the compiler's
+         meshdir="assets/", so they read as xarm6/<file>.stl. -->
+    <mesh name="xarm6_base"  file="xarm6/base.stl"/>
+    <mesh name="xarm6_link1" file="xarm6/link1.stl"/>
+    <mesh name="xarm6_link2" file="xarm6/link2.stl"/>
+    <mesh name="xarm6_link3" file="xarm6/link3.stl"/>
+    <mesh name="xarm6_link4" file="xarm6/link4.stl"/>
+    <mesh name="xarm6_link5" file="xarm6/link5.stl"/>
+    <mesh name="xarm6_link6" file="xarm6/link6.stl"/>
+    <material name="xarm6_link_mat" rgba="0.9 0.9 0.92 1"/>
   </asset>
 
   <worldbody>
@@ -202,111 +217,108 @@
         <geom name="carriage_geom" type="box" size="0.06 0.04 0.015"
               rgba="0.55 0.55 0.6 1" contype="1" conaffinity="1" mass="2.0"/>
 
+        <!-- ================= xArm6 (realistic meshes) ==================
+             SPIKE variant. Kinematics + meshes from UFACTORY xarm_ros2
+             (BSD-3). Joint/body names preserved so actuators, welds, rail,
+             and the FK validator bind unchanged. See build_mesh_scene.py. -->
         <body name="xarm_base" pos="0 0 0.02">
-          <geom name="base_link" type="cylinder" size="0.06 0.04"
-                rgba="0.3 0.3 0.3 1" mass="0.5" class="arm_link"/>
-          <joint name="joint1" type="hinge" axis="0 0 1"
-                 range="-3.14159 3.14159" damping="10"/>
+          <geom name="base_link" type="mesh" mesh="xarm6_base" mass="2.7"
+                material="xarm6_link_mat" class="arm_link"/>
 
-          <body name="link1" pos="0 0 0.09">
-            <geom name="link1_geom" type="box" size="0.055 0.055 0.11"
-                  rgba="0.85 0.85 0.85 1" mass="2.16" class="arm_link"/>
-            <joint name="joint2" type="hinge" axis="0 1 0"
-                   range="-2.0944 2.0944" damping="10"/>
+          <body name="link1" pos="0 0 0.267">
+            <joint name="joint1" axis="0 0 1" range="-3.11018 3.11018" damping="10"/>
+            <geom name="link1_geom" type="mesh" mesh="xarm6_link1" mass="2.16"
+                  material="xarm6_link_mat" class="arm_link"/>
 
-            <body name="link2" pos="0 0 0.22">
-              <geom name="link2_geom" type="box" size="0.045 0.045 0.105"
-                    rgba="0.85 0.85 0.85 1" mass="1.71" class="arm_link"/>
-              <joint name="joint3" type="hinge" axis="0 1 0"
-                     range="-3.14159 1.2217" damping="8"/>
+            <body name="link2" pos="0 0 0" euler="-1.5708 0 0">
+              <joint name="joint2" axis="0 0 1" range="-2.059 2.0944" damping="10"/>
+              <geom name="link2_geom" type="mesh" mesh="xarm6_link2" mass="1.71"
+                    material="xarm6_link_mat" class="arm_link"/>
 
-              <body name="link3" pos="0 0 0.20">
-                <geom name="link3_geom" type="box" size="0.04 0.04 0.09"
-                      rgba="0.8 0.8 0.8 1" mass="1.38" class="arm_link"/>
-                <joint name="joint4" type="hinge" axis="1 0 0"
-                       range="-1.9199 1.9199" damping="6"/>
+              <body name="link3" pos="0.0535 -0.2845 0">
+                <joint name="joint3" axis="0 0 1" range="-3.11018 0.19198" damping="8"/>
+                <geom name="link3_geom" type="mesh" mesh="xarm6_link3" mass="1.384"
+                      material="xarm6_link_mat" class="arm_link"/>
 
-                <body name="link4" pos="0 0 0.175">
-                  <geom name="link4_geom" type="box" size="0.035 0.035 0.075"
-                        rgba="0.75 0.75 0.75 1" mass="1.05" class="arm_link"/>
-                  <joint name="joint5" type="hinge" axis="0 1 0"
-                         range="-2.6180 2.6180" damping="4"/>
+                <body name="link4" pos="0.0775 0.3425 0" euler="-1.5708 0 0">
+                  <joint name="joint4" axis="0 0 1" range="-3.11018 3.11018" damping="6"/>
+                  <geom name="link4_geom" type="mesh" mesh="xarm6_link4" mass="1.115"
+                        material="xarm6_link_mat" class="arm_link"/>
 
-                  <body name="link5" pos="0 0 0.13">
-                    <geom name="link5_geom" type="box" size="0.03 0.03 0.055"
-                          rgba="0.7 0.7 0.7 1" mass="0.72" class="arm_link"/>
-                    <joint name="joint6" type="hinge" axis="1 0 0"
-                           range="-1.9199 1.9199" damping="3"/>
+                  <body name="link5" pos="0 0 0" euler="1.5708 0 0">
+                    <joint name="joint5" axis="0 0 1" range="-1.69297 3.11018" damping="4"/>
+                    <geom name="link5_geom" type="mesh" mesh="xarm6_link5" mass="1.275"
+                          material="xarm6_link_mat" class="arm_link"/>
 
-                    <body name="link6" pos="0 0 0.075">
-                      <geom name="link6_geom" type="cylinder" size="0.025 0.03"
-                            rgba="0.6 0.6 0.6 1" mass="0.25" class="arm_link"/>
-                      <!-- IK target marker. Kept small + translucent so it's an
-                           unobtrusive cue rather than dominating the visual. -->
+                    <body name="link6" pos="0.076 0.097 0" euler="-1.5708 0 0">
+                      <joint name="joint6" axis="0 0 1" range="-3.11018 3.11018" damping="3"/>
+                      <geom name="link6_geom" type="mesh" mesh="xarm6_link6" mass="0.1096"
+                            material="xarm6_link_mat" class="arm_link"/>
+                      <!-- IK target marker, at the tool flange (+z out of link6). -->
                       <site name="end_effector" pos="0 0 0.09"
                             size="0.005" rgba="1 0.3 0.3 0.5" type="sphere"/>
-                      <body name="gripper" pos="0 0 0.06">
-                        <!-- Palm: the static wrist plate. Geom name preserved
-                             for FK validator (ARM_GEOM_NAMES) + weld targets. -->
-                        <geom name="gripper_geom" type="box"
-                              size="0.018 0.025 0.020"
-                              pos="0 0 0.005"
-                              rgba="0.35 0.35 0.35 1" mass="0.15"
-                              class="arm_link"/>
-                        <!-- Two parallel fingers extending past the EE site.
-                             contype/conaffinity=0 makes them cosmetic-only (no
-                             contacts), so adding them doesn't change physics
-                             or invalidate existing IK trajectories. Welds
-                             still do the actual grasping. Each joint qpos in
-                             [0, 0.015] m: 0 = open, 0.015 = closed (inward). -->
-                        <body name="finger_left" pos="0 -0.025 0.045">
-                          <joint name="finger_left_joint" type="slide"
-                                 axis="0 1 0" range="0 0.015" damping="2"/>
-                          <geom name="finger_left_geom" type="box"
-                                size="0.005 0.004 0.020"
-                                rgba="0.2 0.2 0.2 1" mass="0.02"
-                                contype="0" conaffinity="0"/>
-                        </body>
-                        <body name="finger_right" pos="0 0.025 0.045">
-                          <joint name="finger_right_joint" type="slide"
-                                 axis="0 -1 0" range="0 0.015" damping="2"/>
-                          <geom name="finger_right_geom" type="box"
-                                size="0.005 0.004 0.020"
-                                rgba="0.2 0.2 0.2 1" mass="0.02"
-                                contype="0" conaffinity="0"/>
-                        </body>
-                        <!-- Bio-gripper attachment (wider, rubber-lined,
-                             auto-attached for 96-well plate / tip-rack
-                             tasks). All geoms are non-colliding and
-                             initially hidden via material alpha=0;
-                             SimXArmAPI.set_gripper("bio") flips them on
-                             and the standard gripper/fingers off. -->
-                        <geom name="bio_gripper_body" type="box"
-                              size="0.045 0.030 0.010"
-                              pos="0 0 0.010"
-                              material="bio_gripper_body_mat" mass="0"
-                              contype="0" conaffinity="0"/>
-                        <geom name="bio_gripper_pad_left" type="box"
-                              size="0.005 0.030 0.020"
-                              pos="-0.040 0 0.045"
-                              material="bio_gripper_pad_mat" mass="0"
-                              contype="0" conaffinity="0"/>
-                        <geom name="bio_gripper_pad_right" type="box"
-                              size="0.005 0.030 0.020"
-                              pos="+0.040 0 0.045"
-                              material="bio_gripper_pad_mat" mass="0"
-                              contype="0" conaffinity="0"/>
-                        <geom name="bio_gripper_rubber_left" type="box"
-                              size="0.001 0.028 0.018"
-                              pos="-0.034 0 0.045"
-                              material="bio_gripper_rubber_mat" mass="0"
-                              contype="0" conaffinity="0"/>
-                        <geom name="bio_gripper_rubber_right" type="box"
-                              size="0.001 0.028 0.018"
-                              pos="+0.034 0 0.045"
-                              material="bio_gripper_rubber_mat" mass="0"
-                              contype="0" conaffinity="0"/>
-                      </body>
+                                <body name="gripper" pos="0 0 0.06">
+                                  <!-- Palm: the static wrist plate. Geom name preserved
+                                       for FK validator (ARM_GEOM_NAMES) + weld targets. -->
+                                  <geom name="gripper_geom" type="box"
+                                        size="0.018 0.025 0.020"
+                                        pos="0 0 0.005"
+                                        rgba="0.35 0.35 0.35 1" mass="0.15"
+                                        class="arm_link"/>
+                                  <!-- Two parallel fingers extending past the EE site.
+                                       contype/conaffinity=0 makes them cosmetic-only (no
+                                       contacts), so adding them doesn't change physics
+                                       or invalidate existing IK trajectories. Welds
+                                       still do the actual grasping. Each joint qpos in
+                                       [0, 0.015] m: 0 = open, 0.015 = closed (inward). -->
+                                  <body name="finger_left" pos="0 -0.025 0.045">
+                                    <joint name="finger_left_joint" type="slide"
+                                           axis="0 1 0" range="0 0.015" damping="2"/>
+                                    <geom name="finger_left_geom" type="box"
+                                          size="0.005 0.004 0.020"
+                                          rgba="0.2 0.2 0.2 1" mass="0.02"
+                                          contype="0" conaffinity="0"/>
+                                  </body>
+                                  <body name="finger_right" pos="0 0.025 0.045">
+                                    <joint name="finger_right_joint" type="slide"
+                                           axis="0 -1 0" range="0 0.015" damping="2"/>
+                                    <geom name="finger_right_geom" type="box"
+                                          size="0.005 0.004 0.020"
+                                          rgba="0.2 0.2 0.2 1" mass="0.02"
+                                          contype="0" conaffinity="0"/>
+                                  </body>
+                                  <!-- Bio-gripper attachment (wider, rubber-lined,
+                                       auto-attached for 96-well plate / tip-rack
+                                       tasks). All geoms are non-colliding and
+                                       initially hidden via material alpha=0;
+                                       SimXArmAPI.set_gripper("bio") flips them on
+                                       and the standard gripper/fingers off. -->
+                                  <geom name="bio_gripper_body" type="box"
+                                        size="0.045 0.030 0.010"
+                                        pos="0 0 0.010"
+                                        material="bio_gripper_body_mat" mass="0"
+                                        contype="0" conaffinity="0"/>
+                                  <geom name="bio_gripper_pad_left" type="box"
+                                        size="0.005 0.030 0.020"
+                                        pos="-0.040 0 0.045"
+                                        material="bio_gripper_pad_mat" mass="0"
+                                        contype="0" conaffinity="0"/>
+                                  <geom name="bio_gripper_pad_right" type="box"
+                                        size="0.005 0.030 0.020"
+                                        pos="+0.040 0 0.045"
+                                        material="bio_gripper_pad_mat" mass="0"
+                                        contype="0" conaffinity="0"/>
+                                  <geom name="bio_gripper_rubber_left" type="box"
+                                        size="0.001 0.028 0.018"
+                                        pos="-0.034 0 0.045"
+                                        material="bio_gripper_rubber_mat" mass="0"
+                                        contype="0" conaffinity="0"/>
+                                  <geom name="bio_gripper_rubber_right" type="box"
+                                        size="0.001 0.028 0.018"
+                                        pos="+0.034 0 0.045"
+                                        material="bio_gripper_rubber_mat" mass="0"
+                                        contype="0" conaffinity="0"/>
+                                </body>
                     </body>
                   </body>
                 </body>
