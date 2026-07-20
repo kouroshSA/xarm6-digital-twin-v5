@@ -40,8 +40,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sim.ik_solver import IKSolver, JOINT_NAMES  # noqa: E402
 
 SCENES = {
-    "primitive": "envs/lab_scene.xml",
-    "meshes": "envs/lab_scene_meshes.xml",
+    "primitive": "envs/lab_scene_primitive.xml",
+    "meshes": "envs/lab_scene.xml",
 }
 # Position success bands (metres). 5mm is roughly a comfortable grasp; 1mm is
 # "the solver really converged".

@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Generate ``lab_scene_meshes.xml`` from ``lab_scene.xml``.
+"""Generate the default ``lab_scene.xml`` from ``lab_scene_primitive.xml``.
 
-SPIKE (branch: spike/xarm6-realistic-meshes). This produces a *variant* of the
-lab scene in which the six primitive box/cylinder arm links are replaced by the
-real UFACTORY xArm6 visual meshes, positioned with the true URDF kinematics.
+This produces the production lab scene: the six primitive box/cylinder arm links
+of the hand-edited source are replaced by the real UFACTORY xArm6 visual meshes,
+positioned with the true URDF kinematics. ``lab_scene.xml`` is the file every
+entry point loads; ``lab_scene_primitive.xml`` is the editable source and the
+opt-in ``--scene primitive`` fallback.
 
 Why a generator (rather than a hand-edited copy): the lab scene is ~1000 lines
-and evolves. Regenerating keeps the mesh variant in lock-step with everything
+and evolves. Regenerating keeps the realistic scene in lock-step with everything
 downstream of the arm (bench, rail, cubes/bins/tubes, OT-2, instruments) so the
-only delta is the arm subtree + the mesh <asset> declarations.
+only delta is the arm subtree + the mesh <asset> declarations. Edit scene
+furniture in lab_scene_primitive.xml, then rerun this script.
 
 Provenance of the meshes + kinematics: xArm-Developer/xarm_ros2,
 xarm_description (BSD-3, UFACTORY Inc. 2018). See assets/xarm6/README.md.
@@ -33,8 +36,12 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-SRC = HERE / "lab_scene.xml"
-DST = HERE / "lab_scene_meshes.xml"
+# lab_scene_primitive.xml is the hand-edited SOURCE (primitive box/cylinder arm
+# + all scene furniture). lab_scene.xml is the GENERATED default that every
+# entry point loads (realistic xArm6 meshes swapped in). Edit the scene in
+# lab_scene_primitive.xml, then rerun this script to regenerate lab_scene.xml.
+SRC = HERE / "lab_scene_primitive.xml"
+DST = HERE / "lab_scene.xml"
 
 # --- Real xArm6 kinematics (xarm_description/urdf/xarm6/xarm6.urdf.xacro) -----
 # Each joint's URDF <origin> becomes the child body's pos/euler; the joint sits
@@ -155,6 +162,15 @@ def main() -> None:
 
     # 4) splice
     out = src[:start] + _new_arm_subtree(gripper_block) + src[end:]
+
+    # 5) stamp a GENERATED banner so nobody hand-edits the default by mistake.
+    banner = ("<!-- GENERATED FILE - DO NOT EDIT BY HAND.\n"
+              "     Produced by envs/build_mesh_scene.py from "
+              "envs/lab_scene_primitive.xml\n"
+              "     (primitive arm -> realistic UFACTORY xArm6 meshes). Edit the\n"
+              "     source scene there and rerun the generator. -->")
+    out = re.sub(r"^<!-- envs/lab_scene[^>]*-->", banner, out, count=1)
+
     DST.write_text(out)
     print(f"wrote {DST.relative_to(HERE.parent)}  ({len(out.splitlines())} lines)")
 

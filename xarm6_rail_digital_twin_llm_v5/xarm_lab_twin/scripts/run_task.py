@@ -70,20 +70,19 @@ def main():
                              "motion direction; flow speed matches the "
                              "active --speed-tier. Pass --led to disable.")
     parser.add_argument("--scene", choices=["primitive", "meshes"],
-                        default="primitive",
-                        help="SPIKE: which arm model to load. 'primitive' "
-                             "(default) = the original box/cylinder xArm6 "
-                             "(envs/lab_scene.xml); 'meshes' = the realistic "
-                             "UFACTORY xArm6 visual meshes with true URDF "
-                             "kinematics (envs/lab_scene_meshes.xml). NOTE: the "
-                             "mesh variant changes the joint frames, so IK/FK "
-                             "are not yet re-validated for it -- use it to eyeball "
-                             "geometry, not (yet) to grade task execution.")
+                        default="meshes",
+                        help="Which arm model to load. 'meshes' (default) = the "
+                             "realistic UFACTORY xArm6 visual meshes with true "
+                             "URDF kinematics (envs/lab_scene.xml); 'primitive' "
+                             "= the legacy box/cylinder xArm6 "
+                             "(envs/lab_scene_primitive.xml). Both are validated "
+                             "for the full task suite (IK, gripper, pick/place/"
+                             "push); 'meshes' is the higher-fidelity default.")
     args = parser.parse_args()
 
     scene_path = {
-        "primitive": "envs/lab_scene.xml",
-        "meshes": "envs/lab_scene_meshes.xml",
+        "meshes": "envs/lab_scene.xml",
+        "primitive": "envs/lab_scene_primitive.xml",
     }[args.scene]
 
     model_short = args.model if args.model else prompt_model_choice()
