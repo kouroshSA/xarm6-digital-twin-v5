@@ -24,14 +24,36 @@ body names (`xarm_base`, `link1..link6`, `gripper`), the gripper subtree, the
 `end_effector` site, the rail, actuators, and weld `<equality>` targets are all
 preserved — so the mesh arm drops into the existing `SimXArmAPI` machinery.
 
-## Known limitation (why this is not the default scene yet)
+## What we measured (scripts/ik_sanity.py)
 
 The real xArm6 kinematics use all-Z joint axes with rpy-rotated link frames,
-which differ from the primitive scene's simplified mixed-axis, straight-up
-stack. The IK solver (`sim/ik_solver.py`) and FK validator
-(`sim/fk_validator.py`) are tuned to the *primitive* frames. Until they're
-re-validated against these frames, the mesh scene is for **visual / geometric
-inspection** (`--scene meshes`), not for grading task execution.
+differing from the primitive scene's simplified mixed-axis stack. The natural
+worry was that the IK solver (`sim/ik_solver.py`) is tuned to the primitive
+frames. The sanity harness (`scripts/ik_sanity.py`, 60 FK-sampled reachable
+targets/scene) shows that worry is mostly unfounded:
 
-Collision uses the convex hull of each visual mesh (adequate for the spike;
-a real integration would add simplified collision meshes).
+- **Position IK transfers cleanly.** The damped-least-squares solver reads the
+  Jacobian from MuJoCo's *actual* kinematics, so box-vs-mesh geometry is
+  irrelevant. Median residual ~0.06 mm, 98% within 5 mm on the mesh arm —
+  equal-or-better than the primitive (95%). No re-validation needed for the
+  position path (`set_position`, "move to X", pick/place).
+- **Orientation is the real limitation, and it is PRE-EXISTING.** 6-DOF solves
+  leave a large orientation tail (p90 > 100°) on *both* arms — this is the
+  known iterative-IK orientation dead-end, not something the meshes introduce.
+  If anything the mesh arm is better (median 0° / 80% within 10° vs the
+  primitive's 19° / 47%), because the real wrist has a fuller orientation
+  workspace.
+
+## Remaining risk before this becomes the default scene
+
+Not the IK solver — the **geometry-dependent primitives** that hardcode the
+primitive arm's proportions: the gripper approach offset (`end_effector` site
+at link6 + 0.09), the per-object snap-z heights, and the fly-over+weld push
+pattern (`sim/mujoco_env.py::push_object`). Those need a visual pass on the
+mesh arm. Collision also uses the convex hull of each visual mesh (fine for the
+spike; a real integration would add simplified collision meshes).
+
+Run the harness yourself:
+
+    python scripts/ik_sanity.py            # position-only, both scenes
+    python scripts/ik_sanity.py --orient   # add 6-DOF orientation error
