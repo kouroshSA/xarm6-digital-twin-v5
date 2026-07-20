@@ -69,13 +69,28 @@ def main():
                              "moves, the rainbow flows opposite to the "
                              "motion direction; flow speed matches the "
                              "active --speed-tier. Pass --led to disable.")
+    parser.add_argument("--scene", choices=["primitive", "meshes"],
+                        default="primitive",
+                        help="SPIKE: which arm model to load. 'primitive' "
+                             "(default) = the original box/cylinder xArm6 "
+                             "(envs/lab_scene.xml); 'meshes' = the realistic "
+                             "UFACTORY xArm6 visual meshes with true URDF "
+                             "kinematics (envs/lab_scene_meshes.xml). NOTE: the "
+                             "mesh variant changes the joint frames, so IK/FK "
+                             "are not yet re-validated for it -- use it to eyeball "
+                             "geometry, not (yet) to grade task execution.")
     args = parser.parse_args()
+
+    scene_path = {
+        "primitive": "envs/lab_scene.xml",
+        "meshes": "envs/lab_scene_meshes.xml",
+    }[args.scene]
 
     model_short = args.model if args.model else prompt_model_choice()
 
     if args.mode == "sim":
         from sim.mujoco_env import SimXArmAPI
-        arm = SimXArmAPI(scene_xml="envs/lab_scene.xml",
+        arm = SimXArmAPI(scene_xml=scene_path,
                          render=not args.no_render)
         print("[System] SIMULATION mode")
     else:
@@ -89,7 +104,7 @@ def main():
             model=arm.model if hasattr(arm, "model") else None,
             data=arm.data if hasattr(arm, "data") else None,
             lock=arm.lock if hasattr(arm, "lock") else threading.Lock(),
-            interface="llm_brain", scene_xml="envs/lab_scene.xml",
+            interface="llm_brain", scene_xml=scene_path,
             enable_frames=args.save_frames,
         )
         if hasattr(arm, "model"):
@@ -132,7 +147,7 @@ def main():
                 return None
             return Recorder(
                 model=arm.model, data=arm.data, lock=arm.lock,
-                interface="episode_loop", scene_xml="envs/lab_scene.xml",
+                interface="episode_loop", scene_xml=scene_path,
                 enable_frames=args.save_frames,
             )
 
