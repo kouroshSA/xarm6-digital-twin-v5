@@ -76,6 +76,22 @@ mesh arm (no LLM). **Both pass unchanged, no gripper-mount edits needed:**
   `link2_geom`/`bench_top` self-collision validation warnings on some
   set_position moves that the mesh arm does not.
 
-Net: the only remaining work before `--scene meshes` could become default is
-adding simplified collision meshes (currently convex hulls) and a broader
-task sweep. IK and gripper geometry are validated.
+## Broad task sweep (scripts/task_sweep.py)
+
+Extended the cube-only pass to every graspable object CLASS, each on a fresh
+scene. **All pass on `--scene meshes`, identical-or-better vs the primitive:**
+
+| Task | primitive | meshes |
+| --- | --- | --- |
+| cube pick/place       | PASS (24mm to bin) | PASS (7mm to bin) |
+| tube -> rack          | PASS | PASS |
+| well-plate (bio-grip) | PASS (lifted 762->850) | PASS (lifted 762->850) |
+| bin push              | PASS (moved 120mm) | PASS (moved 120mm) |
+
+(The tube descend returns a validation-collision code on BOTH scenes and grasps
+the cap from above -- a pre-existing quirk, not mesh-specific.)
+
+Net: IK, gripper geometry, and the full task suite are validated on the mesh
+arm. The only remaining work before promoting `--scene meshes` to default is
+adding simplified collision meshes (collision is convex-hull today) if the
+convex hulls prove too coarse for tight-clearance tasks.
