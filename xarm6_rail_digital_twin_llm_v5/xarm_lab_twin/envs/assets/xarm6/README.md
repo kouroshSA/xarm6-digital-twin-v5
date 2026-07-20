@@ -57,3 +57,25 @@ Run the harness yourself:
 
     python scripts/ik_sanity.py            # position-only, both scenes
     python scripts/ik_sanity.py --orient   # add 6-DOF orientation error
+
+## Geometry pass (scripts/pickplace_check.py)
+
+Drove the two geometry-dependent primitives CLAUDE.md flags -- grasp+lift
+pick/place and the fly-over `push_object` -- through a scripted sequence on the
+mesh arm (no LLM). **Both pass unchanged, no gripper-mount edits needed:**
+
+- Grasp z-stack (mesh): fingertips land at ~777mm, inside the cube's 750-780mm
+  span; the gripper stack sits within ~6mm of where it sits on the primitive
+  arm. `close_lite6_gripper` grasps at ~26mm (< 70mm reach), the cube tracks
+  the gripper through the lift, and `physical_outcome()` reports "green_cube in
+  green_bin".
+- `push_object` places blue_cube on target (rc=0).
+- The 60mm flange->palm offset is a plausible real-gripper length, not a bug;
+  the EE-site->fingertip offset (~15mm) matches the primitive.
+- Bonus: the mesh arm is actually *cleaner* here -- the primitive scene throws
+  `link2_geom`/`bench_top` self-collision validation warnings on some
+  set_position moves that the mesh arm does not.
+
+Net: the only remaining work before `--scene meshes` could become default is
+adding simplified collision meshes (currently convex hulls) and a broader
+task sweep. IK and gripper geometry are validated.
