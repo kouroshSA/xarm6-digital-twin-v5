@@ -16,6 +16,26 @@ For both: `cd <project>/xarm_lab_twin && python <script>.py`. Conda env is
 `xarm6sim` (Python 3.11). The detailed setup is in
 [`xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/README.md).
 
+## Scene files (GENERATED default — read before editing)
+
+The digital-twin arm now uses the real UFACTORY xArm6 visual meshes. This
+splits the scene into a source and a generated file:
+
+- `envs/lab_scene_primitive.xml` — **hand-edited SOURCE**. Primitive
+  box/cylinder arm + all scene furniture (bench, rail, cubes/bins/tubes,
+  OT-2, instruments). Edit scene content **here**. Also the `--scene
+  primitive` fallback.
+- `envs/lab_scene.xml` — **GENERATED default** (has a "DO NOT EDIT" banner).
+  Every entry point loads this; it's the primitive source with the six arm
+  links swapped for xArm6 meshes at the true URDF kinematics.
+
+After editing `lab_scene_primitive.xml`, regenerate with
+`python envs/build_mesh_scene.py`. Do **not** hand-edit `lab_scene.xml` — the
+next regen overwrites it. Meshes + provenance live in `envs/assets/xarm6/`
+(UFACTORY BSD-3); `--scene {meshes,primitive}` on `run_task.py` picks the arm
+(default `meshes`). Validate a scene change with `scripts/ik_sanity.py`,
+`scripts/pickplace_check.py`, and `scripts/task_sweep.py`.
+
 ## Episode learning loop
 
 When iterating on a task that fails, prefer `--loop`:
