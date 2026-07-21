@@ -7,7 +7,7 @@ MuJoCo-based digital twin of a **UFACTORY xArm6** mounted on a 700mm linear rail
 
 Both projects share the same scene layout (xArm6 + bench + 3 RGB cubes + 3 matching bins + 2 four-by-two Falcon-tube racks with 6 tubes), the same recording format, and the same conda environment. They can be used independently or together.
 
-![xArm6 digital-twin lab scene](docs/Robot2.png)
+![xArm6 digital-twin lab scene](docs/lab_scene_hero.png)
 
 ![Dual-track self-learning loop with GROOT integration](docs/dual_track_self_learning_loop_groot.svg)
 
