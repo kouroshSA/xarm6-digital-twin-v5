@@ -202,13 +202,28 @@
     <geom name="floor" type="plane" size="3 3 0.1"
           rgba="0.7 0.7 0.65 1" contype="1" conaffinity="1"/>
 
+    <!-- L-shaped benchtop matched to the real lab (Robot_workspace plan).
+         Main section: 139.7 cm deep (y). The working strip (cubes/bins) sits
+         near the +y back edge; the large open benchtop is toward -y (operator
+         side). A right-hand extension carries the OT-2. Top stays at z=0.75 so
+         all object z-heights are unchanged. See envs/build_mesh_scene.py notes
+         and the real-lab layout. -->
     <body name="bench" pos="0 0 0.375">
-      <geom name="bench_top" type="box" size="0.75 0.45 0.375"
+      <!-- Main section: x in [-0.75, 0.75] (1.50 m), y in [-0.947, 0.45]
+           (1.397 m = 139.7 cm). -->
+      <geom name="bench_top" type="box" size="0.75 0.6985 0.375"
+            pos="0 -0.2485 0"
+            rgba="0.75 0.65 0.5 1" contype="1" conaffinity="1" mass="0"/>
+      <!-- OT-2 extension (the L arm): x in [0.50, 1.20], y in [-0.35, 0.45]. -->
+      <geom name="bench_ot2_ext" type="box" size="0.35 0.40 0.375"
+            pos="0.85 0.05 0"
             rgba="0.75 0.65 0.5 1" contype="1" conaffinity="1" mass="0"/>
     </body>
 
     <body name="rail_track" pos="0.0 -0.05 0.75">
-      <geom name="rail_geom" type="box" size="0.35 0.025 0.015"
+      <!-- Rail-track footprint widened to 13.0 cm (y) to match the measured
+           real rail assembly (Robot_workspace plan). Cosmetic geom. -->
+      <geom name="rail_geom" type="box" size="0.35 0.065 0.015"
             rgba="0.4 0.4 0.45 1" contype="0" conaffinity="0" mass="0"/>
 
       <body name="rail_carriage" pos="-0.35 0.0 0.02">
@@ -333,11 +348,11 @@
     <!-- Cubes -->
     <!-- (red_cube was removed; its position is now occupied by the
          Vortex-Genie 2 -- see the instruments section below.) -->
-    <body name="green_cube" pos="0.00 0.15 0.78">
+    <body name="green_cube" pos="0.00 -0.15 0.78">
       <geom name="green_cube_geom" class="cube" material="green_mat"/>
       <joint type="free" name="green_cube_joint"/>
     </body>
-    <body name="blue_cube" pos="0.20 0.15 0.78">
+    <body name="blue_cube" pos="0.20 -0.15 0.78">
       <geom name="blue_cube_geom" class="cube" material="blue_mat"/>
       <joint type="free" name="blue_cube_joint"/>
     </body>
@@ -349,7 +364,7 @@
          (red_bin was removed; its general area is now where the
          Vortex-Genie 2 sits.) -->
 
-    <body name="green_bin" pos="0.00 0.35 0.75">
+    <body name="green_bin" pos="0.00 -0.35 0.75">
       <inertial pos="0 0 0.020" mass="0.5" diaginertia="6e-4 6e-4 9e-4"/>
       <joint type="free" name="green_bin_joint"/>
       <geom name="green_bin_floor" type="box" size="0.040 0.040 0.001"
@@ -365,7 +380,7 @@
             size="0.002 0.040 0.030" pos=" 0.040 0 0.030"/>
     </body>
 
-    <body name="blue_bin" pos="0.20 0.35 0.75">
+    <body name="blue_bin" pos="0.20 -0.35 0.75">
       <inertial pos="0 0 0.020" mass="0.5" diaginertia="6e-4 6e-4 9e-4"/>
       <joint type="free" name="blue_bin_joint"/>
       <geom name="blue_bin_floor" type="box" size="0.040 0.040 0.001"
@@ -517,7 +532,7 @@
          (= world x < 1.0). When the arm looks at the OT-2 from the
          bench (looking +x), its LEFT corresponds to OT-2 local +y.
     ============================================================= -->
-    <body name="opentrons_ot2" pos="1.0 0.0 0.0">
+    <body name="opentrons_ot2" pos="0.85 0.0 0.0">
       <!-- Chassis: solid box from z=0 to z=0.750. Visually represents
            the OT-2 base + riser table; functionally just an obstacle
            the arm can't pass through. Half-extents 0.315 x 0.285 x 0.375. -->
@@ -660,7 +675,7 @@
     <!-- 96-well plate A: sits in OT-2 slot 1 (front-left) at session
          start. World (0.867, +0.132, 0.7625) = OT-2 origin + slot 1
          offset + plate half-thickness. -->
-    <body name="well_plate_A" pos="0.867 +0.132 0.7625">
+    <body name="well_plate_A" pos="0.717 +0.132 0.7625">
       <inertial pos="0 0 0" mass="0.10" diaginertia="2e-4 2e-4 3e-4"/>
       <geom name="well_plate_A_body" class="well_plate_body"
             material="well_plate_mat"/>
@@ -692,7 +707,7 @@
          arm may not be able to pick this tip box up from rail=700;
          that's intentional -- the user explicitly placed it there
          to test reachability + as a visual fixture. -->
-    <body name="tip_box" pos="1.133 +0.132 0.795">
+    <body name="tip_box" pos="0.983 +0.132 0.795">
       <inertial pos="0 0 0" mass="0.20" diaginertia="3e-4 3e-4 4e-4"/>
       <geom name="tip_box_body" class="tip_box_body"
             material="tip_box_mat"/>
@@ -707,7 +722,7 @@
          Sits on the bench, front-left. Heavy (2 kg) so it stays put
          unless deliberately pushed. The flat top is a plate-sized
          surface the arm can place a 96-well plate onto. -->
-    <body name="heater_shaker" pos="-0.300 -0.250 0.791">
+    <body name="heater_shaker" pos="0.100 0.130 0.791">
       <inertial pos="0 0 0" mass="20.0" diaginertia="3e-2 3e-2 5e-2"/>
       <geom name="heater_shaker_body" class="heater_shaker_body"
             material="heater_shaker_mat"/>
@@ -864,7 +879,7 @@
          Lid actuator: act_pcr_lid (see <actuator>). ctrl=0 -> closed.
          ctrl=pi/2 -> open (lid stands vertical at the -x face).
     ============================================================= -->
-    <body name="pcr_module" pos="0.20 -0.30 0.75" euler="0 0 1.5708">
+    <body name="pcr_module" pos="0.10 0.32 0.75" euler="0 0 1.5708">
       <!-- Chassis: open-top box. Floor + 4 walls. Half-extents
            ~(0.085, 0.175, 0.005-0.045) on each piece. -->
       <geom name="pcr_chassis_floor" type="box"
