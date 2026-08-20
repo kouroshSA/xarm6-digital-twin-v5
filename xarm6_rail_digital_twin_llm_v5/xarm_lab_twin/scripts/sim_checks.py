@@ -211,11 +211,15 @@ def check_objects_json_exist(scene) -> list[CheckResult]:
 
 
 def check_recording_units(scene=None) -> list[CheckResult]:
-    """Spatial datasets in trajectory.h5 should declare their units.
+    """Trajectory datasets must declare their units.
 
-    `body_poses` is written in metres while `ee_pos_mm` / `rail_mm` are millimetres.
-    Until A4 resolves that, an explicit `units` attribute is the minimum needed to
-    stop a downstream VLA export silently mixing scales.
+    `body_poses` is metres while `ee_pos_mm` / `rail_mm` are millimetres, and that
+    mismatch would silently corrupt a VLA export. An explicit per-dataset `units`
+    attribute is the minimum guard.
+
+    Only files written by the current format are checked. Recordings predating the
+    change carry no `format_version` and are reported as legacy rather than FAIL —
+    rewriting existing sessions would destroy captured data to satisfy a linter.
     """
     import glob
     sessions = sorted(glob.glob("recordings/*/trajectory.h5"))
@@ -226,16 +230,33 @@ def check_recording_units(scene=None) -> list[CheckResult]:
     except ImportError:
         return [CheckResult("recording.units", SKIP, "h5py not available")]
 
-    latest = sessions[-1]
-    spatial = ["rail_mm", "ee_pos_mm", "ee_rpy_deg", "body_poses", "joints_deg"]
-    with h5py.File(latest, "r") as f:
-        present = [d for d in spatial if d in f]
-        undeclared = [d for d in present if "units" not in f[d].attrs]
-    if undeclared:
+    from recording import TRAJECTORY_FORMAT_VERSION
+
+    checked, legacy, bad = 0, 0, []
+    for path in sessions:
+        label = os.path.basename(os.path.dirname(path))
+        try:
+            with h5py.File(path, "r") as f:
+                version = int(f.attrs.get("format_version", 1))
+                if version < TRAJECTORY_FORMAT_VERSION:
+                    legacy += 1
+                    continue
+                checked += 1
+                undeclared = [d for d in f
+                              if isinstance(f[d], h5py.Dataset) and "units" not in f[d].attrs]
+                if undeclared:
+                    bad.append(f"{label}: {undeclared}")
+        except OSError as exc:
+            bad.append(f"{label}: unreadable ({exc})")
+
+    if bad:
         return [CheckResult("recording.units", FAIL,
-                            f"{os.path.basename(os.path.dirname(latest))}: datasets without a "
-                            f"'units' attribute: {undeclared}")]
-    return [CheckResult("recording.units", PASS, f"all {len(present)} spatial datasets declare units")]
+                            f"v{TRAJECTORY_FORMAT_VERSION} recordings missing 'units': "
+                            + "; ".join(bad))]
+    detail = f"{checked} current-format recording(s) declare units"
+    if legacy:
+        detail += f"; {legacy} legacy (pre-v{TRAJECTORY_FORMAT_VERSION}) left untouched"
+    return [CheckResult("recording.units", PASS, detail)]
 
 
 STATIC_CHECKS = [

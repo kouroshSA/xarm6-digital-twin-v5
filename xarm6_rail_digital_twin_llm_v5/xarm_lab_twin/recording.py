@@ -21,6 +21,26 @@ DEFAULT_STATE_HZ = 60.0
 JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 ACT_NAMES   = ["act_rail", "act1", "act2", "act3", "act4", "act5", "act6"]
 
+# Bumped when the on-disk trajectory layout changes in a way consumers must know
+# about. v1 = pre-2026-08-20 files, which carry no units attributes at all.
+# v2 = every dataset declares `units`.
+TRAJECTORY_FORMAT_VERSION = 2
+
+# Units for each trajectory dataset, written as a per-dataset `units` attribute.
+# Note body_poses is metres (+ wxyz quaternion) while the rest of the spatial
+# data is millimetres -- see the comment in _write_trajectory.
+DATASET_UNITS = {
+    "t_wall":      "s",
+    "t_sim":       "s",
+    "rail_mm":     "mm",
+    "joints_deg":  "deg",
+    "ee_pos_mm":   "mm",
+    "ee_rpy_deg":  "deg",
+    "ctrl":        "actuator_setpoint (rail: m, joints: rad)",
+    "body_poses":  "m + quat_wxyz",
+    "weld_active": "bool",
+}
+
 
 @dataclass
 class SessionMetadata:
@@ -325,6 +345,17 @@ class Recorder:
             # New (per-sample world state of free bodies + weld activations)
             f.create_dataset("body_poses", data=np.stack([s["body_poses"] for s in b]).astype(np.float32), compression="gzip")
             f.create_dataset("weld_active", data=np.stack([s["weld_active"] for s in b]).astype(np.uint8), compression="gzip")
+
+            # Declare units per dataset. `body_poses` is the odd one out -- it is
+            # metres/quaternion straight from MuJoCo while every other spatial
+            # dataset is millimetres/degrees. That mismatch is easy to miss and
+            # would silently corrupt a VLA export, so it is stated rather than
+            # implied. Consumers should read these attrs, not assume.
+            for _name, _units in DATASET_UNITS.items():
+                if _name in f:
+                    f[_name].attrs["units"] = _units
+
+            f.attrs["format_version"] = TRAJECTORY_FORMAT_VERSION
             f.attrs["state_hz"] = self.state_hz
             f.attrs["n_samples"] = len(b)
             f.attrs["joint_names"] = JOINT_NAMES
