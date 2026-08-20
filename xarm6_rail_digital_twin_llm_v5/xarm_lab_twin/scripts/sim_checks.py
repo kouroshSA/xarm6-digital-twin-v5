@@ -259,6 +259,23 @@ def check_recording_units(scene=None) -> list[CheckResult]:
     return [CheckResult("recording.units", PASS, detail)]
 
 
+def check_bin_bodies_exist(scene) -> list[CheckResult]:
+    """Every container physical_outcome() can report a cube as being "in".
+
+    These names drive the grader's `<cube> in <bin>` facts. A name here that is
+    absent from the scene raises at snapshot time; a container in the scene that
+    is missing here is worse -- it looks like a bin, the arm can drop a cube in
+    it, and the grader silently never reports success.
+    """
+    from sim.mujoco_env import BIN_BODIES
+    missing = scene.missing(list(BIN_BODIES))
+    if missing:
+        return [CheckResult("sim.bin_bodies", FAIL,
+                            f"BIN_BODIES names bodies absent from the scene: {missing}")]
+    return [CheckResult("sim.bin_bodies", PASS,
+                        f"all {len(BIN_BODIES)} container(s) exist: {', '.join(BIN_BODIES)}")]
+
+
 def check_perturbable_bodies_exist(scene) -> list[CheckResult]:
     """Bodies the scene randomizer jitters must exist.
 
@@ -340,6 +357,7 @@ STATIC_CHECKS = [
     check_objects_json_exist,
     check_registry_positions,
     check_registry_seed_literals,
+    check_bin_bodies_exist,
     check_perturbable_bodies_exist,
     check_recording_units,
     check_real_arm_contract,

@@ -20,6 +20,12 @@ RAIL_ACT    = 0
 # Magnetic-gripper config — maps graspable body name to its weld constraint name.
 # Cubes are short and grasped near their center; tubes are tall and grasped near
 # their cap. The dict is one entry per graspable free body in the scene.
+# Containers a cube can be reported as being "in". physical_outcome() and the
+# snapshot code both read this, so adding a container is a one-line change here
+# rather than three hardcoded tuples that drift apart -- which is exactly how
+# `red_bin` survived in the grader prompt long after leaving the scene.
+BIN_BODIES = ("green_bin", "blue_bin", "clear_cup")
+
 GRIPPABLE_BODIES = {
     # Cubes. The two red cubes straddle the rail (200 mm either side of its
     # centreline at mid-span); "the red cube" is therefore ambiguous and tasks
@@ -35,10 +41,10 @@ GRIPPABLE_BODIES = {
     "tube_R1":    "grip_tube_R1",
     "tube_R2":    "grip_tube_R2",
     "tube_R3":    "grip_tube_R3",
-    # Bins (red_bin removed -- see above; remaining bins are still
-    # free bodies and can be pushed around)
+    # Bins / containers (free bodies, so they can be pushed around too)
     "green_bin":  "grip_green_bin",
     "blue_bin":   "grip_blue_bin",
+    "clear_cup":  "grip_clear_cup",
     # Tube racks (also free now -- pushable)
     "left_tube_rack":  "grip_left_rack",
     "right_tube_rack": "grip_right_rack",
@@ -322,7 +328,7 @@ class SimXArmAPI:
             # forever -- but including it here keeps the all_positions
             # iteration uniform and lets the proximity code in
             # physical_outcome treat it like any other body.
-            for fixture in ("green_bin", "blue_bin",
+            for fixture in (*BIN_BODIES,
                             "left_tube_rack", "right_tube_rack",
                             "opentrons_ot2", "heater_shaker",
                             "vortex_genie", "pcr_module"):
@@ -1673,7 +1679,7 @@ class SimXArmAPI:
             }
             bin_positions = {
                 name: self.data.xpos[self.model.body(name).id].copy()
-                for name in ("green_bin", "blue_bin")
+                for name in BIN_BODIES
             }
             rack_positions = {
                 name: self.data.xpos[self.model.body(name).id].copy()

@@ -141,7 +141,7 @@ class SceneGeometry:
 PROMPT_BODIES = [
     "red_cube_front", "red_cube_back",
     "green_cube", "blue_cube",
-    "green_bin", "blue_bin",
+    "green_bin", "blue_bin", "clear_cup",
     "left_tube_rack", "right_tube_rack",
     "tube_L1", "tube_L2", "tube_L3", "tube_R1", "tube_R2", "tube_R3",
     "well_plate_A", "well_plate_B", "tip_box",
@@ -212,16 +212,27 @@ def render_object_names(scene=None) -> str:
     will happily produce success criteria that can never be met.
     """
     scene = _as_scene(scene)
+
+    # Containers come from BIN_BODIES, not from a name pattern. `clear_cup` is a
+    # bin with no "bin" in its name, and mis-filing it as generic movable would
+    # tell the grader that "<cube> in clear_cup" is not a success shape — which
+    # it is, and which physical_outcome() does emit.
+    try:
+        from sim.mujoco_env import BIN_BODIES  # local import: avoids a cycle
+        bins = set(BIN_BODIES)
+    except Exception:  # noqa: BLE001 - fall back to the name heuristic
+        bins = set()
+
     groups: dict[str, list[str]] = {
         "Cubes": [], "Bins": [], "Tube racks": [], "Falcon tubes": [],
         "Plates / tip racks": [], "Other movable": [],
     }
     for name in scene.pushable_bodies():
         low = name.lower()
-        if "cube" in low:
-            groups["Cubes"].append(name)
-        elif "bin" in low:
+        if name in bins or "bin" in low:
             groups["Bins"].append(name)
+        elif "cube" in low:
+            groups["Cubes"].append(name)
         elif "rack" in low and "tube" in low:
             groups["Tube racks"].append(name)
         elif low.startswith("tube_"):
