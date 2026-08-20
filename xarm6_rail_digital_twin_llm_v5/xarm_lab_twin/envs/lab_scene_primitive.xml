@@ -28,6 +28,9 @@
       <geom type="box" size="0.015 0.015 0.015" mass="0.05"
             friction="1.0 0.05 0.0001" solref="0.005 1" solimp="0.95 0.99 0.001"/>
     </default>
+    <default class="cup_wall">
+      <geom type="box" mass="0" contype="1" conaffinity="1"/>
+    </default>
     <default class="bin_wall">
       <geom type="box" rgba="0.8 0.8 0.8 0.5" mass="0"
             contype="1" conaffinity="1"/>
@@ -96,9 +99,12 @@
     <material name="red_mat"   rgba="0.9 0.2 0.2 1"/>
     <material name="green_mat" rgba="0.2 0.8 0.3 1"/>
     <material name="blue_mat"  rgba="0.2 0.4 0.9 1"/>
-    <!-- Clear plastic beaker: mostly transparent with a faint blue-grey tint,
-         so cubes inside it stay visible from any camera angle. -->
-    <material name="clear_cup_mat" rgba="0.82 0.88 0.95 0.28"/>
+    <!-- Opaque off-white plastic beaker. Deliberately NOT transparent: a
+         RealSense D435 is structured-light/stereo IR and returns little or no
+         depth on transparent surfaces, so a see-through cup would be one of the
+         hardest things in the scene to perceive on real hardware. Off-white also
+         separates cleanly in hue from the red/green/blue objects. -->
+    <material name="clear_cup_mat" rgba="0.93 0.93 0.91 1"/>
     <material name="red_bin_mat"   rgba="0.9 0.2 0.2 0.6"/>
     <material name="green_bin_mat" rgba="0.2 0.8 0.3 0.6"/>
     <material name="blue_bin_mat"  rgba="0.2 0.4 0.9 0.6"/>
@@ -395,6 +401,8 @@
     <!-- Clear cup: a round, open-top beaker acting as a third bin. Sits in the
          bin row at x=-0.20, left of green_bin, on the same y as the other bins.
 
+         Opaque, not see-through -- see the material comment above for why.
+
          MuJoCo has no hollow-cylinder primitive, so the wall is 12 flat panels
          on a 31 mm mid-radius (~1 mm overlap at each seam, so there is no gap a
          cube could squeeze through). Inner diameter is 58 mm, comfortably more
@@ -411,29 +419,29 @@
       <geom name="clear_cup_floor" type="cylinder" size="0.033 0.001"
             pos="0 0 0.001" material="clear_cup_mat"
             contype="1" conaffinity="1" mass="0"/>
-      <geom name="clear_cup_w00" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w00" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="0.03100 0.00000 0.032" euler="0 0 1.57080"/>
-      <geom name="clear_cup_w01" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w01" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="0.02685 0.01550 0.032" euler="0 0 2.09440"/>
-      <geom name="clear_cup_w02" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w02" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="0.01550 0.02685 0.032" euler="0 0 2.61799"/>
-      <geom name="clear_cup_w03" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w03" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="0.00000 0.03100 0.032" euler="0 0 3.14159"/>
-      <geom name="clear_cup_w04" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w04" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.01550 0.02685 0.032" euler="0 0 3.66519"/>
-      <geom name="clear_cup_w05" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w05" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.02685 0.01550 0.032" euler="0 0 4.18879"/>
-      <geom name="clear_cup_w06" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w06" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.03100 0.00000 0.032" euler="0 0 4.71239"/>
-      <geom name="clear_cup_w07" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w07" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.02685 -0.01550 0.032" euler="0 0 5.23599"/>
-      <geom name="clear_cup_w08" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w08" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.01550 -0.02685 0.032" euler="0 0 5.75959"/>
-      <geom name="clear_cup_w09" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w09" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.00000 -0.03100 0.032" euler="0 0 6.28319"/>
-      <geom name="clear_cup_w10" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w10" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="0.01550 -0.02685 0.032" euler="0 0 6.80678"/>
-      <geom name="clear_cup_w11" class="bin_wall" material="clear_cup_mat"
+      <geom name="clear_cup_w11" class="cup_wall" material="clear_cup_mat"
             size="0.0085 0.002 0.03" pos="0.02685 -0.01550 0.032" euler="0 0 7.33038"/>
     </body>
     <body name="blue_bin" pos="0.20 -0.35 0.75">
