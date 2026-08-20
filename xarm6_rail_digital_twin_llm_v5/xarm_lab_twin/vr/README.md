@@ -41,13 +41,51 @@ export MUJOCO_GL=egl      # use osmesa only if egl is unavailable
 
 ---
 
-## 2. HTTPS / secure-context requirement
+## 2. Secure-context requirement (the #1 source of "Enter VR" failures)
 
 `navigator.xr.requestSession('immersive-vr')` requires a **secure context**.
 The headset connects to the host by LAN IP (not `localhost`), so plain
-`http://` is not a secure context for entering VR. Two options:
+`http://<host-ip>:<port>` is not a secure context and **Enter VR** reports
+"immersive-vr unavailable" even though the page loads fine.
 
-### a) Dev-flag + plain HTTP (recommended — most reliable on Quest)
+Three options, best first.
+
+### a) `adb reverse` + `http://localhost` (recommended)
+
+This is the method **Meta officially documents**, and it is the least fiddly:
+`localhost` is a secure context *by definition*, so forwarding the server port
+onto the headset's own loopback enables WebXR with **no certificate and no
+browser flags**.
+
+```bash
+sudo apt install android-tools-adb          # once, on the host
+
+# On the Quest: Settings -> System -> Developer -> enable Developer Mode
+#   (needs a personal Meta account set up via the Meta Horizon phone app)
+# Connect the headset by USB-C, then accept "Allow USB debugging" in-headset.
+
+adb devices                                 # confirm the headset is listed
+adb reverse tcp:8443 tcp:8443
+
+python scripts/run_vr.py --mode stereo --servo direct --port 8443
+```
+
+Then in the **Quest Browser** open `http://localhost:8443` and tap **Enter VR**.
+
+Why prefer this:
+
+- Nothing to configure per headset — matters if you have more than one.
+- No cert to regenerate when the host IP changes or you move machines.
+- Immune to LAN/subnet problems, guest-network client isolation, and
+  multi-homed hosts (see §2.1).
+- Re-run `adb reverse tcp:8443 tcp:8443` after replugging; that is the only
+  recurring step.
+
+Cost: a USB cable. `adb reverse` over Wi-Fi (`adb tcpip 5555` + `adb connect`)
+has historically been unreliable on Quest hardware — prefer USB, and use (b) or
+(c) when you need to be untethered.
+
+### b) Dev-flag + plain HTTP (untethered, per-headset setup)
 
 Run without `--cert/--key`, then on the **Quest Browser** (inside the headset):
 `chrome://flags` → search **"Insecure origins treated as secure"** → add
@@ -55,27 +93,37 @@ Run without `--cert/--key`, then on the **Quest Browser** (inside the headset):
 set **Enabled** → **Relaunch** the browser. Then open
 `http://<host-ip>:<port>` and tap **Enter VR**.
 
-> **Why this is preferred over self-signed TLS:** Chromium **disables WebXR on
-> pages reached by clicking through a self-signed certificate warning** — the
-> page loads but `isSessionSupported('immersive-vr')` returns `false`
-> ("immersive-vr unavailable"). The flag grants a genuinely trustworthy
-> context, so WebXR stays enabled. (See `note-to-claude-code.md` for the full
-> debugging story.)
+Must be repeated on every headset, and redone whenever the host IP changes.
 
-### b) Self-signed TLS
+### c) A *genuinely trusted* certificate (untethered, robust)
 
-```bash
-# from xarm_lab_twin/
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout vr/key.pem -out vr/cert.pem -days 365 \
-  -subj "/CN=<host-ip>" \
-  -addext "subjectAltName=IP:<host-ip>"
+> **Do not use a plain self-signed cert.** Chromium **disables WebXR on pages
+> reached by clicking through a certificate warning** — the page loads but
+> `isSessionSupported('immersive-vr')` returns `false`, i.e. the exact symptom
+> you were trying to fix. The certificate must chain to a CA the headset
+> actually trusts. (See `note-to-claude-code.md` for the full debugging story.)
 
-python scripts/run_vr.py --mode stereo --cert vr/cert.pem --key vr/key.pem --port 8443
-```
+Two ways to get one:
 
-Open `https://<host-ip>:8443` in the Quest Browser and accept the warning. If
-"Enter VR" then reports unavailable, fall back to option (a).
+- **`mkcert`** — create a local CA, install its root certificate on each Quest,
+  then issue a host cert:
+  ```bash
+  mkcert -install
+  mkcert -cert-file vr/cert.pem -key-file vr/key.pem <host-ip>
+  python scripts/run_vr.py --mode stereo --cert vr/cert.pem --key vr/key.pem
+  ```
+- **Tailscale** — `tailscale cert <host>.<tailnet>.ts.net` issues a publicly
+  trusted certificate; join both headsets to the tailnet. This also works
+  off-site and sidesteps LAN addressing entirely.
+
+### 2.1 Multi-homed hosts
+
+If the host has **two interfaces on the same subnet** — e.g. a Livox lidar NIC
+statically addressed `192.168.1.50/24` alongside Wi-Fi on `192.168.1.0/24` —
+routing is ambiguous and replies to the Quest may leave via the wrong NIC. Check
+with `ip -4 -br addr` and `ip -4 route`. Either move the lidar NIC to its own
+subnet (e.g. `192.168.50.0/24`) or use option (a), which does not depend on LAN
+routing at all.
 
 ### Test WebXR *inside the headset*, not on a desktop
 
@@ -109,13 +157,27 @@ context — only *entering VR* needs one.
 
 ## 3. Quest pairing / connect
 
-1. Put the Quest on the same Wi-Fi as the workstation.
-2. Find the workstation IP (`ip addr` / `hostname -I`); `run_vr.py` also prints
-   the URL banner on startup.
-3. In the Quest Browser, open the printed `https://<ip>:<port>` (or `http://`
-   with the dev flag).
+**Tethered (option 2a — recommended):**
+
+1. Enable Developer Mode on the Quest, connect USB-C, accept the debugging prompt.
+2. `adb reverse tcp:8443 tcp:8443` on the host.
+3. Start the server, then open `http://localhost:8443` in the Quest Browser.
 4. Press **Enter VR** (WebXR needs a user gesture). The twin appears; the HUD
    strip shows recording / gripper / rail state.
+
+**Untethered (options 2b / 2c):**
+
+1. Put the Quest on the same Wi-Fi as the workstation — **not** a Guest network
+   (those usually isolate clients from each other).
+2. Find the workstation IP (`hostname -I`); `run_vr.py` also prints the URL
+   banner on startup.
+3. In the Quest Browser open `http://<ip>:<port>` (dev flag) or
+   `https://<ip>:<port>` (trusted cert).
+4. Press **Enter VR**.
+
+If **Enter VR** is unavailable, read the client's diagnostic line
+(`xr=… secureContext=… error=…`) — `secureContext=false` means the transport is
+the problem, not the code.
 
 ---
 
@@ -142,11 +204,16 @@ points forward at the bench.
 cd xarm6_rail_digital_twin_llm_v5/xarm_lab_twin
 conda activate xarm6sim
 
-# Mono monitoring panel, validated servo, HTTPS:
-python scripts/run_vr.py --mode mono --servo validated \
-    --cert vr/cert.pem --key vr/key.pem
+# --- Recommended: adb reverse, no TLS needed (see 2a) ---
+adb reverse tcp:8443 tcp:8443
+
+# Mono monitoring panel first, to verify the feed:
+python scripts/run_vr.py --mode mono --servo validated
 
 # Stereo immersion, direct (low-latency) servo:
+python scripts/run_vr.py --mode stereo --servo direct
+
+# --- Untethered with a trusted cert (see 2c) ---
 python scripts/run_vr.py --mode stereo --servo direct \
     --cert vr/cert.pem --key vr/key.pem
 ```

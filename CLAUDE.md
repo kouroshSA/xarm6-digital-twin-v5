@@ -118,8 +118,10 @@ When extending any of these:
 Meta Quest 3 teleoperation of the digital twin lives in
 `xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/vr/` and runs via
 `scripts/run_vr.py` — see [`vr/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/vr/README.md)
-for setup, the HTTPS/secure-context requirement, Quest pairing, and the
-control map. It is **sim-only** and depends on nothing from GR00T: it reuses
+for setup, the WebXR secure-context requirement, Quest pairing, and the
+control map. **To connect a headset, prefer `adb reverse tcp:8443 tcp:8443` +
+`http://localhost:8443`** — no cert, no browser flags; a bare self-signed cert
+actively *disables* WebXR. It is **sim-only** and depends on nothing from GR00T: it reuses
 the existing `SimXArmAPI → IKSolver → ctrl → MuJoCo → Recorder` path, with a
 human hand (Touch controllers, streamed over WebXR) as the EE-target source
 instead of the LLM.

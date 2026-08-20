@@ -118,13 +118,28 @@ directly.
    (Start with `--mode mono` first if you want to verify the feed in a normal
    browser tab at `http://<host-ip>:8443` before going immersive.)
 4. **On the Quest (in its own standalone Browser, NOT a desktop browser):**
-   - Same Wi-Fi as the host, **not** a Guest network.
-   - One-time secure-context setup (recommended path): in the Quest browser open
-     `chrome://flags` → "Insecure origins treated as secure" → add
-     `http://<host-ip>:8443` → **Enabled** → **Relaunch**.
-   - Go to `http://<host-ip>:8443` → tap **Enter VR (stereo)**.
-   - (Alternative: generate a self-signed cert and use `--cert/--key` + https,
-     but see the gotcha below — the flag path is more reliable.)
+
+   **Preferred — `adb reverse` (added 2026-08-20).** `localhost` is a secure
+   context by definition, so this needs **no cert and no browser flags**, and is
+   the method Meta officially documents:
+   ```bash
+   sudo apt install android-tools-adb     # once
+   # Quest: Settings -> System -> Developer -> Developer Mode ON
+   # USB-C cable, accept "Allow USB debugging" in-headset
+   adb devices                            # confirm it lists the headset
+   adb reverse tcp:8443 tcp:8443
+   ```
+   Then open **`http://localhost:8443`** in the Quest Browser → **Enter VR**.
+   Re-run the `adb reverse` line after each replug; that's the only repeat step.
+   Scales cleanly to multiple headsets (nothing is configured per-device) and is
+   immune to LAN/subnet and multi-NIC problems.
+
+   **Untethered fallbacks** (same Wi-Fi as the host, **not** a Guest network):
+   - Dev flag: Quest browser → `chrome://flags` → "Insecure origins treated as
+     secure" → add `http://<host-ip>:8443` → **Enabled** → **Relaunch**. Must be
+     repeated per headset and after any host-IP change.
+   - Trusted cert via `mkcert` (install the CA root on each Quest) or Tailscale
+     (`tailscale cert`). A **plain self-signed cert does not work** — see gotcha 1.
 
 **Controls:** grip (hold) = clutch (arm follows hand), trigger = gripper,
 A = record take, B = reset scene, left stick X = jog rail, head = stereo
@@ -156,10 +171,16 @@ From `vr-instruction.md` §11, items 3–9, in order:
 1. **Self-signed cert click-through DISABLES WebXR.** Chromium treats a page
    reached by "proceed past the cert warning" as not-trustworthy, so
    `isSessionSupported('immersive-vr')` returns false → the button shows
-   "immersive-vr unavailable" even though the page loaded fine. **Use the
-   `chrome://flags` "Insecure origins treated as secure" + plain HTTP path**, or
-   a properly trusted cert. The client now prints a diagnostic status line
-   (`xr=… secureContext=… error=…`) to make this obvious.
+   "immersive-vr unavailable" even though the page loaded fine. The client
+   prints a diagnostic status line (`xr=… secureContext=… error=…`) to make this
+   obvious. **Fix: `adb reverse` + `http://localhost:8443`** (no cert at all), or
+   the `chrome://flags` path, or a cert chaining to a CA the headset trusts
+   (`mkcert` / Tailscale). Never a bare self-signed cert.
+1b. **Multi-homed hosts break LAN connectivity to the Quest.** If two interfaces
+   claim the same subnet — e.g. the Livox NIC pinned to `192.168.1.50/24` while
+   Wi-Fi is also on `192.168.1.0/24` — routing is ambiguous and replies can exit
+   the wrong NIC. Check `ip -4 -br addr` / `ip -4 route`. Move the lidar NIC to
+   its own subnet, or use `adb reverse`, which doesn't touch LAN routing.
 2. **Test WebXR inside the headset, not on a desktop.** A desktop/laptop browser
    reports "VR support not detected" unless it's driving a headset via a PCVR
    runtime. On Linux there is no such runtime for Quest, so the standalone Quest
