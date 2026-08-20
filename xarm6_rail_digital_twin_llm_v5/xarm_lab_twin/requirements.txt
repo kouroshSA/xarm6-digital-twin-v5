@@ -1,0 +1,62 @@
+# xArm6 digital twin — pinned runtime dependencies.
+#
+# Python 3.11 (developed on 3.11.15). Create with:
+#     conda create -n xarm6sim python=3.11 && conda activate xarm6sim
+#     pip install -r requirements.txt
+#
+# Versions are pinned to what the project is known to run on. Before this file
+# existed there was no dependency declaration at all, which is what made the
+# xArm SDK version trap possible (see the note below).
+
+# --- core simulation ---------------------------------------------------------
+mujoco==3.10.0
+numpy==2.4.6
+h5py==3.16.0            # trajectory.h5 recording format
+transforms3d==0.4.2     # quaternion/euler conversions (soft-guarded import)
+
+# --- LLM agent ---------------------------------------------------------------
+anthropic==0.112.0
+
+# --- VR teleoperation --------------------------------------------------------
+# Also listed in vr/requirements-vr.txt, which the vr/README refers to. Pinned
+# here so a single `pip install -r requirements.txt` gives a working VR server.
+fastapi==0.138.1
+uvicorn[standard]==0.49.0
+websockets==16.0
+pillow==12.2.0
+
+# --- real hardware -----------------------------------------------------------
+# ONLY used by hardware/real_arm.py under `--mode real`; harmless in sim.
+#
+# PINNED DELIBERATELY. UFACTORY renamed the linear-rail and force/torque APIs
+# between 1.14.x and 1.18.x with no backward-compatible aliases:
+#
+#     set_linear_track_pos  (<=1.14.x)  ->  set_linear_motor_pos  (>=1.18)
+#     ft_sensor_enable      (<=1.14.x)  ->  set_ft_sensor_enable  (>=1.18)
+#
+# With no pin, a fresh `pip install xarm-python-sdk` resolved to whatever was
+# current, and real_arm.py's exception handler turned the resulting
+# AttributeError into a *success* return — the rail silently never moved.
+# real_arm.py now capability-probes at construction, so either version works,
+# but the pin makes which one you get a decision rather than an accident.
+#
+# 1.18.4 chosen over 1.14.7 because it adds:
+#   - get_gripper_status          better grasp verification than position alone
+#   - set_gripper_g2_position     required if the fitted gripper is a G2
+#   - set_bio_gripper_force       required for force-limited 96-well plate grips
+# Confirm controller firmware supports it (`arm.get_version()`); some methods
+# carry firmware minimums. If firmware is too old, drop to 1.14.7 — the probe
+# handles it — and record why here.
+#
+# NOTE: ufactory_vision pins 1.14.7 and lives in its own conda env. Do not
+# merge these environments (it also pins torch 2.4.1 against ot2vision's 2.13).
+xarm-python-sdk==1.18.4
+
+# --- optional ----------------------------------------------------------------
+# pin/pinocchio + pink: preferred IK backend. pink's API does not match MuJoCo's
+# types in pink>=4.2, so sim/ik_solver.py falls back to its own Jacobian solver
+# and prints a one-time warning at startup. That warning is expected; see
+# CLAUDE.md. Left uninstalled rather than pinned to a version that does not work.
+#
+# open3d: only scripts/scan_to_mesh.py needs it.
+#   pip install open3d
