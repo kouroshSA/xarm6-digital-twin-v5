@@ -149,6 +149,9 @@ class SimXArmAPI:
     """
 
     def __init__(self, scene_xml: str, render: bool = True):
+        # Kept so consumers can ask which scene is loaded rather than assuming the
+        # default -- the LLM prompt's geometry section is rendered from this.
+        self.scene_xml = scene_xml
         self.model = mujoco.MjModel.from_xml_path(scene_xml)
         self.data  = mujoco.MjData(self.model)
         self.lock  = threading.Lock()

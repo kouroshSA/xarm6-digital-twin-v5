@@ -6,6 +6,8 @@ import time
 from typing import Optional
 from agent.object_registry import ObjectRegistry
 from agent.lessons import read_lessons_section
+from agent.scene_geometry import (DEFAULT_SCENE, render_geometry_section,
+                                  worked_example_coords)
 from agent.world_model import read_world_model, render_for_system_prompt
 from recording import Recorder, LLMSessionLog
 
@@ -59,17 +61,18 @@ in a benchmark pick-and-place environment.
 - pcr_open       params: {{}}  — open the PCR Thermocycler lid (rotates lid ~90deg upward at the back of the chassis). MUST be called before loading or removing a plate from the PCR.
 - pcr_close      params: {{}}  — close the PCR Thermocycler lid. Call after a plate has been placed/removed.
 - push_object     params: {{"target_name": <body name>, "to_x_mm": <float>, "to_y_mm": <float>}}  — slide/carry an object across the bench to a target xy, or past the bench edge to push it off (it falls to the floor under gravity). Bench extents: x ∈ [-750, +750] mm, y ∈ [-450, +450] mm. To push something OFF the bench, pass a target xy past those bounds (e.g. y=550 for past the front edge).
-  Valid `target_name` values (any of these can be pushed):
-    - Cubes: `green_cube`, `blue_cube`  (red_cube was removed; its position is now the Vortex-Genie 2)
-    - Bins:  `green_bin`, `blue_bin`    (red_bin was removed)
-    - Tube racks: `left_tube_rack` (front-left of bench), `right_tube_rack` (now BACK-LEFT of bench, directly behind left_tube_rack -- name kept for history). Each rack carries 3 tubes that come along automatically.
-    - Falcon tubes: `tube_L1`, `tube_L2`, `tube_L3`, `tube_R1`, `tube_R2`, `tube_R3` (all 6 are now on the LEFT side of the bench)
-    - 96-well plates: `well_plate_A` (starts on OT-2 deck), `well_plate_B` (starts on bench). Prefer pick-and-place for plates -- push is destructive.
-    - Tip rack: `tip_box` (starts on OT-2 deck). Prefer pick-and-place.
-    - Heater-shaker module: `heater_shaker` (heavy bench fixture; pushing it usually wrong).
-    - Vortex-Genie 2: `vortex_genie` (heavy bench fixture; pushing it usually wrong).
-    - PCR Thermocycler: `pcr_module` (heavy bench fixture; pushing it usually wrong).
-  When the task references multiple objects ("all objects", "everything on the bench", "clear the table", "all the things"), iterate ALL of the bodies above and emit one push_object per body. **Do not skip racks** — pushing a rack carries its 3 tubes with it, so a single push_object on a rack removes 4 things from the bench at once. The full "clear the table" sequence is: 3 cubes + 3 bins + 2 racks = 8 push_object calls (the 6 tubes inside racks are handled by the rack pushes).
+  Valid `target_name` values are exactly the bodies listed under "Movable objects"
+  in SCENE GEOMETRY below. Anything listed there as a static fixture CANNOT be
+  pushed -- push_object will fail on it. Notes on the movable set:
+    - Tube racks: `left_tube_rack` is front-left of the bench; `right_tube_rack` sits
+      BACK-LEFT, directly behind it (the name is kept for history). Each rack carries
+      3 tubes that come along automatically.
+    - All 6 Falcon tubes are on the LEFT side of the bench.
+    - 96-well plates and the tip rack are pushable, but prefer pick-and-place --
+      pushing them is destructive.
+    - The heater-shaker is a heavy bench fixture; pushing it is usually wrong even
+      though it is movable.
+  When the task references multiple objects ("all objects", "everything on the bench", "clear the table", "all the things"), iterate the movable bodies in SCENE GEOMETRY and emit one push_object per body. **Do not skip racks** — pushing a rack carries its 3 tubes with it, so a single push_object on a rack removes 4 things from the bench at once, and the tubes then need no push of their own. Count the cubes, bins and racks actually listed in SCENE GEOMETRY rather than assuming a fixed number; the scene has changed before.
   **IMPORTANT**: whenever the user says "push" / "slide" / "shove" / "knock off" / "drop off the edge" / similar, ALWAYS use push_object. Do NOT use move_to + gripper_close + gripper_open for these tasks — that's the pick-and-place pattern, which produces the wrong motion for push tasks.
 - get_pose        params: {{}}  — print current end-effector + rail pose to the operator log. Useful for self-checks / debugging; the LLM does not see the printed value in this turn.
 - get_body_pose   params: {{"name": "<body_name>"}}  — print the live xyz + RPY of any named body (cube, plate, tube, rack, bin, instrument) to the operator log. Reflects mouse-perturbation adjustments the operator made between episodes. Live poses for all registered bodies are already injected into your system prompt registry each episode -- use this command only to confirm/dump a specific body for the human log.
@@ -115,32 +118,31 @@ in a benchmark pick-and-place environment.
    for tip box, gripper_close, lift to (target_xy, z=870), back out.
    Standard place: same in reverse -- approach above, lower, release.
 
-   OT-2 deck slot world-xy positions (z=755 for the deck top; all
-   slots are SBS-127x85mm):
-     Row 1 (FRONT, nearest the arm):  slot 1=(867, +132), 2=(867, 0), 3=(867, -132)
-     Row 2 (mid-front):               slot 4=(956, +132), 5=(956, 0), 6=(956, -132)
-     Row 3 (mid-back):                slot 7=(1044, +132), 8=(1044, 0), 9=(1044, -132)
-     Row 4 (BACK):                    slot 10=(1133, +132), 11=(1133, 0), TRASH=(1133, -132)
-   REACH from rail=700: slots 1-6 are clean; slots 7-9 are at the
-   edge of arm reach; slots 10-11 + TRASH are usually UNREACHABLE
+   OT-2 deck slot world-xy positions are listed in the SCENE
+   GEOMETRY section below (all slots are SBS-127x85mm). Use those
+   numbers -- do not rely on slot positions you remember from
+   elsewhere.
+   REACH from rail=700: the front row is clean; the mid rows are at
+   the edge of arm reach; the back row is usually UNREACHABLE
    through the front opening. If the task requires a back slot,
    you can try alternative rail positions or wrist orientations,
    but expect IK failures.
 
-   Plate A starts in slot 1 (front-left). Plate B starts on the
-   bench at (+200, -300, 762). Tip box starts in slot 10 at
-   (1133, +132, 795) -- which is in the BACK row and likely
-   unreachable through the front opening without alternative
-   rail positions or wrist orientations.
+   Plate A starts in deck slot 1 (front-left). Plate B starts on the
+   bench. The tip box starts in a BACK-row slot and is likely
+   unreachable through the front opening without alternative rail
+   positions or wrist orientations. All three positions are given in
+   SCENE GEOMETRY.
 
    Each slot has a coloured corner tag identifying its number:
    1=red, 2=orange, 3=yellow, 4=yellow-green, 5=green, 6=teal,
    7=cyan, 8=blue, 9=purple, 10=pink, 11=white, TRASH=dark grey.
 
    **Heater-Shaker module:** Opentrons Heater-Shaker on the bench
-   at (-300, -250). 152 x 90 x 82 mm, top platform at z=836 mm.
-   To place a plate on the shaker: rail to ~50, approach
-   (-300, -250, 870), lower to (-300, -250, 845), open gripper.
+   (xy in SCENE GEOMETRY). 152 x 90 x 82 mm, top platform at
+   z=836 mm. To place a plate on the shaker: set the rail so the
+   arm is near it, approach its xy at z=870, lower to z=845, open
+   gripper.
    The shaker is heavy (2 kg) and should be left in place; do not
    push or pick it up unless the task explicitly says so.
    Two status LEDs on the left and right faces report plate
@@ -150,40 +152,41 @@ in a benchmark pick-and-place environment.
    indicators, not controllable directly.
 
    **Vortex-Genie 2:** classic benchtop vortex mixer on the bench
-   at world (-200, +250). 165 W x 122 D x 165 H mm. Top orbital
-   platform centre at (-200, +250, 905); platform top surface at
-   z=910 mm. The vortex AUTO-ACTIVATES when any movable body (tube,
+   (xy in SCENE GEOMETRY). 165 W x 122 D x 165 H mm. Top orbital
+   platform centre is at the chassis xy, z=905; platform top surface
+   at z=910 mm. The vortex AUTO-ACTIVATES when any movable body (tube,
    cube, plate, etc.) is resting on the platform -- the platform
    then orbits at 4 mm radius / ~25 Hz, dragging the object via
    friction. To "vortex" a tube: pick the tube from its rack,
-   position the gripper above (-200, +250, 940), descend to
-   (-200, +250, 920) so the tube's bottom touches the platform,
-   gripper_open, then LIFT THE GRIPPER AWAY to (-200, +250, 980)
+   position the gripper above the vortex xy at z=940, descend to
+   z=920 so the tube's bottom touches the platform,
+   gripper_open, then LIFT THE GRIPPER AWAY to z=980
    so the vortex can shake the tube freely without the gripper
    pinning it. The vortex stops automatically when the object is
    removed. The vortex chassis is heavy; do not try to push or
    grasp it.
 
-   **PCR Thermocycler Module:** Opentrons thermocycler at world
-   (+200, -300). Outer dimensions after rotation: ~350 W (along x)
-   x 170 D (along y) x 130 H mm. The chassis WALLS (sides + back)
+   **PCR Thermocycler Module:** Opentrons thermocycler on the bench
+   (xy in SCENE GEOMETRY). Outer dimensions after rotation: ~350 W
+   (along x) x 170 D (along y) x 130 H mm, centred on that xy --
+   so its footprint spans xy +/- (175, 85). The chassis WALLS (sides + back)
    top out at world z=850 mm, so any transit-with-plate-in-gripper
    that needs to cross the PCR's footprint MUST be at z>=920 mm or
    higher -- approach z=870 mm is NOT safe; the plate hangs ~15mm
    below the gripper centre and will collide with the wall top.
    The lid hinges on the -x edge and opens UP AND AWAY FROM the
-   OT-2 (when open, the lid stands vertical at world x ~30 mm).
+   OT-2 (when open, the lid stands vertical just off the -x edge).
    The arm approaches the cavity from above only when the lid is
    open. To load a 96-well plate:
    (1) pcr_open  -- lid rotates ~90deg upward.
    (2) Lift gripper to AT LEAST z=920 mm if anywhere near the PCR
-       footprint (PCR x in 25..375, y in -385..-215).
-   (3) Move arm to (+200, -300, 920) -- above the cavity, ABOVE the
-       PCR wall top.
-   (4) Descend to (+200, -300, 790) -- the plate sits on the heated
-       block inside the chassis.
+       footprint (its xy +/- (175, 85), see SCENE GEOMETRY).
+   (3) Move arm to the PCR xy at z=920 -- above the cavity, ABOVE
+       the PCR wall top.
+   (4) Descend to the PCR xy at z=790 -- the plate sits on the
+       heated block inside the chassis.
    (5) gripper_open.
-   (6) Lift gripper back to (+200, -300, 920) -- well clear of the
+   (6) Lift gripper back to the PCR xy at z=920 -- well clear of the
        walls before any further motion.
    (7) pcr_close  -- lid swings back down.
    To remove a plate, reverse: pcr_open, descend with empty gripper
@@ -202,16 +205,20 @@ in a benchmark pick-and-place environment.
    so plates are best dropped near the chassis centre xy.
 6. If a task is ambiguous, output done() with a message asking for clarification.
 
+## Scene geometry
+{scene_geometry_section}
+
 ## Output format
-JSON array ONLY - no prose, no markdown fences. Example for "put green cube in green bin":
+JSON array ONLY - no prose, no markdown fences. Example for "put green cube in green bin"
+(coordinates below are generated from the live scene, so they are correct as written):
 [
   {{"action": "set_rail",      "params": {{"position_mm": 350, "speed_mm_s": 100}}}},
-  {{"action": "move_to",       "params": {{"x": 0, "y": 150, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
-  {{"action": "move_to",       "params": {{"x": 0, "y": 150, "z": 795, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
+  {{"action": "move_to",       "params": {{"x": {ex_cube_x}, "y": {ex_cube_y}, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
+  {{"action": "move_to",       "params": {{"x": {ex_cube_x}, "y": {ex_cube_y}, "z": 795, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
   {{"action": "gripper_close", "params": {{}}}},
-  {{"action": "move_to",       "params": {{"x": 0, "y": 150, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
-  {{"action": "move_to",       "params": {{"x": 0, "y": 350, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
-  {{"action": "move_to",       "params": {{"x": 0, "y": 350, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
+  {{"action": "move_to",       "params": {{"x": {ex_cube_x}, "y": {ex_cube_y}, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
+  {{"action": "move_to",       "params": {{"x": {ex_bin_x}, "y": {ex_bin_y}, "z": 870, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 80}}}},
+  {{"action": "move_to",       "params": {{"x": {ex_bin_x}, "y": {ex_bin_y}, "z": 830, "roll": 180, "pitch": 0, "yaw": 0, "speed_mm_s": 50}}}},
   {{"action": "gripper_open",  "params": {{}}}},
   {{"action": "done",          "params": {{"message": "Green cube placed in green bin"}}}}
 ]
@@ -268,6 +275,10 @@ class LLMBrain:
         # loop after it infers the tier from the task prompt.
         self.speed_tier = "medium"
         self.speed_cap_mm_s: Optional[float] = 80.0
+        # Geometry injected into the prompt is read from whichever scene the arm
+        # actually loaded, so --scene primitive and --scene meshes each describe
+        # themselves rather than sharing one hardcoded set of coordinates.
+        self._scene_geometry = getattr(arm, "scene_xml", None) or DEFAULT_SCENE
         print(f"[LLMBrain] Using model: {self.model_short} ({self.model_full})")
 
     def set_speed_cap(self, tier: str, cap_mm_s: Optional[float]) -> None:
@@ -522,6 +533,8 @@ class LLMBrain:
             world_model_section=wm_section if wm_section
                                 else "(no cross-task world model yet)",
             lessons_section=lessons if lessons else "(no prior lessons yet)",
+            scene_geometry_section=render_geometry_section(self._scene_geometry),
+            **worked_example_coords(self._scene_geometry),
         )
         self.history.append({"role": "user", "content": task_prompt})
 

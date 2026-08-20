@@ -75,6 +75,15 @@ class SceneGeometry:
                 n_joints=num,
             )
 
+        # Geoms carry facts bodies don't — notably the OT-2 deck slot outlines, which
+        # are the authoritative slot positions (they move with the OT-2 chassis).
+        self._geoms: dict[str, tuple[float, float, float]] = {}
+        for gid in range(self._model.ngeom):
+            gname = mj.mj_id2name(self._model, mj.mjtObj.mjOBJ_GEOM, gid)
+            if gname:
+                self._geoms[gname] = tuple(
+                    np.asarray(data.geom_xpos[gid], dtype=float) * M_TO_MM)
+
     # -- lookups ------------------------------------------------------------
 
     def __contains__(self, name: str) -> bool:
@@ -103,6 +112,113 @@ class SceneGeometry:
         if actual is None:
             return None
         return float(np.hypot(actual[0] - expected_xy[0], actual[1] - expected_xy[1]))
+
+
+    # -- OT-2 deck ----------------------------------------------------------
+
+    def deck_slots(self) -> dict[str, tuple[float, float, float]]:
+        """OT-2 deck slot centres, read from the `ot2_slot_*_outline` geoms.
+
+        Read rather than derived from a pitch constant, so the slots follow the
+        chassis automatically if the OT-2 is repositioned in the scene.
+        """
+        out = {}
+        for gname, pos in self._geoms.items():
+            if gname.startswith("ot2_slot_") and gname.endswith("_outline"):
+                label = gname[len("ot2_slot_"):-len("_outline")]
+                out[label] = pos
+        return dict(sorted(out.items(),
+                           key=lambda kv: (kv[1][0], -kv[1][1])))
+
+
+# ---------------------------------------------------------------------------
+# Prompt rendering
+# ---------------------------------------------------------------------------
+
+# Bodies the planner is expected to reason about. Anything here that is missing
+# from the scene is reported rather than silently omitted, so a scene edit that
+# deletes an object surfaces instead of quietly shrinking the prompt.
+PROMPT_BODIES = [
+    "green_cube", "blue_cube",
+    "green_bin", "blue_bin",
+    "left_tube_rack", "right_tube_rack",
+    "tube_L1", "tube_L2", "tube_L3", "tube_R1", "tube_R2", "tube_R3",
+    "well_plate_A", "well_plate_B", "tip_box",
+    "heater_shaker", "vortex_genie", "pcr_module", "opentrons_ot2",
+]
+
+
+def _as_scene(scene) -> SceneGeometry:
+    """Accept a SceneGeometry, a path to a scene, or None (meaning the default)."""
+    if isinstance(scene, SceneGeometry):
+        return scene
+    return load(scene or DEFAULT_SCENE)
+
+
+def render_geometry_section(scene=None) -> str:
+    """Render the authoritative geometry block injected into the system prompt.
+
+    This replaces coordinates that used to be typed into the prompt by hand. Commit
+    `fde3d22` moved most of the bench and those hand-typed copies did not follow,
+    leaving the planner reasoning about a layout that no longer existed.
+    """
+    scene = _as_scene(scene)
+
+    movable, static, missing = [], [], []
+    for name in PROMPT_BODIES:
+        info = scene.get(name)
+        if info is None:
+            missing.append(name)
+            continue
+        x, y, z = info.pos_mm
+        row = f"  {name:<17} ({x:>6.0f}, {y:>6.0f}, {z:>5.0f})"
+        (movable if info.pushable else static).append(row)
+
+    lines = [
+        f"GENERATED from {scene.scene_xml} — do not hand-edit these numbers.",
+        "All coordinates are world-frame millimetres; xy is the body centre.",
+        "",
+        "Movable objects (valid `push_object` targets, and graspable):",
+        *movable,
+    ]
+    if static:
+        lines += [
+            "",
+            "Static fixtures — `push_object` on these FAILS (no free joint).",
+            "Plan around them; they are obstacles, not cargo:",
+            *static,
+        ]
+
+    slots = scene.deck_slots()
+    if slots:
+        deck_z = next(iter(slots.values()))[2]
+        lines += ["", f"OT-2 deck slots (deck top z={deck_z:.0f}, SBS 127x85mm):"]
+        for label, (x, y, _z) in slots.items():
+            lines.append(f"  slot {label:<5} ({x:>6.0f}, {y:>6.0f})")
+
+    if missing:
+        lines += ["", f"NOTE: expected but absent from the scene: {', '.join(missing)}"]
+
+    return "\n".join(lines)
+
+
+def worked_example_coords(scene=None) -> dict[str, float]:
+    """Coordinates for the prompt's worked example, taken from the live scene.
+
+    The example is the strongest pattern the planner imitates, so a stale
+    coordinate here is more damaging than a stale one in a reference table.
+    """
+    scene = _as_scene(scene)
+    cube = scene.get("green_cube")
+    binb = scene.get("green_bin")
+    if cube is None or binb is None:
+        raise ValueError("worked example needs green_cube and green_bin in the scene")
+    return {
+        "ex_cube_x": round(cube.pos_mm[0]),
+        "ex_cube_y": round(cube.pos_mm[1]),
+        "ex_bin_x": round(binb.pos_mm[0]),
+        "ex_bin_y": round(binb.pos_mm[1]),
+    }
 
 
 @lru_cache(maxsize=4)

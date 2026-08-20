@@ -157,7 +157,7 @@ def build_default_registry() -> ObjectRegistry:
     reg.register(LabObject(
         name="green_cube",
         aliases=["green cube", "green block", "green"],
-        position_xyz_m=[0.00, 0.15, 0.78],
+        position_xyz_m=[0.0, -0.15, 0.78],
         optimal_rail_mm=350.0,
         grasp=cube_grasp,
         safety_notes="Small graspable cube. Approach from above.",
@@ -166,7 +166,7 @@ def build_default_registry() -> ObjectRegistry:
     reg.register(LabObject(
         name="blue_cube",
         aliases=["blue cube", "blue block", "blue"],
-        position_xyz_m=[0.20, 0.15, 0.78],
+        position_xyz_m=[0.2, -0.15, 0.78],
         optimal_rail_mm=550.0,
         grasp=cube_grasp,
         safety_notes="Small graspable cube. Approach from above.",
@@ -177,7 +177,7 @@ def build_default_registry() -> ObjectRegistry:
     reg.register(LabObject(
         name="green_bin",
         aliases=["green bin", "green container", "green box"],
-        position_xyz_m=[0.00, 0.35, 0.75],
+        position_xyz_m=[0.0, -0.35, 0.75],
         optimal_rail_mm=350.0,
         grasp=bin_grasp,
         safety_notes="Open-top bin. Release cube above bin opening.",
@@ -187,7 +187,7 @@ def build_default_registry() -> ObjectRegistry:
     reg.register(LabObject(
         name="blue_bin",
         aliases=["blue bin", "blue container", "blue box"],
-        position_xyz_m=[0.20, 0.35, 0.75],
+        position_xyz_m=[0.2, -0.35, 0.75],
         optimal_rail_mm=550.0,
         grasp=bin_grasp,
         safety_notes="Open-top bin. Release cube above bin opening.",
@@ -318,7 +318,7 @@ def build_default_registry() -> ObjectRegistry:
         name="opentrons_ot2",
         aliases=["ot2", "ot-2", "opentrons", "pipetting robot",
                  "liquid handler"],
-        position_xyz_m=[1.0, 0.0, 0.0],
+        position_xyz_m=[0.85, 0.0, 0.0],
         optimal_rail_mm=700.0,
         grasp=ot2_grasp,
         safety_notes=(
@@ -357,7 +357,7 @@ def build_default_registry() -> ObjectRegistry:
         aliases=["plate A", "well plate A", "well_plate_a", "plate a",
                  "96-well plate A", "OT-2 plate", "the plate on the OT-2",
                  "the plate on the deck"],
-        position_xyz_m=[0.867, +0.132, 0.7625],
+        position_xyz_m=[0.717, 0.132, 0.7625],
         optimal_rail_mm=700.0,
         grasp=plate_grasp,
         safety_notes=(
@@ -394,7 +394,7 @@ def build_default_registry() -> ObjectRegistry:
         name="tip_box",
         aliases=["tip rack", "tip box", "pipette tips", "tips",
                  "tip_rack", "96-tip rack"],
-        position_xyz_m=[1.133, +0.132, 0.795],
+        position_xyz_m=[0.983, 0.132, 0.795],
         optimal_rail_mm=700.0,
         grasp=tip_box_grasp,
         safety_notes=(
@@ -424,7 +424,7 @@ def build_default_registry() -> ObjectRegistry:
         name="heater_shaker",
         aliases=["shaker", "heater shaker", "opentrons shaker",
                  "heater-shaker", "shaker module"],
-        position_xyz_m=[-0.300, -0.250, 0.791],
+        position_xyz_m=[0.1, 0.13, 0.791],
         optimal_rail_mm=50.0,
         grasp=shaker_grasp,
         safety_notes=(
@@ -468,7 +468,7 @@ def build_default_registry() -> ObjectRegistry:
         aliases=["pcr", "thermocycler", "thermocycler module",
                  "pcr machine", "opentrons thermocycler",
                  "thermocycler gen2"],
-        position_xyz_m=[+0.200, -0.300, 0.750],
+        position_xyz_m=[0.1, 0.32, 0.75],
         optimal_rail_mm=350.0,
         grasp=pcr_grasp,
         safety_notes=(
