@@ -37,93 +37,154 @@ class CheckResult:
         return asdict(self)
 
 
-# ---------------------------------------------------------------------------
-# Coordinates hardcoded in agent/llm_brain.py's SYSTEM_PROMPT_TEMPLATE.
+# Literal coordinates that were hardcoded into the system prompt before A1 and are
+# now generated from the scene. If any reappears in the *rendered* prompt, someone
+# has re-typed a coordinate by hand and the drift has started again.
 #
-# THIS TABLE IS TEMPORARY. It is a hand-transcribed mirror of prose in the prompt,
-# which is exactly the duplication that caused the drift it detects. A1 replaces the
-# hardcoded prompt block with one generated from the scene; when that lands, this
-# table and `check_prompt_geometry` are deleted and replaced by a generated-vs-
-# committed diff check (see `check_objects_json_fresh` for the shape that takes).
-#
-# Transcribed 2026-08-20 from llm_brain.py lines 120-202 and the worked example at
-# lines 209-214. Line numbers are recorded so a reviewer can confirm each claim.
-# ---------------------------------------------------------------------------
-PROMPT_XY_CLAIMS: list[tuple[str, tuple[float, float], str]] = [
-    ("heater_shaker", (-300.0, -250.0), "llm_brain.py:141 'Heater-Shaker on the bench at (-300, -250)'"),
-    ("vortex_genie", (-200.0, 250.0), "llm_brain.py:154 'Vortex-Genie 2 ... at world (-200, +250)'"),
-    ("pcr_module", (200.0, -300.0), "llm_brain.py:168 'thermocycler at world (+200, -300)'"),
-    ("well_plate_B", (200.0, -300.0), "llm_brain.py:131 'Plate B starts on the bench at (+200, -300, 762)'"),
-    ("well_plate_A", (867.0, 132.0), "llm_brain.py:120,130 'Plate A starts in slot 1' slot1=(867,+132)"),
-    ("tip_box", (1133.0, 132.0), "llm_brain.py:132 'Tip box starts in slot 10 at (1133, +132, 795)'"),
-    ("green_cube", (0.0, 150.0), "llm_brain.py:209 worked example move_to y=150"),
-    ("green_bin", (0.0, 350.0), "llm_brain.py:213 worked example move_to y=350"),
-]
-
-# push_object targets advertised to the LLM at llm_brain.py:63-71.
-PROMPT_PUSH_TARGETS = [
-    "green_cube", "blue_cube",
-    "green_bin", "blue_bin",
-    "left_tube_rack", "right_tube_rack",
-    "tube_L1", "tube_L2", "tube_L3", "tube_R1", "tube_R2", "tube_R3",
-    "well_plate_A", "well_plate_B", "tip_box",
-    "heater_shaker", "vortex_genie", "pcr_module",
+# Each entry is (needle, what it used to assert). Matching is done against the
+# rendered prompt text, so a value that legitimately reappears via the generated
+# section (because the scene really does put an object there) is excluded below.
+RETIRED_PROMPT_COORDS: list[tuple[str, str]] = [
+    ("(-300, -250", "old heater_shaker xy"),
+    ("(+200, -300", "old pcr_module / well_plate_B xy"),
+    ("(867,", "old OT-2 deck row-1 x"),
+    ("(956,", "old OT-2 deck row-2 x"),
+    ("(1044,", "old OT-2 deck row-3 x"),
+    ("(1133,", "old OT-2 deck row-4 x"),
+    ('"y": 150', "old green_cube y in the worked example"),
+    ('"y": 350', "old green_bin y in the worked example"),
 ]
 
 OBJECTS_JSON = "agent/objects.json"
+REGISTRY_SEEDS = "agent/object_registry.py"
 
 
 # ---------------------------------------------------------------------------
 # Checks
 # ---------------------------------------------------------------------------
 
+def _render_prompt(scene) -> str:
+    """Render the system prompt exactly as LLMBrain would, minus the runtime-only
+    sections (registry/world-model/lessons), which carry no hardcoded geometry."""
+    from agent.llm_brain import SYSTEM_PROMPT_TEMPLATE
+    from agent.scene_geometry import render_geometry_section, worked_example_coords
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        registry_context="(omitted)",
+        speed_cap_section="(omitted)",
+        world_model_section="(omitted)",
+        lessons_section="(omitted)",
+        scene_geometry_section=render_geometry_section(scene),
+        **worked_example_coords(scene),
+    )
+
+
+def check_prompt_renders(scene) -> list[CheckResult]:
+    """The template must format cleanly — a missing placeholder is a hard failure
+    at LLM-call time, which is the worst place to discover it."""
+    try:
+        text = _render_prompt(scene)
+    except KeyError as exc:
+        return [CheckResult("prompt.renders", FAIL, f"missing template placeholder: {exc}")]
+    except Exception as exc:  # noqa: BLE001
+        return [CheckResult("prompt.renders", FAIL, f"{type(exc).__name__}: {exc}")]
+    if "GENERATED from" not in text:
+        return [CheckResult("prompt.renders", FAIL,
+                            "rendered prompt does not contain the generated geometry section")]
+    return [CheckResult("prompt.renders", PASS, f"renders, {len(text)} chars, geometry injected")]
+
+
 def check_prompt_objects_exist(scene) -> list[CheckResult]:
-    """Every body the prompt names must exist in the scene."""
-    named = {n for n, _, _ in PROMPT_XY_CLAIMS} | set(PROMPT_PUSH_TARGETS)
-    missing = scene.missing(sorted(named))
+    """Every body the generated geometry section names must exist in the scene."""
+    from agent.scene_geometry import PROMPT_BODIES
+    missing = scene.missing(PROMPT_BODIES)
     if missing:
         return [CheckResult("prompt.objects_exist", FAIL,
-                            f"named in prompt but absent from scene: {missing}")]
+                            f"listed in PROMPT_BODIES but absent from scene: {missing}")]
     return [CheckResult("prompt.objects_exist", PASS,
-                        f"all {len(named)} prompt-named bodies exist")]
+                        f"all {len(PROMPT_BODIES)} prompt-named bodies exist")]
 
 
-def check_prompt_geometry(scene) -> list[CheckResult]:
-    """Every coordinate the prompt hardcodes must match the scene within XY_TOL_MM."""
-    out = []
-    for name, claimed, src in PROMPT_XY_CLAIMS:
-        err = scene.xy_error_mm(name, claimed)
-        if err is None:
-            out.append(CheckResult(f"prompt.geometry[{name}]", FAIL, f"body absent; {src}"))
-        elif err > XY_TOL_MM:
-            actual = scene.xy_mm(name)
-            out.append(CheckResult(
-                f"prompt.geometry[{name}]", FAIL,
-                f"prompt says ({claimed[0]:.0f},{claimed[1]:.0f}) but scene has "
-                f"({actual[0]:.0f},{actual[1]:.0f}) — off by {err:.0f}mm; {src}"))
-        else:
-            out.append(CheckResult(f"prompt.geometry[{name}]", PASS, f"matches scene ({err:.2f}mm)"))
-    return out
+def check_prompt_no_stale_coords(scene) -> list[CheckResult]:
+    """Guard against re-hardcoding: none of the retired literals may reappear."""
+    try:
+        text = _render_prompt(scene)
+    except Exception as exc:  # noqa: BLE001
+        return [CheckResult("prompt.no_stale_coords", SKIP, f"prompt did not render: {exc}")]
+    hits = [f"{needle!r} ({why})" for needle, why in RETIRED_PROMPT_COORDS if needle in text]
+    if hits:
+        return [CheckResult("prompt.no_stale_coords", FAIL,
+                            "retired coordinate(s) back in the prompt: " + "; ".join(hits))]
+    return [CheckResult("prompt.no_stale_coords", PASS,
+                        f"none of the {len(RETIRED_PROMPT_COORDS)} retired literals present")]
 
 
 def check_push_targets_pushable(scene) -> list[CheckResult]:
-    """Advertised push_object targets need a free joint, or the call fails at runtime."""
-    missing, static = [], []
-    for name in PROMPT_PUSH_TARGETS:
-        info = scene.get(name)
-        if info is None:
-            missing.append(name)
-        elif not info.pushable:
-            static.append(name)
-    if missing or static:
-        bits = []
-        if missing:
-            bits.append(f"absent: {missing}")
-        if static:
-            bits.append(f"static (no free joint, push_object will fail): {static}")
-        return [CheckResult("prompt.push_targets", FAIL, "; ".join(bits))]
+    """The generated 'Movable objects' list must contain only genuinely pushable
+    bodies — push_object fails at runtime on anything without a free joint."""
+    from agent.scene_geometry import PROMPT_BODIES
+    static = [n for n in PROMPT_BODIES
+              if (info := scene.get(n)) is not None and not info.pushable]
+    try:
+        text = _render_prompt(scene)
+    except Exception as exc:  # noqa: BLE001
+        return [CheckResult("prompt.push_targets", SKIP, f"prompt did not render: {exc}")]
+
+    movable_block = text.split("Movable objects")[-1].split("Static fixtures")[0]
+    leaked = [n for n in static if n in movable_block]
+    if leaked:
+        return [CheckResult("prompt.push_targets", FAIL,
+                            f"static bodies advertised as movable: {leaked}")]
     return [CheckResult("prompt.push_targets", PASS,
-                        f"all {len(PROMPT_PUSH_TARGETS)} advertised targets are pushable")]
+                        f"{len(static)} static fixture(s) correctly excluded from the movable list")]
+
+
+def check_registry_positions(scene) -> list[CheckResult]:
+    """agent/objects.json seeds must match the scene (regen with scripts/regen_registry.py)."""
+    if not os.path.exists(OBJECTS_JSON):
+        return [CheckResult("registry.positions", SKIP, f"{OBJECTS_JSON} not found")]
+    raw = json.load(open(OBJECTS_JSON))
+    drifted = []
+    for name, obj in raw.items():
+        info = scene.get(name)
+        have = obj.get("position_xyz_m")
+        if info is None or have is None:
+            continue
+        err = scene.xy_error_mm(name, (have[0] * 1000.0, have[1] * 1000.0))
+        if err is not None and err > XY_TOL_MM:
+            drifted.append(f"{name} ({err:.0f}mm)")
+    if drifted:
+        return [CheckResult("registry.positions", FAIL,
+                            "stale vs scene, run scripts/regen_registry.py: " + ", ".join(drifted))]
+    return [CheckResult("registry.positions", PASS, f"all {len(raw)} seeds match the scene")]
+
+
+def check_registry_seed_literals(scene) -> list[CheckResult]:
+    """The hardcoded position_xyz_m literals in object_registry.py must match too —
+    they re-seed objects.json on a fresh clone, so a stale one resurrects the drift."""
+    import re
+    if not os.path.exists(REGISTRY_SEEDS):
+        return [CheckResult("registry.seed_literals", SKIP, f"{REGISTRY_SEEDS} not found")]
+    name_re = re.compile(r'^\s*name="([^"]+)",\s*$')
+    pos_re = re.compile(r'^\s*position_xyz_m=\[([^\]]*)\],?\s*$')
+    cur, drifted = None, []
+    for line in open(REGISTRY_SEEDS):
+        m = name_re.match(line)
+        if m:
+            cur = m.group(1)
+            continue
+        m = pos_re.match(line)
+        if m and cur:
+            try:
+                have = [float(v) for v in m.group(1).split(",")]
+            except ValueError:
+                continue
+            err = scene.xy_error_mm(cur, (have[0] * 1000.0, have[1] * 1000.0))
+            if err is not None and err > XY_TOL_MM:
+                drifted.append(f"{cur} ({err:.0f}mm)")
+    if drifted:
+        return [CheckResult("registry.seed_literals", FAIL,
+                            "stale seeds vs scene: " + ", ".join(drifted))]
+    return [CheckResult("registry.seed_literals", PASS, "seed literals match the scene")]
 
 
 def check_grippable_bodies_exist(scene) -> list[CheckResult]:
@@ -178,11 +239,14 @@ def check_recording_units(scene=None) -> list[CheckResult]:
 
 
 STATIC_CHECKS = [
+    check_prompt_renders,
     check_prompt_objects_exist,
-    check_prompt_geometry,
+    check_prompt_no_stale_coords,
     check_push_targets_pushable,
     check_grippable_bodies_exist,
     check_objects_json_exist,
+    check_registry_positions,
+    check_registry_seed_literals,
     check_recording_units,
 ]
 
