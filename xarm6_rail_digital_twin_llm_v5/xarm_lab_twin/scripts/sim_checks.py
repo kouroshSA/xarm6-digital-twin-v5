@@ -259,6 +259,24 @@ def check_recording_units(scene=None) -> list[CheckResult]:
     return [CheckResult("recording.units", PASS, detail)]
 
 
+def check_real_arm_contract(scene=None) -> list[CheckResult]:
+    """Run the hardware-free real_arm tests as part of the sweep.
+
+    No arm, no network: the SDK is faked. These guard the silent-success defect,
+    so they belong in the gate rather than in a file someone remembers to run.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "-m", "hardware.test_real_arm"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("PASS", "FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("hardware.real_arm_contract", FAIL, "; ".join(failed))]
+    return [CheckResult("hardware.real_arm_contract", PASS,
+                        f"{len(tail)} hardware-free contract tests pass")]
+
+
 STATIC_CHECKS = [
     check_prompt_renders,
     check_prompt_objects_exist,
@@ -269,6 +287,7 @@ STATIC_CHECKS = [
     check_registry_positions,
     check_registry_seed_literals,
     check_recording_units,
+    check_real_arm_contract,
 ]
 
 
