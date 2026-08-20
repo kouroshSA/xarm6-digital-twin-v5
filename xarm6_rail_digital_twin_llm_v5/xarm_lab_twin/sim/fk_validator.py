@@ -36,8 +36,8 @@ class FKValidator:
     # body's qpos, so the body appears to overlap geometry that it would actually
     # move out of. Each tube has two geoms (body + cap), so both must be listed.
     HELD_CUBE_GEOMS = {
-        # red_cube was removed from the scene -- its slot is now the
-        # Vortex-Genie 2.
+        "red_cube_back_geom":  "grip_red_cube_back",
+        "red_cube_front_geom": "grip_red_cube_front",
         "green_cube_geom": "grip_green_cube",
         "blue_cube_geom":  "grip_blue_cube",
         "tube_L1_body":    "grip_tube_L1",

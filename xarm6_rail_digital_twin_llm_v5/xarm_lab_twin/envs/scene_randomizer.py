@@ -11,7 +11,12 @@ DEFAULT_POS_JITTER_MM = 20.0
 DEFAULT_ROT_JITTER_DEG = 45.0
 DEFAULT_INITIAL_JOINT_JITTER_DEG = 0.0
 
-PERTURBABLE_BODIES = {"red_cube", "green_cube", "blue_cube"}
+# Bodies the randomizer may jitter. This referenced a bare "red_cube" long after
+# that body was deleted from the scene, so a third of the intended randomisation
+# was silently doing nothing. The names must match the scene -- scripts/task_sweep.py
+# checks that.
+PERTURBABLE_BODIES = {"red_cube_front", "red_cube_back",
+                      "green_cube", "blue_cube"}
 
 
 def randomize_scene(

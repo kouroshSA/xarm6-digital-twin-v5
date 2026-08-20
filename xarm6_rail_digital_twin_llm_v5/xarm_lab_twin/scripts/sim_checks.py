@@ -259,6 +259,26 @@ def check_recording_units(scene=None) -> list[CheckResult]:
     return [CheckResult("recording.units", PASS, detail)]
 
 
+def check_perturbable_bodies_exist(scene) -> list[CheckResult]:
+    """Bodies the scene randomizer jitters must exist.
+
+    PERTURBABLE_BODIES named a bare "red_cube" long after that body was deleted,
+    so a third of the intended domain randomisation was silently a no-op — the
+    kind of failure that quietly weakens a dataset rather than breaking a run.
+    """
+    try:
+        from envs.scene_randomizer import PERTURBABLE_BODIES
+    except Exception as exc:  # noqa: BLE001
+        return [CheckResult("randomizer.bodies_exist", SKIP, f"import failed: {exc}")]
+    missing = scene.missing(sorted(PERTURBABLE_BODIES))
+    if missing:
+        return [CheckResult("randomizer.bodies_exist", FAIL,
+                            f"PERTURBABLE_BODIES names bodies absent from the scene "
+                            f"(their jitter silently does nothing): {missing}")]
+    return [CheckResult("randomizer.bodies_exist", PASS,
+                        f"all {len(PERTURBABLE_BODIES)} perturbable bodies exist")]
+
+
 def check_motion_error_audit(scene=None) -> list[CheckResult]:
     """No motion command may fail and still report success (A7).
 
@@ -320,6 +340,7 @@ STATIC_CHECKS = [
     check_objects_json_exist,
     check_registry_positions,
     check_registry_seed_literals,
+    check_perturbable_bodies_exist,
     check_recording_units,
     check_real_arm_contract,
     check_motion_error_audit,

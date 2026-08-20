@@ -139,6 +139,7 @@ class SceneGeometry:
 # from the scene is reported rather than silently omitted, so a scene edit that
 # deletes an object surfaces instead of quietly shrinking the prompt.
 PROMPT_BODIES = [
+    "red_cube_front", "red_cube_back",
     "green_cube", "blue_cube",
     "green_bin", "blue_bin",
     "left_tube_rack", "right_tube_rack",
@@ -199,6 +200,41 @@ def render_geometry_section(scene=None) -> str:
     if missing:
         lines += ["", f"NOTE: expected but absent from the scene: {', '.join(missing)}"]
 
+    return "\n".join(lines)
+
+
+def render_object_names(scene=None) -> str:
+    """Render the movable-object vocabulary for the dynamic grader's prompt.
+
+    Grouped by a name-pattern guess at type, which is crude but self-updating —
+    the previous hardcoded list still advertised `red_bin`, deleted from the
+    scene long before, and a grader told to expect an object that cannot exist
+    will happily produce success criteria that can never be met.
+    """
+    scene = _as_scene(scene)
+    groups: dict[str, list[str]] = {
+        "Cubes": [], "Bins": [], "Tube racks": [], "Falcon tubes": [],
+        "Plates / tip racks": [], "Other movable": [],
+    }
+    for name in scene.pushable_bodies():
+        low = name.lower()
+        if "cube" in low:
+            groups["Cubes"].append(name)
+        elif "bin" in low:
+            groups["Bins"].append(name)
+        elif "rack" in low and "tube" in low:
+            groups["Tube racks"].append(name)
+        elif low.startswith("tube_"):
+            groups["Falcon tubes"].append(name)
+        elif "plate" in low or "tip" in low:
+            groups["Plates / tip racks"].append(name)
+        else:
+            groups["Other movable"].append(name)
+
+    lines = []
+    for label, names in groups.items():
+        if names:
+            lines.append(f"{label}: {', '.join(names)}")
     return "\n".join(lines)
 
 
