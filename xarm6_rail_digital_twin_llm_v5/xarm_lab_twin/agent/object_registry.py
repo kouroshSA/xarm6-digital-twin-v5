@@ -39,14 +39,36 @@ class ObjectRegistry:
         self.objects[obj.name] = obj
         self.save()
 
-    def find(self, query: str) -> Optional[LabObject]:
+    def find_all(self, query: str) -> list[LabObject]:
+        """Every object matching `query`, exact name first.
+
+        An exact name match is unambiguous by construction and short-circuits.
+        Otherwise the query is matched as a substring of each alias, which can
+        legitimately hit more than one object — "red cube" matches both red
+        cubes, since they are a deliberate pair straddling the rail.
+        """
         q = query.lower().strip()
         for obj in self.objects.values():
             if q == obj.name.lower():
-                return obj
-            if any(q in alias.lower() for alias in obj.aliases):
-                return obj
-        return None
+                return [obj]
+        return [obj for obj in self.objects.values()
+                if any(q in alias.lower() for alias in obj.aliases)]
+
+    def find(self, query: str) -> Optional[LabObject]:
+        """First match, or None.
+
+        Callers that must not guess should use `find_all` and handle a
+        multi-element result. This method warns rather than silently picking,
+        because the failure it used to hide is expensive: with two red cubes,
+        "the red cube" resolved to whichever happened to be registered first,
+        and the operator had no way to tell the arm chose for them.
+        """
+        matches = self.find_all(query)
+        if len(matches) > 1:
+            print(f"[Registry] '{query}' is ambiguous: matches "
+                  f"{[o.name for o in matches]}; using {matches[0].name}. "
+                  f"Name the object explicitly to choose.")
+        return matches[0] if matches else None
 
     def refresh_from_sim(self, arm) -> None:
         """Overwrite each object's position + live yaw from the running sim.
@@ -152,8 +174,34 @@ def build_default_registry() -> ObjectRegistry:
         approach_standoff_mm=60.0,
     )
 
-    # red_cube was removed; its position is now occupied by the
-    # Vortex-Genie 2 (registered as an instrument below).
+    # Two red cubes straddle the rail, 200 mm perpendicular to its centreline
+    # at mid-span. Deliberately NOT aliased to a bare "red cube" / "red": with
+    # two of them that phrase is ambiguous, and resolving it silently to one
+    # would hide the ambiguity from the operator rather than surface it. Tasks
+    # must say front or back.
+    reg.register(LabObject(
+        name="red_cube_front",
+        aliases=["front red cube", "near red cube", "red cube front",
+                 "red cube nearest me", "front red"],
+        position_xyz_m=[0.0, -0.25, 0.78],
+        optimal_rail_mm=350.0,
+        grasp=cube_grasp,
+        safety_notes=("Small graspable cube on the operator side of the rail. "
+                      "Approach from above."),
+        object_type="cube",
+    ))
+    reg.register(LabObject(
+        name="red_cube_back",
+        aliases=["back red cube", "far red cube", "red cube back",
+                 "red cube behind the rail", "back red"],
+        position_xyz_m=[0.0, 0.15, 0.78],
+        optimal_rail_mm=350.0,
+        grasp=cube_grasp,
+        safety_notes=("Small graspable cube on the far side of the rail. Only "
+                      "9 mm of clearance in x to the heater-shaker -- approach "
+                      "straight down, do not translate in +x near the bench."),
+        object_type="cube",
+    ))
     reg.register(LabObject(
         name="green_cube",
         aliases=["green cube", "green block", "green"],

@@ -337,8 +337,26 @@
     </body>
 
     <!-- Cubes -->
-    <!-- (red_cube was removed; its position is now occupied by the
-         Vortex-Genie 2 -- see the instruments section below.) -->
+    <!-- Red cubes: one either side of the rail, straddling it symmetrically.
+         The rail centreline is y=-0.05 (rail_track pos, half-width 0.065), and
+         these sit 200 mm perpendicular to it at the rail's mid-span (x=0), so
+         the arm reaches either without moving along the rail.
+
+         The singular `red_cube` that used to live at (0, 0.15) was deleted when
+         the Vortex-Genie took that spot; these replace it as a matched pair, so
+         "the red cube" is now ambiguous by design -- tasks must say which one.
+
+         Clearance is tight on the back cube: 9 mm in x to the heater-shaker
+         (which spans x 0.024..0.176, y 0.085..0.175). Moving the heater-shaker
+         or widening the cubes will collide. -->
+    <body name="red_cube_back" pos="0.00 0.15 0.78">
+      <geom name="red_cube_back_geom" class="cube" material="red_mat"/>
+      <joint type="free" name="red_cube_back_joint"/>
+    </body>
+    <body name="red_cube_front" pos="0.00 -0.25 0.78">
+      <geom name="red_cube_front_geom" class="cube" material="red_mat"/>
+      <joint type="free" name="red_cube_front_joint"/>
+    </body>
     <body name="green_cube" pos="0.00 -0.15 0.78">
       <geom name="green_cube_geom" class="cube" material="green_mat"/>
       <joint type="free" name="green_cube_joint"/>
@@ -1029,6 +1047,8 @@
        the cube is "carried" while the weld is active.
   ============================================================ -->
   <equality>
+    <weld name="grip_red_cube_back"  body1="gripper" body2="red_cube_back"  active="false"/>
+    <weld name="grip_red_cube_front" body1="gripper" body2="red_cube_front" active="false"/>
     <weld name="grip_green_cube" body1="gripper" body2="green_cube" active="false"/>
     <weld name="grip_blue_cube"  body1="gripper" body2="blue_cube"  active="false"/>
     <weld name="grip_tube_L1"    body1="gripper" body2="tube_L1"    active="false"/>

@@ -114,6 +114,28 @@ Do not wrap the JSON in markdown fences. Do not add prose around it.
 """
 
 
+# Marker replaced at call time with the movable-object vocabulary read from the
+# scene. Not a .format() placeholder: this prompt contains literal JSON braces.
+_OBJECT_NAMES_MARKER = "@@OBJECT_NAMES@@"
+
+
+def _render_system_prompt() -> str:
+    """Inject the scene's real object names into the grader prompt.
+
+    The list used to be hardcoded and still advertised `red_bin`, deleted from
+    the scene long before. A grader told to expect an object that cannot exist
+    will produce success criteria that can never be met, so every episode graded
+    against them fails for a reason that has nothing to do with the robot.
+    """
+    try:
+        from agent.scene_geometry import render_object_names
+        return SYSTEM_PROMPT.replace(_OBJECT_NAMES_MARKER, render_object_names())
+    except Exception as exc:  # noqa: BLE001 - grader is non-fatal by design
+        print(f"[DynamicGrader] could not read scene object names ({exc}); "
+              f"falling back to an unpopulated list")
+        return SYSTEM_PROMPT.replace(_OBJECT_NAMES_MARKER, "(scene unavailable)")
+
+
 SYSTEM_PROMPT = """\
 You are a grading-criteria designer for a robot-arm digital twin. Given a
 task prompt, produce the success criteria that will be matched against
@@ -149,11 +171,11 @@ Displacement / proximity facts (added on top of the above):
   - `no objects displaced`       -- no facts emitted (nothing happened)
 
 Examples:
-  - "red_cube in red_bin"
+  - "red_cube_front in green_bin"
   - "tube_L2 in right_tube_rack"
   - "tube_R3 fell to floor; blue_bin off bench"
   - "green_bin moved (180, 5)mm; green_bin closer to blue_bin"
-  - "red_cube moved (-50, 100)mm; red_cube closer to green_cube; red_cube farther from blue_cube"
+  - "red_cube_back moved (-50, 100)mm; red_cube_back closer to green_cube; red_cube_back farther from blue_cube"
   - "no objects displaced"
 
 For a "push X closer to Y" task, the natural success criterion is
@@ -163,7 +185,7 @@ pair, in that fixed order. Examples (use these exact orderings):
 
   - blue_bin / green_bin   -> `blue_bin closer to green_bin`     (b < g)
   - opentrons_ot2 / well_plate -> `opentrons_ot2 closer to well_plate` (o < w)
-  - red_cube / red_bin     -> `red_bin closer to red_cube`       (red_b < red_c)
+  - green_bin / red_cube_front -> `green_bin closer to red_cube_front` (g < r)
   - tube_L2 / right_tube_rack -> `right_tube_rack closer to tube_L2` (r < t)
 
 If you're not sure which name is alphabetically first, ALWAYS list
@@ -227,12 +249,10 @@ These are mistakes the grader-as-Haiku has made before; learn from them.
 
 ## Valid object names (use these EXACTLY, including underscores)
 
-Cubes: red_cube, green_cube, blue_cube
-Bins:  red_bin, green_bin, blue_bin
-Tube racks: left_tube_rack, right_tube_rack
-Falcon tubes:
-  - In left rack: tube_L1 (orange cap), tube_L2 (blue cap), tube_L3 (orange cap)
-  - In right rack: tube_R1 (blue cap), tube_R2 (orange cap), tube_R3 (blue cap)
+@@OBJECT_NAMES@@
+
+Falcon tube cap colours: tube_L1/L3 and tube_R2 are orange; tube_L2, tube_R1
+and tube_R3 are blue.
 
 ## Output schema
 
@@ -253,7 +273,7 @@ Return a single JSON object, nothing else:
   cubes into their matching bins").
 
 Each substring should match the physical_outcome() vocabulary above (e.g.
-"red_cube in red_bin", "tube_L2 fell to floor"). Do not invent shapes the
+"red_cube_front in green_bin", "tube_L2 fell to floor"). Do not invent shapes the
 simulator wouldn't emit.
 
 ## When you cannot grade
@@ -354,7 +374,7 @@ def infer_criteria(task: str, registry=None,
         response = client.messages.create(
             model=model,
             max_tokens=512,
-            system=SYSTEM_PROMPT,
+            system=_render_system_prompt(),
             messages=[{"role": "user", "content": user_msg}],
         )
     except Exception as e:

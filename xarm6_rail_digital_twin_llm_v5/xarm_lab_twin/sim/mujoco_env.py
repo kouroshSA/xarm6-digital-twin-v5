@@ -21,8 +21,11 @@ RAIL_ACT    = 0
 # Cubes are short and grasped near their center; tubes are tall and grasped near
 # their cap. The dict is one entry per graspable free body in the scene.
 GRIPPABLE_BODIES = {
-    # Cubes (red_cube removed -- its bench position is now the
-    # Vortex-Genie 2)
+    # Cubes. The two red cubes straddle the rail (200 mm either side of its
+    # centreline at mid-span); "the red cube" is therefore ambiguous and tasks
+    # must name front or back.
+    "red_cube_back":  "grip_red_cube_back",
+    "red_cube_front": "grip_red_cube_front",
     "green_cube": "grip_green_cube",
     "blue_cube":  "grip_blue_cube",
     # Falcon tubes

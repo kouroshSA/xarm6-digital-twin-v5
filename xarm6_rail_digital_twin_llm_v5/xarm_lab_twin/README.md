@@ -184,7 +184,7 @@ env active and a valid API key in `.env`.
 # 1) Single LLM-driven task with the viewer. Wait ~2s for "Response in X.Xs"
 #    before assuming the arm is stuck -- Claude needs to plan first.
 python scripts/run_task.py \
-    "Put the red cube in the red bin" \
+    "Put the front red cube in the green bin" \
     --model haiku
 
 # 2) Tube task: pick from one rack, place in an empty slot of the other rack

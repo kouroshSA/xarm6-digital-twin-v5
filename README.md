@@ -77,7 +77,7 @@ python replay.py                # list + replay saved sessions
 cd xarm6_rail_digital_twin_llm_v5/xarm_lab_twin
 
 # Single task
-python scripts/run_task.py "Put the red cube in the red bin" --model haiku
+python scripts/run_task.py "Put the front red cube in the green bin" --model haiku
 
 # Push something off the bench
 python scripts/run_task.py "Push the blue cube off the front edge of the bench" --model haiku
