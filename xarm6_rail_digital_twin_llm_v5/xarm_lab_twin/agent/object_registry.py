@@ -203,6 +203,21 @@ def build_default_registry() -> ObjectRegistry:
         object_type="cube",
     ))
     reg.register(LabObject(
+        name="clear_cup",
+        aliases=["clear cup", "cup", "beaker", "transparent cup",
+                 "clear beaker", "glass"],
+        position_xyz_m=[-0.2, -0.35, 0.75],
+        optimal_rail_mm=150.0,
+        grasp=bin_grasp,
+        safety_notes=("Round open-top plastic beaker used as a third bin. 58 mm "
+                      "inner diameter, 60 mm tall, rim at z=810. Release cubes "
+                      "above the rim and let them drop -- that is verified to "
+                      "seat them without tipping the cup. It is light (0.15 kg) "
+                      "and tall, so avoid pushing it sideways."),
+        object_type="bin",
+        is_container=True,
+    ))
+    reg.register(LabObject(
         name="green_cube",
         aliases=["green cube", "green block", "green"],
         position_xyz_m=[0.0, -0.15, 0.78],
