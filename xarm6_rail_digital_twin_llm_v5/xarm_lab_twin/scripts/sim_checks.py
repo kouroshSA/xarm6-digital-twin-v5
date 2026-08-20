@@ -259,6 +259,40 @@ def check_recording_units(scene=None) -> list[CheckResult]:
     return [CheckResult("recording.units", PASS, detail)]
 
 
+def check_motion_error_audit(scene=None) -> list[CheckResult]:
+    """No motion command may fail and still report success (A7).
+
+    Two records: the audit itself, and a self-test proving the detector still
+    catches the bug. A clean audit from a detector that cannot detect anything
+    is worse than no check, because it reads as evidence of safety.
+    """
+    import subprocess
+    out = []
+
+    proc = subprocess.run([sys.executable, "scripts/audit_motion_errors.py", "--self-test"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        out.append(CheckResult("motion.audit_self_test", FAIL,
+                               "detector no longer catches known-bad patterns: "
+                               + proc.stdout.strip().replace("\n", " ")[:200]))
+    else:
+        n = sum(1 for ln in proc.stdout.splitlines() if "PASS" in ln)
+        out.append(CheckResult("motion.audit_self_test", PASS,
+                               f"detector verified against {n} known-good/bad patterns"))
+
+    proc = subprocess.run([sys.executable, "scripts/audit_motion_errors.py", "--check"],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        findings = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip().endswith("()")]
+        out.append(CheckResult("motion.no_silent_failures", FAIL,
+                               "motion command(s) return success on an exception path: "
+                               + "; ".join(findings)))
+    else:
+        out.append(CheckResult("motion.no_silent_failures", PASS,
+                               "no motion command returns success on an exception path"))
+    return out
+
+
 def check_real_arm_contract(scene=None) -> list[CheckResult]:
     """Run the hardware-free real_arm tests as part of the sweep.
 
@@ -288,6 +322,7 @@ STATIC_CHECKS = [
     check_registry_seed_literals,
     check_recording_units,
     check_real_arm_contract,
+    check_motion_error_audit,
 ]
 
 
