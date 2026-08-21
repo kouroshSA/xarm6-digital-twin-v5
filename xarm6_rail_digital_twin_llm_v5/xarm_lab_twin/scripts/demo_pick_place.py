@@ -29,8 +29,19 @@ from arm_backend import BENCH_TOP_Z_MM
 
 # -- the cell, as measured -----------------------------------------------------
 HOME_RAIL_MM = 350.0
-CUBE_WORLD_XY = (300.0, -50.0)     # directly below the tip at home
-CUP_WORLD_XY = (0.0, -50.0)        # 300 mm toward the rail origin (power end)
+
+# The rail track occupies y -115..+15 mm and stands 62 mm off the bench, so
+# nothing can rest on the benchtop at the rail centreline (y = -50). Both the
+# cube and the cup sit 200 mm perpendicular to the FRONT of the rail, which is
+# y = -250 -- the same place the scene already models `red_cube_front`.
+RAIL_CENTRELINE_Y_MM = -50.0
+FRONT_OFFSET_MM = 200.0
+WORK_Y_MM = RAIL_CENTRELINE_Y_MM - FRONT_OFFSET_MM      # -250
+
+# x comes from forward kinematics of the verified home pose: with the rail at
+# 350 the tip lands at x = 292, and the cube is directly out in front of it.
+CUBE_WORLD_XY = (292.0, WORK_Y_MM)
+CUP_WORLD_XY = (-8.0, WORK_Y_MM)   # 300 mm toward the rail origin (power end)
 PICK_RAIL_MM = 350.0
 PLACE_RAIL_MM = 50.0               # 300 mm toward the origin
 

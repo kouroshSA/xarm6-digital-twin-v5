@@ -423,9 +423,9 @@
          Opaque, not see-through -- see the material comment above for why.
 
          MuJoCo has no hollow-cylinder primitive, so the wall is 12 flat panels
-         on a 31 mm mid-radius (~1 mm overlap at each seam, so there is no gap a
-         cube could squeeze through). Inner diameter is 58 mm, comfortably more
-         than a 30 mm cube's 42.4 mm diagonal, so a cube drops in at any yaw.
+         on a 55.5 mm mid-radius. MEASURED at the bench 2026-08-21: 115 mm outer
+         diameter, 70 mm tall (was modelled 62/62). Inner diameter 107 mm, so a
+         30 mm cube drops in at any yaw with room to spare.
 
          Lighter than the moulded bins (0.15 kg vs 0.5) because it is a plastic
          cup. Verified stable for cube releases from 830 mm (just above the rim)
@@ -435,33 +435,33 @@
     <body name="translucent_cup" pos="-0.20 -0.35 0.75">
       <inertial pos="0 0 0.020" mass="0.15" diaginertia="1.4e-4 1.4e-4 1.0e-4"/>
       <joint type="free" name="translucent_cup_joint"/>
-      <geom name="translucent_cup_floor" type="cylinder" size="0.033 0.001"
+      <geom name="translucent_cup_floor" type="cylinder" size="0.0575 0.001"
             pos="0 0 0.001" material="translucent_cup_mat"
             contype="1" conaffinity="1" mass="0"/>
       <geom name="translucent_cup_w00" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="0.03100 0.00000 0.032" euler="0 0 1.57080"/>
+            size="0.015 0.002 0.034" pos="0.05550 0.00000 0.036" euler="0 0 1.57080"/>
       <geom name="translucent_cup_w01" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="0.02685 0.01550 0.032" euler="0 0 2.09440"/>
+            size="0.015 0.002 0.034" pos="0.04806 0.02775 0.036" euler="0 0 2.09440"/>
       <geom name="translucent_cup_w02" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="0.01550 0.02685 0.032" euler="0 0 2.61799"/>
+            size="0.015 0.002 0.034" pos="0.02775 0.04806 0.036" euler="0 0 2.61799"/>
       <geom name="translucent_cup_w03" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="0.00000 0.03100 0.032" euler="0 0 3.14159"/>
+            size="0.015 0.002 0.034" pos="0.00000 0.05550 0.036" euler="0 0 3.14159"/>
       <geom name="translucent_cup_w04" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="-0.01550 0.02685 0.032" euler="0 0 3.66519"/>
+            size="0.015 0.002 0.034" pos="-0.02775 0.04806 0.036" euler="0 0 3.66519"/>
       <geom name="translucent_cup_w05" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="-0.02685 0.01550 0.032" euler="0 0 4.18879"/>
+            size="0.015 0.002 0.034" pos="-0.04806 0.02775 0.036" euler="0 0 4.18879"/>
       <geom name="translucent_cup_w06" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="-0.03100 0.00000 0.032" euler="0 0 4.71239"/>
+            size="0.015 0.002 0.034" pos="-0.05550 0.00000 0.036" euler="0 0 4.71239"/>
       <geom name="translucent_cup_w07" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="-0.02685 -0.01550 0.032" euler="0 0 5.23599"/>
+            size="0.015 0.002 0.034" pos="-0.04806 -0.02775 0.036" euler="0 0 5.23599"/>
       <geom name="translucent_cup_w08" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="-0.01550 -0.02685 0.032" euler="0 0 5.75959"/>
+            size="0.015 0.002 0.034" pos="-0.02775 -0.04806 0.036" euler="0 0 5.75959"/>
       <geom name="translucent_cup_w09" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="-0.00000 -0.03100 0.032" euler="0 0 6.28319"/>
+            size="0.015 0.002 0.034" pos="-0.00000 -0.05550 0.036" euler="0 0 6.28319"/>
       <geom name="translucent_cup_w10" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="0.01550 -0.02685 0.032" euler="0 0 6.80678"/>
+            size="0.015 0.002 0.034" pos="0.02775 -0.04806 0.036" euler="0 0 6.80678"/>
       <geom name="translucent_cup_w11" class="cup_wall" material="translucent_cup_mat"
-            size="0.0085 0.002 0.03" pos="0.02685 -0.01550 0.032" euler="0 0 7.33038"/>
+            size="0.015 0.002 0.034" pos="0.04806 -0.02775 0.036" euler="0 0 7.33038"/>
     </body>
     <body name="blue_bin" pos="0.20 -0.35 0.75">
       <inertial pos="0 0 0.020" mass="0.5" diaginertia="6e-4 6e-4 9e-4"/>
