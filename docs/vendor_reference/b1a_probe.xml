@@ -1,0 +1,33 @@
+<xml xmlns="https://developers.google.com/blockly/xml">
+  <block type="set_line_track">
+    <field name="pos">350</field>
+    <field name="speed">100</field>
+    <next>
+      <block type="set_line_track_origin">
+        <next>
+          <block type="gripper_set">
+            <field name="pos">600</field>
+            <field name="speed">3000</field>
+            <field name="wait">TRUE</field>
+            <next>
+              <block type="move_arc_to">
+                <value name="p">
+                  <block type="point">
+                    <field name="x">292</field>
+                    <field name="y">-200</field>
+                    <field name="z">-57</field>
+                    <field name="roll">180</field>
+                    <field name="pitch">0</field>
+                    <field name="yaw">0</field>
+                    <field name="radius">0</field>
+                    <field name="wait">TRUE</field>
+                  </block>
+                </value>
+              </block>
+            </next>
+          </block>
+        </next>
+      </block>
+    </next>
+  </block>
+</xml>
