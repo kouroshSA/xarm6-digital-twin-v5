@@ -20,8 +20,16 @@ from recording import Recorder
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("task", type=str)
-    parser.add_argument("--mode", choices=["sim","real"], default="sim")
+    parser.add_argument("--mode", choices=["sim", "dryrun", "real"], default="sim")
     parser.add_argument("--ip", default="192.168.1.100")
+    parser.add_argument("--validator-ip", default="127.0.0.1",
+                        help="Address of the UFACTORY controller container used "
+                             "as the pre-action gate for --mode real. See "
+                             "docs/a8_controller_validator.md.")
+    parser.add_argument("--no-preflight", action="store_true",
+                        help="Skip pre-action plan validation in --mode real. "
+                             "You are then executing an unchecked plan on a "
+                             "physical arm; the operator must be at the e-stop.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-render", action="store_true")
     parser.add_argument("--no-record", action="store_true")
@@ -92,6 +100,14 @@ def main():
         arm = SimXArmAPI(scene_xml=scene_path,
                          render=not args.no_render)
         print("[System] SIMULATION mode")
+    elif args.mode == "dryrun":
+        # Same backend code path as --mode real, pointed at the containerised
+        # controller instead of the bench. Nothing can move; this exercises
+        # hardware/real_arm.py itself, which sim mode never touches.
+        from hardware.real_arm import RealXArmAPI
+        arm = RealXArmAPI(ip=args.validator_ip)
+        print(f"[System] DRYRUN mode - real backend against controller "
+              f"container at {args.validator_ip} (no physical arm)")
     else:
         from hardware.real_arm import RealXArmAPI
         arm = RealXArmAPI(ip=args.ip)
@@ -115,6 +131,29 @@ def main():
     registry = build_default_registry()
     brain = LLMBrain(arm=arm, registry=registry, recorder=recorder,
                      model=model_short)
+
+    # Pre-action gate (A8). On real hardware, replay the plan against real
+    # controller firmware in Docker before any of it reaches the arm. Refusing to
+    # run when the validator is unreachable is deliberate: a gate that silently
+    # passes when its backend is down is worse than no gate, because the operator
+    # believes a check happened. --no-preflight is the explicit opt-out.
+    if args.mode == "real" and not args.no_preflight:
+        from scripts.validate_plan import make_gate
+        gate = make_gate(args.validator_ip)
+        if gate is None:
+            print(f"[System] ABORT: pre-action validator unreachable at "
+                  f"{args.validator_ip}. Start it with:\n"
+                  f"    docker start uf-sim && docker exec uf-sim "
+                  f"/xarm_scripts/xarm_start.sh 6 6\n"
+                  f"  See docs/a8_controller_validator.md, or pass --no-preflight "
+                  f"to run an UNCHECKED plan on the physical arm.")
+            return 2
+        brain.plan_validator = gate
+        print(f"[System] pre-action validation ENABLED "
+              f"(controller container at {args.validator_ip})")
+    elif args.mode == "real":
+        print("[System] WARNING: --no-preflight - the plan will NOT be checked "
+              "before it reaches the arm. Stay on the e-stop.")
 
     print(f"\n[Task] {args.task}\n")
     # _loop_handled_lessons: when True, the EpisodeRetry already appended one

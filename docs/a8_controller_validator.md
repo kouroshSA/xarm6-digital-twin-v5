@@ -146,3 +146,53 @@ What still stands from B1:
 
 The severity claim in the A5 and B1 commit messages should be read with this
 correction alongside.
+
+## Wiring it into the real-robot path
+
+Two entry points now use it.
+
+### `--mode dryrun`
+
+```bash
+python scripts/run_task.py "put the front red cube in the green bin" --mode dryrun
+```
+
+Runs the **real** backend (`hardware/real_arm.py`) against the container instead
+of the bench. Nothing can move. This is the only way to exercise that file short
+of powering the arm — sim mode never touches it — so it is where B1's changes get
+tested before B3's first powered motion.
+
+### Pre-action gate on `--mode real`
+
+```bash
+python scripts/run_task.py "<task>" --mode real --ip <arm-ip>
+```
+
+Before any command reaches the arm, the whole plan is replayed against the
+container and execution aborts if the controller rejects any of it. Whole plan,
+not per-command: checking as you go would let the arm execute the prefix before
+reaching the bad command.
+
+If the container is unreachable the run **aborts** rather than proceeding
+unchecked — a gate that silently passes when its backend is down is worse than no
+gate, because the operator believes a check happened. `--no-preflight` is the
+explicit opt-out and says so in the log.
+
+Guarded by `agent/test_plan_gate.py` (in the sweep as `agent.plan_gate`), which
+pins the property that matters: **a rejected plan dispatches nothing.**
+
+## Where Studio itself fits
+
+Two different pre-flights, worth not confusing:
+
+- **The containerised controller** (this document) is the *software* pre-flight.
+  It answers "is this plan executable?" and needs no hardware.
+- **Studio connected to the real arm** is the *operator* pre-flight, and belongs
+  in B0's checklist. It is where you clear errors, confirm payload and TCP, set
+  collision sensitivity, check the joint-range and safety-boundary settings, and
+  jog the arm by hand before handing control to the agent. The SDK can set most
+  of that, but Studio is the honest place to *verify* it, and firmware-level
+  limits set there survive a crashed Python process.
+
+Neither substitutes for the other, and neither substitutes for a human on the
+e-stop.

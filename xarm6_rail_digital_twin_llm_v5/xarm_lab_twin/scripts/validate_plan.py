@@ -176,6 +176,33 @@ class PlanValidator:
             pass
 
 
+def make_gate(ip: str = DEFAULT_IP, scene_xml: str = "envs/lab_scene.xml"):
+    """Build a pre-action gate for LLMBrain.plan_validator.
+
+    Returns callable(commands) -> (ok, report_lines), or None if the controller
+    container is not reachable.
+
+    Returning None rather than a permissive gate is deliberate: a gate that
+    silently passes everything when its backend is down is worse than no gate,
+    because the operator believes a check happened. The caller decides whether an
+    unreachable validator should block the run.
+    """
+    try:
+        validator = PlanValidator(ip, scene_xml)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[validator] controller at {ip} unreachable ({type(exc).__name__}: {exc})")
+        return None
+
+    def gate(commands):
+        results = validator.validate(commands)
+        bad = [r for r in results if not r["ok"]]
+        report = [f"#{r['index']} {r['action']}: {r['detail']}" for r in bad]
+        return (not bad), report
+
+    gate.validator = validator
+    return gate
+
+
 SELF_TEST_PLAN = [
     {"action": "set_rail", "params": {"position_mm": 350, "speed_mm_s": 100}},
     {"action": "move_to", "params": {"x": 300, "y": 0, "z": 300, "roll": 180,

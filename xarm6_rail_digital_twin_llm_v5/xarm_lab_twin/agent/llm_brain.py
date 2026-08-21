@@ -279,6 +279,11 @@ class LLMBrain:
         # actually loaded, so --scene primitive and --scene meshes each describe
         # themselves rather than sharing one hardcoded set of coordinates.
         self._scene_geometry = getattr(arm, "scene_xml", None) or DEFAULT_SCENE
+        # Optional pre-action gate: callable(commands) -> (ok: bool, report: list[str]).
+        # Attached by run_task.py for --mode real so a plan is checked against real
+        # controller firmware before any of it reaches the arm. None means no gate,
+        # which is the right default in sim where a bad plan costs nothing.
+        self.plan_validator = None
         print(f"[LLMBrain] Using model: {self.model_short} ({self.model_full})")
 
     def set_speed_cap(self, tier: str, cap_mm_s: Optional[float]) -> None:
@@ -573,6 +578,28 @@ class LLMBrain:
                 raise ValueError(f"LLM returned non-JSON:\n{raw}")
         if llm_log:
             llm_log.log_parsed(commands)
+
+        # Pre-action gate. When a validator is attached (run_task.py attaches one
+        # for --mode real), the whole plan is checked before ANY command is
+        # dispatched. Checking per-command as we go would be worse than useless
+        # on hardware: the arm would already have executed the prefix before the
+        # bad command was reached.
+        if self.plan_validator is not None and not dry_run:
+            ok, report = self.plan_validator(commands)
+            if llm_log:
+                llm_log.log_dispatch("plan_validation", {"ok": ok}, 0 if ok else 1)
+            if not ok:
+                print("[LLMBrain] PLAN REJECTED by pre-action validation; "
+                      "nothing was dispatched:")
+                for line in report:
+                    print(f"    {line}")
+                if llm_log:
+                    llm_log.close()
+                return {"commands": commands, "results": [], "raw": raw,
+                        "latency_s": latency, "rejected": True,
+                        "rejection_report": report,
+                        "input_tokens": in_tok, "output_tokens": out_tok}
+            print("[LLMBrain] plan accepted by pre-action validation")
 
         results = []
         if not dry_run:
