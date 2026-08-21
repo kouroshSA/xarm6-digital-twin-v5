@@ -14,9 +14,24 @@ Two rules govern everything in this file:
    collision waiting to happen.
 
 2. **Version mismatches fail loudly at connect, not silently mid-motion.**
-   UFACTORY renamed the linear-rail API between SDK 1.14.x (`set_linear_track_*`)
-   and 1.18.x (`set_linear_motor_*`) with no aliases, so the capability probe
-   runs once in `__init__` and raises if neither spelling is present.
+   UFACTORY added a `set_linear_motor_*` spelling of the linear-rail API
+   alongside the older `set_linear_track_*`, so the capability probe runs once
+   in `__init__` and raises if neither spelling is present.
+
+   The docstring here used to claim the rename happened "with no aliases".
+   That was wrong and is corrected: measured on 1.18.4, BOTH families are
+   present, resolved through an instance-level alias map (`xarm_api.py:110-134`).
+   Checking `dir(XArmAPI)` on the *class* misses them, which is how the wrong
+   claim survived.
+
+   Consequence not yet resolved: because both always resolve, the probe below
+   always selects the `_motor_` family, while UFACTORY's own Blockly generator
+   emits `set_linear_track_pos` for this SDK. See docs/vendor_reference/README.md
+   -- B1a says the generator wins, so the probe order is probably backwards.
+   Left unchanged pending a test on real hardware, because `validate_plan.py`
+   separately records `set_linear_motor_pos` returning success with the position
+   stuck at 0, and that has not been distinguished from the container simply not
+   simulating the rail.
 """
 from __future__ import annotations
 
