@@ -61,6 +61,13 @@ GRIPPABLE_BODIES = {
 # Backward-compat alias (older code still references GRIPPABLE_CUBES)
 GRIPPABLE_CUBES = GRIPPABLE_BODIES
 
+# How far the IK solution may miss the commanded pose before set_position
+# refuses. The solver's own fallback does not check convergence, so without this
+# a large descent returns "success" while sitting tens of mm short — which reads
+# downstream as a failed grasp rather than a failed move.
+# 5 mm matches the threshold ik_solver already uses for its 6-DOF candidates.
+IK_POS_TOL_M = 0.005
+
 GRIPPER_REACH_M = 0.07  # 70mm from EE site to body center (Claude's move_to targets
                         # the EE site, and the EE site is ~30mm below the gripper
                         # body in world frame when the arm points down)
@@ -1333,6 +1340,21 @@ class SimXArmAPI:
             time.sleep(0.05)
 
     # ---- arm control ----
+    def _ik_pos_error(self, joint_angles, target_pos_m):
+        """Distance (m) between where `joint_angles` puts the tool and the target.
+
+        None when there is no solution to measure. Used to make accuracy part of
+        the accept/retry decision, because the IK fallback does not check its own
+        convergence.
+        """
+        if joint_angles is None:
+            return None
+        try:
+            with self.lock:
+                return float(self.ik_solver._pos_error_for(joint_angles, target_pos_m))
+        except Exception:  # noqa: BLE001 - never let a diagnostic break motion
+            return None
+
     def set_position(self, x: float, y: float, z: float,
                      roll: float = 0.0, pitch: float = 0.0, yaw: float = 0.0,
                      speed: float = 100.0, wait: bool = True, **kwargs) -> int:
@@ -1350,9 +1372,18 @@ class SimXArmAPI:
         # can fail or land in a colliding local minimum when the starting
         # qpos is bent (e.g. after go_home() to the new "ready" pose).
         # Seeding from all-zeros gives the search a clean over-the-top route.
+        # Accuracy is part of validity. The Jacobian fallback in
+        # ik_solver._solve_jacobian_position returns whatever it reached after
+        # its iteration budget WITHOUT checking convergence, so a large descent
+        # could come back "valid" while sitting 48 mm short of the target — and
+        # set_position would report success. That silently broke grasps: the
+        # magnetic weld needs the tool within GRIPPER_REACH_M, so a near-miss
+        # looks exactly like an object that was not there.
+        pos_err = self._ik_pos_error(joint_angles, target_pos)
         need_retry = (
             joint_angles is None
             or (result is not None and not result.is_valid)
+            or (pos_err is not None and pos_err > IK_POS_TOL_M)
         )
         if need_retry:
             # Two fallback seeds, tried in order. The all-zeros "rocket"
@@ -1372,14 +1403,25 @@ class SimXArmAPI:
                 if retry_angles is None:
                     continue
                 retry_result = self.validator.validate(retry_angles, target_pos)
-                if retry_result.is_valid:
+                retry_err = self._ik_pos_error(retry_angles, target_pos)
+                if retry_result.is_valid and (retry_err is None
+                                              or retry_err <= IK_POS_TOL_M):
                     joint_angles = retry_angles
                     result = retry_result
+                    pos_err = retry_err
                     break
 
         if joint_angles is None:
             print(f"[SimXArm] IK failed for target "
                   f"({x:.1f}, {y:.1f}, {z:.1f}) mm")
+            return 1
+
+        if pos_err is not None and pos_err > IK_POS_TOL_M:
+            print(f"[SimXArm] IK did not converge for target "
+                  f"({x:.1f}, {y:.1f}, {z:.1f}) mm: best solution is "
+                  f"{pos_err*1000:.0f} mm away (tolerance "
+                  f"{IK_POS_TOL_M*1000:.0f} mm). Refusing rather than moving "
+                  f"somewhere close-ish and reporting success.")
             return 1
 
         if not result.is_valid:

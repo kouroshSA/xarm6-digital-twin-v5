@@ -93,7 +93,9 @@ RAIL_LIMITS_MM: tuple[float, float] = (0.0, 700.0)
 #: i.e. exactly linear in x, fixed in y and z.
 #:
 #: What the SCENE models. The sweep asserts this still matches lab_scene.xml.
-SCENE_BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 790.0)
+#: Corrected 2026-08-21 from 790 to 847 by raising the rail assembly, so the
+#: scene now agrees with the measured cell.
+SCENE_BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 847.0)
 
 #: What the REAL CELL measures. Used by RealXArmAPI for the world<->base
 #: conversion, because the physical arm is what it is regardless of the model.
@@ -108,8 +110,9 @@ SCENE_BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 790.0)
 #: unnoticed, and so it stays visible until the scene is corrected.
 BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 847.0)
 
-#: Known, deliberate gap between the two above. Fixing the scene means raising
-#: the rail assembly by this much and setting this back to 0.
+#: Gap between the modelled and measured base. Now 0. A non-zero value means the
+#: twin and the cell disagree about where the arm is, which produces false
+#: collisions in one direction and false confidence in the other.
 MEASURED_BASE_Z_DELTA_MM: float = (BASE_AT_RAIL_ZERO_MM[2]
                                    - SCENE_BASE_AT_RAIL_ZERO_MM[2])
 
