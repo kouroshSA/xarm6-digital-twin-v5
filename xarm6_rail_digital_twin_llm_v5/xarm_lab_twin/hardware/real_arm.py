@@ -34,13 +34,27 @@ from arm_backend import (BASE_AT_RAIL_ZERO_MM, TOOL_LENGTH_MM, WORKSPACE_AABB_MM
 # rather than pretending a gripper is attached.
 EFFECTORS = ("standard", "bio", "vacuum", "none")
 
-# Home pose. Mirrors SimXArmAPI.go_home so "go home" means the same thing on both
-# backends -- a planner that learned a home-relative approach in sim would
-# otherwise be wrong on hardware.
+# Home pose, VERIFIED ON THE REAL ARM (2026-08-21) and confirmed by eye:
+# the gripper tip sits 200 mm above the benchtop, 300 mm forward, with j1 at ~0
+# so reaching it never sweeps the arm sideways across the bench.
+#
+# Derived by IK against the real kinematics and checked with the arm's own
+# forward kinematics before being commanded. It deliberately does NOT mirror the
+# sim's home: that pose ([90, 45, -45, 0, 30, 0]) puts the tip 126 mm BELOW this
+# benchtop, because the sim's tool is ~90 mm while the real one is 217 mm and the
+# base sits at a different height. Safe in simulation, a collision on hardware.
+#
+# Anything that changes the tool length or the bench height invalidates this.
+# Re-derive with get_inverse_kinematics + get_forward_kinematics; never copy a
+# pose across from the twin.
+HOME_JOINTS_DEG = [-0.6, -31.8, -25.4, 0.0, 57.2, -0.4]
+HOME_TIP_ABOVE_BENCH_MM = 200.0
+HOME_JOINT_SPEED_DEG_S = 20.0
+
+# Rail target for home. Only commanded when the rail is trustworthy; go_home()
+# skips it otherwise rather than moving against a meaningless reference.
 HOME_RAIL_MM = 350.0
 HOME_RAIL_SPEED_MM_S = 50.0
-HOME_JOINTS_DEG = [90.0, 45.0, -45.0, 0.0, 30.0, 0.0]
-HOME_JOINT_SPEED_DEG_S = 20.0
 
 # wave_goodbye: joint-6 rocking amplitude and speed. Small and slow on purpose --
 # this runs on a real arm near a bench.
@@ -479,14 +493,24 @@ class RealXArmAPI:
     # -- poses the planner uses ---------------------------------------------
 
     def go_home(self, wait: bool = True, **kwargs) -> int:
-        """Canonical home pose. Mirrors the sim's: rail mid-travel, arm folded.
+        """Move to the verified home pose: tip 200 mm above the benchtop.
 
-        Implemented rather than declared unsupported -- "go home" is one of the
-        planner's most-used actions and is entirely achievable on hardware.
+        Joints first, rail second. The arm is brought to a compact, bench-clear
+        posture before the carriage travels, so a traverse never drags an
+        extended arm across whatever is on the bench.
+
+        The rail leg is skipped when the rail is not trustworthy — commanding an
+        absolute position against an un-homed reference would move the carriage
+        an unknown distance.
         """
-        self.set_rail_position(HOME_RAIL_MM, speed_mm_s=HOME_RAIL_SPEED_MM_S, wait=wait)
-        return self.set_servo_angle(HOME_JOINTS_DEG, speed=HOME_JOINT_SPEED_DEG_S,
-                                    wait=wait)
+        rc = self.set_servo_angle(HOME_JOINTS_DEG, speed=HOME_JOINT_SPEED_DEG_S,
+                                  wait=wait)
+        if self._rail_trustworthy and self._assume_rail_mm is None:
+            self.set_rail_position(HOME_RAIL_MM, speed_mm_s=HOME_RAIL_SPEED_MM_S,
+                                   wait=wait)
+        else:
+            print("[RealArm] go_home: rail not trustworthy, moved the arm only")
+        return rc
 
     def wave_goodbye(self, n_waves: int = 3, **kwargs) -> int:
         """Wave by rocking joint 6 about the current pose.
