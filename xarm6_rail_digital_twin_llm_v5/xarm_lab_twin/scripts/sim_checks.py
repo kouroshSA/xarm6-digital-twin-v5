@@ -296,6 +296,24 @@ def check_perturbable_bodies_exist(scene) -> list[CheckResult]:
                         f"all {len(PERTURBABLE_BODIES)} perturbable bodies exist")]
 
 
+def check_plan_gate(scene=None) -> list[CheckResult]:
+    """The pre-action gate must dispatch nothing when it rejects a plan (A8).
+
+    Hardware-free: the LLM response is stubbed and the validator is a plain
+    function, so this runs with no arm, no controller container and no API call.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "-m", "agent.test_plan_gate"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("PASS", "FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("agent.plan_gate", FAIL, "; ".join(failed))]
+    return [CheckResult("agent.plan_gate", PASS,
+                        f"{len(tail)} pre-action gate tests pass")]
+
+
 def check_motion_error_audit(scene=None) -> list[CheckResult]:
     """No motion command may fail and still report success (A7).
 
@@ -361,6 +379,7 @@ STATIC_CHECKS = [
     check_perturbable_bodies_exist,
     check_recording_units,
     check_real_arm_contract,
+    check_plan_gate,
     check_motion_error_audit,
 ]
 
