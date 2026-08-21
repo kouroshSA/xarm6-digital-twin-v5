@@ -225,10 +225,21 @@
             rgba="0.75 0.65 0.5 1" contype="1" conaffinity="1" mass="0"/>
     </body>
 
-    <body name="rail_track" pos="0.0 -0.05 0.75">
+    <!-- Rail assembly height CORRECTED 2026-08-21 from a lab measurement: the
+         arm base sits 97 mm above the benchtop, not the 40 mm previously
+         modelled. The body was raised from z=0.75 to z=0.807 so xarm_base lands
+         at world z=847, and the track geom was made taller and offset down so it
+         still sits ON the bench rather than floating above it.
+
+         The old 57 mm error was not cosmetic. With the base too low, a 60 mm cup
+         standing at the rail centreline intersected base_link in simulation
+         while clearing it by 37 mm in reality, so the twin refused a move that
+         is genuinely safe on hardware. -->
+    <body name="rail_track" pos="0.0 -0.05 0.807">
       <!-- Rail-track footprint widened to 13.0 cm (y) to match the measured
-           real rail assembly (Robot_workspace plan). Cosmetic geom. -->
-      <geom name="rail_geom" type="box" size="0.35 0.065 0.015"
+           real rail assembly (Robot_workspace plan). Cosmetic geom (non-colliding);
+           spans world z 750..812, i.e. benchtop up to the carriage underside. -->
+      <geom name="rail_geom" type="box" size="0.35 0.065 0.031" pos="0 0 -0.026"
             rgba="0.4 0.4 0.45 1" contype="0" conaffinity="0" mass="0"/>
 
       <body name="rail_carriage" pos="-0.35 0.0 0.02">
