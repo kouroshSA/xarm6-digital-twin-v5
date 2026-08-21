@@ -97,19 +97,32 @@ RAIL_LIMITS_MM: tuple[float, float] = (0.0, 700.0)
 #: then a real-hardware Cartesian move is approximate, not accurate.
 BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 790.0)
 
-#: World z of the benchtop. The floor constraint is expressed relative to this.
+#: World z of the benchtop the rail is mounted on.
 BENCH_TOP_Z_MM: float = 750.0
 
-#: Minimum world z for a commanded tool pose. Defends the benchtop against a
-#: plan that drives the tool down into it.
+#: How far above that benchtop the gripper is allowed to descend.
 #:
-#: Only 5 mm above the bench because grasping a 30 mm cube resting on it
-#: genuinely requires coming that close — a larger clearance would forbid the
-#: task. This is a guard against gross errors (z=0, z=300), not a fine-grained
-#: collision check, and it is only meaningful if the TCP offset is set correctly
-#: (see docs/hardware_preflight.md §1.2): with no TCP set, z refers to the
-#: flange and the tool hangs below it.
-WORKSPACE_FLOOR_Z_MM: float = BENCH_TOP_Z_MM + 5.0
+#: "Floor" here means the **benchtop**, not the literal ground — the arm has no
+#: reason to reach the ground, and what we are protecting against is the gripper
+#: pressing down onto the surface the rail is bolted to.
+#:
+#: PLACEHOLDER: 25 mm, roughly the rail height less clearance. **Measure this at
+#: the bench and replace it.** It is the one number here that is a guess rather
+#: than a measurement, and it is the number that decides whether the gripper
+#: touches the benchtop.
+#:
+#: For reference, the sim's own grasp guidance puts a cube grasp at z=795 with
+#: cube tops at z=780, so a 25 mm clearance (floor at 775) still permits picking
+#: a cube off the bench.
+BENCHTOP_CLEARANCE_MM: float = 25.0
+
+#: Minimum world z for a commanded tool pose.
+#:
+#: A guard against gross errors — z=0, z=300 — not a fine-grained collision
+#: check. It is only meaningful if the TCP offset is set correctly (see
+#: docs/hardware_preflight.md §1.2): with no TCP set, z refers to the flange and
+#: the tool hangs below it, making this optimistic by the tool length.
+WORKSPACE_FLOOR_Z_MM: float = BENCH_TOP_Z_MM + BENCHTOP_CLEARANCE_MM
 
 #: Commanded-pose bounds in world mm. Wider than the bench so reaching past an
 #: edge is allowed, but a plan that asks for metres away is refused.
@@ -150,8 +163,9 @@ def check_workspace_world(xyz_world, aabb=None, floor_z=None) -> list[str]:
     x, y, z = xyz_world
     bad = []
     if z < floor_z:
-        bad.append(f"z={z:.0f} below the {floor_z:.0f} mm floor "
-                   f"(benchtop is {BENCH_TOP_Z_MM:.0f})")
+        bad.append(f"z={z:.0f} is below the {floor_z:.0f} mm benchtop clearance "
+                   f"plane (benchtop {BENCH_TOP_Z_MM:.0f} + "
+                   f"{floor_z - BENCH_TOP_Z_MM:.0f} mm)")
     for axis, val in (("x", x), ("y", y), ("z", z)):
         lo, hi = aabb[axis]
         if not (lo <= val <= hi):
