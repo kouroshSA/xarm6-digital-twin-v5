@@ -83,6 +83,82 @@ XARM6_JOINT_LIMITS_DEG: tuple[tuple[float, float], ...] = (
 RAIL_LIMITS_MM: tuple[float, float] = (0.0, 700.0)
 
 
+#: Where the arm's base sits in world coordinates when the rail is at 0 mm, and
+#: how it moves with the rail. Measured from the scene:
+#:
+#:     rail=  0mm -> xarm_base world (-350.0, -50.0, 790.0)
+#:     rail=350mm -> xarm_base world (   0.0, -50.0, 790.0)
+#:     rail=700mm -> xarm_base world ( 350.0, -50.0, 790.0)
+#:
+#: i.e. exactly linear in x, fixed in y and z.
+#:
+#: **These are nominal, from the scene.** The real cell's numbers must be
+#: measured (B4, sim-to-real pose delta) and overridden per deployment. Until
+#: then a real-hardware Cartesian move is approximate, not accurate.
+BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 790.0)
+
+#: World z of the benchtop. The floor constraint is expressed relative to this.
+BENCH_TOP_Z_MM: float = 750.0
+
+#: Minimum world z for a commanded tool pose. Defends the benchtop against a
+#: plan that drives the tool down into it.
+#:
+#: Only 5 mm above the bench because grasping a 30 mm cube resting on it
+#: genuinely requires coming that close — a larger clearance would forbid the
+#: task. This is a guard against gross errors (z=0, z=300), not a fine-grained
+#: collision check, and it is only meaningful if the TCP offset is set correctly
+#: (see docs/hardware_preflight.md §1.2): with no TCP set, z refers to the
+#: flange and the tool hangs below it.
+WORKSPACE_FLOOR_Z_MM: float = BENCH_TOP_Z_MM + 5.0
+
+#: Commanded-pose bounds in world mm. Wider than the bench so reaching past an
+#: edge is allowed, but a plan that asks for metres away is refused.
+WORKSPACE_AABB_MM: dict[str, tuple[float, float]] = {
+    "x": (-900.0, 1250.0),
+    "y": (-1000.0, 700.0),
+    "z": (WORKSPACE_FLOOR_Z_MM, 1500.0),
+}
+
+
+def world_to_base_mm(xyz_world, rail_mm: float,
+                     base_at_rail_zero=BASE_AT_RAIL_ZERO_MM):
+    """World coordinates -> arm-base coordinates, given the live rail position.
+
+    The twin works in world coordinates (benchtop at z=750); the xArm controller
+    works relative to its own base. The base slides with the rail, so this is not
+    a constant offset and the rail position must be read, not assumed.
+    """
+    bx, by, bz = base_at_rail_zero
+    return (xyz_world[0] - (bx + rail_mm),
+            xyz_world[1] - by,
+            xyz_world[2] - bz)
+
+
+def base_to_world_mm(xyz_base, rail_mm: float,
+                     base_at_rail_zero=BASE_AT_RAIL_ZERO_MM):
+    """Arm-base coordinates -> world coordinates. Inverse of `world_to_base_mm`."""
+    bx, by, bz = base_at_rail_zero
+    return (xyz_base[0] + bx + rail_mm,
+            xyz_base[1] + by,
+            xyz_base[2] + bz)
+
+
+def check_workspace_world(xyz_world, aabb=None, floor_z=None) -> list[str]:
+    """Describe every way a commanded world pose is out of bounds; empty if fine."""
+    aabb = aabb or WORKSPACE_AABB_MM
+    floor_z = WORKSPACE_FLOOR_Z_MM if floor_z is None else floor_z
+    x, y, z = xyz_world
+    bad = []
+    if z < floor_z:
+        bad.append(f"z={z:.0f} below the {floor_z:.0f} mm floor "
+                   f"(benchtop is {BENCH_TOP_Z_MM:.0f})")
+    for axis, val in (("x", x), ("y", y), ("z", z)):
+        lo, hi = aabb[axis]
+        if not (lo <= val <= hi):
+            bad.append(f"{axis}={val:.0f} outside [{lo:.0f}, {hi:.0f}] mm")
+    return bad
+
+
 def check_joint_limits_deg(angles) -> list[str]:
     """Return a description of every joint outside its limit; empty if all fine."""
     bad = []

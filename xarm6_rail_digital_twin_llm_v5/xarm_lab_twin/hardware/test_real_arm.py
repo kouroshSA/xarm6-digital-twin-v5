@@ -56,7 +56,8 @@ class FakeArm:
     def set_state(self, state): return 0
     def set_position(self, **kw): self.calls.append(("set_position", kw)); return 0
     def set_servo_angle(self, **kw): return 0
-    def get_position(self): return (0, [0, 0, 0, 0, 0, 0])
+    _position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    def get_position(self): return (0, list(self._position))
     def get_servo_angle(self): return (0, [0] * 6)
     def disconnect(self): self.calls.append(("disconnect", None))
 
@@ -182,6 +183,65 @@ def test_sim_only_methods_raise(real_arm, wrapper):
     return "PASS  sim-only methods raise NotImplementedError"
 
 
+def test_world_to_base_conversion(real_arm, wrapper):
+    """A world pose must reach the controller in base coordinates."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    arm.arm._rail_pos = 350.0                      # base sits at world x=0
+    arm.set_position(x=0, y=-250, z=830)
+    sent = [c for c in arm.arm.calls if c[0] == "set_position"][-1][1]
+    # base = world - (-350 + 350, -50, 790) = (0, -200, 40)
+    got = (round(sent["x"]), round(sent["y"]), round(sent["z"]))
+    if got != (0, -200, 40):
+        return f"FAIL  world (0,-250,830) -> base {got}, expected (0, -200, 40)"
+    return "PASS  world pose converted to base coordinates before dispatch"
+
+
+def test_conversion_tracks_the_rail(real_arm, wrapper):
+    """The base slides, so the same world pose maps differently per rail position."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    seen = {}
+    for rail in (0.0, 700.0):
+        arm.arm._rail_pos = rail
+        arm.set_position(x=0, y=-250, z=830)
+        seen[rail] = round([c for c in arm.arm.calls
+                            if c[0] == "set_position"][-1][1]["x"])
+    if seen != {0.0: 350, 700.0: -350}:
+        return f"FAIL  rail-dependent x was {seen}, expected {{0: 350, 700: -350}}"
+    return "PASS  conversion tracks the live rail position"
+
+
+def test_round_trip_is_symmetric(real_arm, wrapper):
+    """get_position must return world, or the wrapper lies about its own frame."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    arm.arm._rail_pos = 350.0
+    arm.arm._position = [0.0, -200.0, 40.0, 180.0, 0.0, 0.0]   # base frame
+    code, pose = arm.get_position()
+    got = tuple(round(v) for v in pose[:3])
+    if got != (0, -250, 830):
+        return f"FAIL  base (0,-200,40) -> world {got}, expected (0, -250, 830)"
+    return "PASS  get_position returns world coordinates"
+
+
+def test_floor_constraint_blocks_the_benchtop(real_arm, wrapper):
+    """A pose below the floor must be refused before the controller sees it."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    before = len([c for c in arm.arm.calls if c[0] == "set_position"])
+    try:
+        arm.set_position(x=0, y=-250, z=700)       # 50 mm INTO the bench
+    except real_arm.RealArmError as exc:
+        if "floor" not in str(exc):
+            return f"FAIL  refused, but not for the floor: {exc}"
+        after = len([c for c in arm.arm.calls if c[0] == "set_position"])
+        if after != before:
+            return "FAIL  refused but still dispatched to the controller"
+        return "PASS  sub-floor pose refused and never dispatched"
+    return "FAIL  a pose 50mm inside the benchtop was accepted"
+
+
 TESTS = [
     test_missing_rail_api_raises_at_construction,
     test_both_sdk_generations_probe,
@@ -190,6 +250,10 @@ TESTS = [
     test_no_lite6_calls_for_xarm6,
     test_verify_grasp_distinguishes_held_and_empty,
     test_sim_only_methods_raise,
+    test_world_to_base_conversion,
+    test_conversion_tracks_the_rail,
+    test_round_trip_is_symmetric,
+    test_floor_constraint_blocks_the_benchtop,
 ]
 
 

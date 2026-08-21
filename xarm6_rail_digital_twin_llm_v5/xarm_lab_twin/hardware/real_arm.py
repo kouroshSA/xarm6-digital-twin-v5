@@ -24,7 +24,10 @@ from typing import Optional
 
 from xarm.wrapper import XArmAPI
 
-from arm_backend import check_joint_limits_deg, unsupported
+from arm_backend import (BASE_AT_RAIL_ZERO_MM, WORKSPACE_AABB_MM,
+                         WORKSPACE_FLOOR_Z_MM, base_to_world_mm,
+                         check_joint_limits_deg, check_workspace_world,
+                         unsupported, world_to_base_mm)
 
 # Effector types this wrapper can drive. "none" is honest about a bare flange
 # rather than pretending a gripper is attached.
@@ -68,10 +71,22 @@ class RealXArmAPI:
     """
 
     def __init__(self, ip: str, effector: str = "standard",
-                 ft_sensor: bool = True):
+                 ft_sensor: bool = True,
+                 base_at_rail_zero=BASE_AT_RAIL_ZERO_MM,
+                 floor_z_mm: float = WORKSPACE_FLOOR_Z_MM,
+                 workspace_aabb=None):
         if effector not in EFFECTORS:
             raise ValueError(f"effector must be one of {EFFECTORS}, got {effector!r}")
         self.effector = effector
+
+        # Cartesian coordinates in and out of this class are WORLD coordinates,
+        # matching the twin. The controller works in its own base frame, so every
+        # pose is converted here. Defaults are nominal values from the scene and
+        # must be replaced with measured ones per cell (B4).
+        self.base_at_rail_zero = tuple(base_at_rail_zero)
+        self.floor_z_mm = float(floor_z_mm)
+        self.workspace_aabb = dict(workspace_aabb or WORKSPACE_AABB_MM)
+        self.workspace_aabb["z"] = (self.floor_z_mm, self.workspace_aabb["z"][1])
 
         self.arm = XArmAPI(ip)
         self.arm.clean_error()
@@ -214,9 +229,34 @@ class RealXArmAPI:
 
     def set_position(self, x, y, z, roll=0, pitch=0, yaw=0,
                      speed=100, wait=True, **kwargs) -> int:
+        """Cartesian move to a **world** pose, matching the twin's convention.
+
+        Two things happen before the controller sees anything:
+
+        1. **Bounds, including the floor.** A commanded z below `floor_z_mm`
+           would drive the tool into the benchtop. Refused here, in world
+           coordinates, where the number is legible to a human.
+        2. **Frame conversion.** The twin speaks world; the controller speaks its
+           own base frame, which slides with the rail. Passing world coordinates
+           straight through -- as this class did before -- sends the arm roughly
+           350 mm out in x and 790 mm out in z. That was caught by dry-running a
+           real plan against controller firmware, not by inspection.
+        """
+        bad = check_workspace_world((x, y, z), self.workspace_aabb, self.floor_z_mm)
+        if bad:
+            raise RealArmError("set_position refused (world frame): " + "; ".join(bad))
+
+        rc, rail_mm = self.get_rail_position()
+        if rc != 0 or rail_mm is None:
+            raise RealArmError(
+                f"set_position: cannot read the rail position (code {rc}), so the "
+                f"world->base conversion would be wrong. Refusing to move.")
+
+        bx, by, bz = world_to_base_mm((x, y, z), float(rail_mm),
+                                      self.base_at_rail_zero)
         return self._check(
-            self.arm.set_position(x=x, y=y, z=z, roll=roll, pitch=pitch, yaw=yaw,
-                                  speed=speed, wait=wait),
+            self.arm.set_position(x=bx, y=by, z=bz, roll=roll, pitch=pitch,
+                                  yaw=yaw, speed=speed, wait=wait),
             "set_position")
 
     def set_servo_angle(self, angle, speed=30, wait=True, **kwargs) -> int:
@@ -248,7 +288,21 @@ class RealXArmAPI:
             inner._check_joint_limit = False
 
     def get_position(self):
-        return self.arm.get_position()
+        """(code, [x, y, z, roll, pitch, yaw]) in **world** mm/deg.
+
+        Converted back from the controller's base frame so callers see the same
+        coordinates they command. An asymmetric wrapper -- world in, base out --
+        would be worse than no conversion at all.
+        """
+        code, pose = self.arm.get_position()
+        if code != 0 or not pose:
+            return code, pose
+        rc, rail_mm = self.get_rail_position()
+        if rc != 0 or rail_mm is None:
+            return rc, None
+        wx, wy, wz = base_to_world_mm(pose[:3], float(rail_mm),
+                                      self.base_at_rail_zero)
+        return code, [wx, wy, wz, *pose[3:]]
 
     def get_servo_angle(self):
         return self.arm.get_servo_angle()
