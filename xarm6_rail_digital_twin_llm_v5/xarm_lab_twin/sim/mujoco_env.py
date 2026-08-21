@@ -26,6 +26,8 @@ RAIL_ACT    = 0
 # `red_bin` survived in the grader prompt long after leaving the scene.
 BIN_BODIES = ("green_bin", "blue_bin", "translucent_cup")
 
+from arm_backend import unsupported
+
 GRIPPABLE_BODIES = {
     # Cubes. The two red cubes straddle the rail (200 mm either side of its
     # centreline at mid-span); "the red cube" is therefore ambiguous and tasks
@@ -815,6 +817,44 @@ class SimXArmAPI:
     def motion_enable(self, enable: bool = True) -> int:  return 0
     def set_mode(self, mode: int) -> int:                 return 0
     def set_state(self, state: int) -> int:               return 0
+
+    # -- ArmBackend contract ------------------------------------------------
+    # Named to match RealXArmAPI so the planner and episode loop never branch on
+    # which backend they hold. See arm_backend.py.
+
+    def open_gripper(self, wait: bool = True) -> int:
+        """Contract name for the effector-agnostic open."""
+        return self.open_lite6_gripper()
+
+    def close_gripper(self, wait: bool = True) -> int:
+        """Contract name for the effector-agnostic close."""
+        return self.close_lite6_gripper()
+
+    def rail_home(self, wait: bool = True) -> int:
+        return self.set_rail_position(0.0, wait=wait)
+
+    def verify_grasp(self) -> tuple:
+        """(state, detail) with state in held|empty|unknown.
+
+        The sim's grasp is a weld, so this is ground truth and can never fail --
+        which is exactly why the planning stack has never had to handle a failed
+        grasp. Exposed anyway so callers are written against the same interface
+        they will use on hardware, where it genuinely can report "empty".
+        """
+        with self.lock:
+            held = [name for name, eqid in self.weld_eqids.items()
+                    if bool(self.data.eq_active[eqid])]
+        if held:
+            return "held", f"welded to {held[0]}"
+        return "empty", "no active weld"
+
+    @unsupported("the simulated arm has no force/torque sensor; MuJoCo contact "
+                 "forces are not a substitute for a calibrated F/T reading")
+    def get_ft_data(self, *args, **kwargs): ...
+
+    @unsupported("tool load identification is a controller calibration step with "
+                 "no simulator equivalent")
+    def identify_tool_load(self, *args, **kwargs): ...
 
     def disconnect(self):
         """Stop the sim_loop, close the viewer window if open, and let the
