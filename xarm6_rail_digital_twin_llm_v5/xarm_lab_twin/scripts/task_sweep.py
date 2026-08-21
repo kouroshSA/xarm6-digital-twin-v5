@@ -112,11 +112,53 @@ def task_bin_push(arm):
     return (rc == 0 and moved > 60), f"push_rc={rc} bin_moved={moved:.0f}mm"
 
 
+def task_pacing_is_real(arm):
+    """A commanded speed must cost wall-clock time, not just appear in a log.
+
+    MuJoCo position actuators have no velocity limit, so speed only exists
+    because `_execute_paced_arm` interpolates over `distance / speed` seconds.
+    Anything that makes set_position think it has already arrived -- notably a
+    diagnostic that writes qpos without restoring it -- silently reduces every
+    move to a teleport while still returning 0 and still logging the speed.
+
+    This check has caught that twice: once when the speed kwarg was accepted and
+    ignored outright, and once when `_ik_pos_error` left the arm sitting on the
+    target so the paced distance came out zero. Both looked correct in logs.
+
+    Asserts a slow move takes materially longer than a fast one over the same
+    path, and that a slow move is not instantaneous. Ratios rather than absolute
+    times, so it does not turn into a flaky benchmark on a loaded machine.
+    """
+    import time
+    arm.set_rail_position(350.0, wait=True)
+    arm.set_position(292, -250, 950, roll=180, pitch=0, yaw=0, speed=120, wait=True)
+
+    def timed(z, speed):
+        t0 = time.time()
+        rc = arm.set_position(292, -250, z, roll=180, pitch=0, yaw=0,
+                              speed=speed, wait=True)
+        return rc, time.time() - t0
+
+    rc_slow, t_slow = timed(800, 20)          # ~150 mm at 20 mm/s -> ~7.5 s
+    rc_back, _ = timed(950, 120)
+    rc_fast, t_fast = timed(800, 120)         # same path at 120 mm/s -> ~1.3 s
+
+    if rc_slow != 0 or rc_fast != 0 or rc_back != 0:
+        return False, f"moves failed: slow={rc_slow} back={rc_back} fast={rc_fast}"
+    if t_slow < 2.0:
+        return False, (f"20 mm/s move took {t_slow:.2f}s -- not paced at all "
+                       f"(pacing skipped or bypassed)")
+    ratio = t_slow / max(t_fast, 1e-3)
+    return ratio > 2.0, (f"slow={t_slow:.2f}s fast={t_fast:.2f}s ratio={ratio:.1f}x "
+                         f"(need >2x and slow >2s)")
+
+
 BEHAVIOURAL_TASKS = [
     ("cube pick/place", task_cube_pickplace),
     ("tube -> rack", task_tube_to_rack),
     ("well-plate (bio)", task_wellplate_bio),
     ("bin push", task_bin_push),
+    ("pacing is real", task_pacing_is_real),
 ]
 
 
