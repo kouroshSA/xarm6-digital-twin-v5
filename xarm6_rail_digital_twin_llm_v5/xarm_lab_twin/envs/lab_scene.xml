@@ -386,12 +386,20 @@
          Clearance is tight on the back cube: 9 mm in x to the heater-shaker
          (which spans x 0.024..0.176, y 0.085..0.175). Moving the heater-shaker
          or widening the cubes will collide. -->
+    <!-- The two red blocks are 30 x 30 x 60 mm and stand upright, so their tops
+         are 60 mm above the benchtop (MEASURED 2026-08-21). That is why the
+         grasp height for them is 40 mm above the bench: the fingers close on
+         the upper part of a standing block, not over the top of a 30 mm cube.
+         Size is overridden per-body rather than on the shared `cube` class,
+         because the green and blue cubes have not been measured. -->
     <body name="red_cube_back" pos="0.00 0.15 0.78">
-      <geom name="red_cube_back_geom" class="cube" material="red_mat"/>
+      <geom name="red_cube_back_geom" class="cube" material="red_mat"
+            size="0.015 0.015 0.030" mass="0.10"/>
       <joint type="free" name="red_cube_back_joint"/>
     </body>
     <body name="red_cube_front" pos="0.00 -0.25 0.78">
-      <geom name="red_cube_front_geom" class="cube" material="red_mat"/>
+      <geom name="red_cube_front_geom" class="cube" material="red_mat"
+            size="0.015 0.015 0.030" mass="0.10"/>
       <joint type="free" name="red_cube_front_joint"/>
     </body>
     <body name="green_cube" pos="0.00 -0.15 0.78">
