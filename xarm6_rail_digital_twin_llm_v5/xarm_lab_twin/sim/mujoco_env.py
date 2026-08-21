@@ -1346,12 +1346,32 @@ class SimXArmAPI:
         None when there is no solution to measure. Used to make accuracy part of
         the accept/retry decision, because the IK fallback does not check its own
         convergence.
+
+        MUST restore qpos. `ik_solver._pos_error_for` measures by writing the
+        candidate angles into the shared `data.qpos` and calling mj_forward, and
+        it does not put back what was there. Inside the solver that is harmless
+        -- it owns the scratch state for the duration of a solve. Called from
+        here, on the live sim, it silently teleports the arm to the pose being
+        *evaluated*.
+
+        That is not a cosmetic difference. set_position paces motion over
+        `distance / speed`, and it computes that distance from where the tool is
+        *now*. Teleport the arm onto the target first and the distance is zero,
+        so pacing is skipped, `_wait_arm_settled` returns instantly, and every
+        move snaps to its endpoint in ~10 ms regardless of --speed-tier. This
+        function is a measurement; it must leave nothing behind.
         """
         if joint_angles is None:
             return None
         try:
             with self.lock:
-                return float(self.ik_solver._pos_error_for(joint_angles, target_pos_m))
+                saved = self.data.qpos.copy()
+                try:
+                    return float(self.ik_solver._pos_error_for(joint_angles,
+                                                               target_pos_m))
+                finally:
+                    self.data.qpos[:] = saved
+                    mujoco.mj_forward(self.model, self.data)
         except Exception:  # noqa: BLE001 - never let a diagnostic break motion
             return None
 
