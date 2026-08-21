@@ -326,6 +326,34 @@ def check_joint_limits_match_scene(scene) -> list[CheckResult]:
                         "6 joint limits + rail travel match the scene")]
 
 
+def check_base_offset_matches_scene(scene) -> list[CheckResult]:
+    """arm_backend's base offset and bench height must match the scene.
+
+    RealXArmAPI converts world<->base with these numbers. If they drift from the
+    scene the twin was planned against, every Cartesian move on hardware lands
+    somewhere else — the failure this constant was added to fix.
+    """
+    import mujoco as mj
+    from arm_backend import BASE_AT_RAIL_ZERO_MM, BENCH_TOP_Z_MM
+    m, d = scene._model, mj.MjData(scene._model)
+    d.qpos[m.jnt_qposadr[m.joint("rail").id]] = 0.0
+    mj.mj_kinematics(m, d)
+    base = d.xpos[m.body("xarm_base").id] * 1000.0
+    bad = []
+    for axis, got, want in zip("xyz", base, BASE_AT_RAIL_ZERO_MM):
+        if abs(got - want) > 1.0:
+            bad.append(f"base {axis}: arm_backend {want:.0f} vs scene {got:.0f}")
+    gid = m.geom("bench_top").id
+    top = (d.geom_xpos[gid][2] + m.geom_size[gid][2]) * 1000.0
+    if abs(top - BENCH_TOP_Z_MM) > 1.0:
+        bad.append(f"bench top: arm_backend {BENCH_TOP_Z_MM:.0f} vs scene {top:.0f}")
+    if bad:
+        return [CheckResult("arm.base_offset_matches_scene", FAIL, "; ".join(bad))]
+    return [CheckResult("arm.base_offset_matches_scene", PASS,
+                        f"base at rail=0 {BASE_AT_RAIL_ZERO_MM} and bench top "
+                        f"{BENCH_TOP_Z_MM:.0f} match the scene")]
+
+
 def check_arm_backend_parity(scene=None) -> list[CheckResult]:
     """Both backends must cover the ArmBackend contract (B2).
 
@@ -430,6 +458,7 @@ STATIC_CHECKS = [
     check_recording_units,
     check_real_arm_contract,
     check_joint_limits_match_scene,
+    check_base_offset_matches_scene,
     check_arm_backend_parity,
     check_plan_gate,
     check_motion_error_audit,
