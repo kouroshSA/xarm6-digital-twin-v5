@@ -115,14 +115,51 @@ MEASURED_BASE_Z_DELTA_MM: float = (BASE_AT_RAIL_ZERO_MM[2]
 
 #: Distance from the tool flange to the gripper tip, mm.
 #:
-#: DERIVED, not directly measured: with no TCP offset set, UFACTORY Studio
-#: reported z=145 (arm-base frame) at the pose where the gripper tip sat 25 mm
-#: above the benchtop. The base is 97 mm above the benchtop, so the tip was at
-#: -72 mm in the base frame and the tool spans 145 - (-72) = 217 mm.
+#: CONFIRMED on the real arm (2026-08-21). With `tcp_offset` verified to be
+#: [0,0,0], the flange read z=144.95 in the base frame at the pose where the
+#: gripper tip sat 25 mm above a benchtop 97 mm below the base:
 #:
-#: **Confirm this against the physical gripper before trusting it.** Everything
-#: about benchtop clearance depends on it.
+#:     tip in base frame = 25 - 97 = -72 mm
+#:     tool length       = 145 - (-72) = 217 mm
+#:
+#: Written to the controller as `set_tcp_offset([0, 0, 217, 0, 0, 0])`, so the
+#: arm now positions the gripper tip and its coordinates mean what the twin's
+#: mean. Note the tool was pitched -8.5 deg when measured; a tilted tool drops
+#: LESS vertically, so 217 is the conservative figure.
 TOOL_LENGTH_MM: float = 217.0
+
+# ---------------------------------------------------------------------------
+# Measured cell configuration
+#
+# Read from the physical arm at 192.168.1.229 on 2026-08-21, not estimated.
+# Recorded so a future session can tell what the controller was configured with,
+# and so a drift can be spotted. These are FYI constants: the controller holds
+# the authoritative copy (persisted with save_conf), and
+# scripts/calibrate_tool.py re-derives them.
+# ---------------------------------------------------------------------------
+
+#: Controller identity at the time of measurement.
+CELL_FIRMWARE = "6,6,XI1305,MC1305,v2.7.1"
+CELL_SERIAL = "XI1305"
+
+#: Payload the ARM carries: F/T sensor + gripper + fingertips. Drives gravity
+#: compensation and collision detection. [mass_kg, (cx, cy, cz) mm from flange]
+CELL_TCP_LOAD = (1.247, (-3.681, 1.950, 27.675))
+
+#: Payload the SENSOR carries: everything BELOW it, i.e. gripper and down but
+#: not the sensor itself. Drives the force-reading zero.
+#:
+#: The ~0.27 kg difference from CELL_TCP_LOAD is the sensor's own mass, and that
+#: difference is the check that these were really measured: identifying with the
+#: sensor disabled returned 0.0 kg while reporting success.
+CELL_FT_LOAD = (0.977, (-0.169, 1.200, 62.371))
+
+#: The rail reported `get_linear_motor_is_enabled() -> 0` at measurement time,
+#: same as the container that has no rail at all. UNRESOLVED: either the rail is
+#: not powered/connected or it needs enabling. The world<->base conversion reads
+#: the rail position, so a rail stuck reporting 0 silently offsets every
+#: Cartesian target by however far it has actually travelled.
+CELL_RAIL_ENABLED_AT_MEASUREMENT = False
 
 #: World z of the benchtop the rail is mounted on.
 BENCH_TOP_Z_MM: float = 750.0
