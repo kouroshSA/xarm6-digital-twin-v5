@@ -105,7 +105,10 @@ def main():
         # controller instead of the bench. Nothing can move; this exercises
         # hardware/real_arm.py itself, which sim mode never touches.
         from hardware.real_arm import RealXArmAPI
-        arm = RealXArmAPI(ip=args.validator_ip)
+        # The validator container has no rail hardware, so 0 genuinely is its
+        # position. Declared explicitly rather than letting the rail-trust guard
+        # refuse every Cartesian move.
+        arm = RealXArmAPI(ip=args.validator_ip, assume_rail_mm=0.0)
         print(f"[System] DRYRUN mode - real backend against controller "
               f"container at {args.validator_ip} (no physical arm)")
     else:

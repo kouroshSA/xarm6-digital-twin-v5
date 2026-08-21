@@ -73,6 +73,7 @@ class RealXArmAPI:
 
     def __init__(self, ip: str, effector: str = "standard",
                  ft_sensor: bool = True,
+                 assume_rail_mm: float | None = None,
                  base_at_rail_zero=BASE_AT_RAIL_ZERO_MM,
                  floor_z_mm: float = WORKSPACE_FLOOR_Z_MM,
                  workspace_aabb=None):
@@ -93,6 +94,8 @@ class RealXArmAPI:
         self.arm.clean_error()
         self._rail_api = self._probe_rail_api()
         self._sdk_joint_check_broken = self._probe_sn_defect()
+        self._assume_rail_mm = assume_rail_mm
+        self._rail_trustworthy = self._probe_rail_homed()
         self._apply_tcp_floor()
         self._log_identity()
 
@@ -154,6 +157,43 @@ class RealXArmAPI:
               "joint-limit check cannot run on this target (it would raise "
               "ValueError). Joint limits are enforced locally instead. Expected "
               "for the Docker controller; NOT expected on real hardware.")
+        return True
+
+    def _probe_rail_homed(self) -> bool:
+        """Is the rail's reported position meaningful?
+
+        This matters because the world<->base conversion reads the rail. An
+        un-homed rail reports 0 while the carriage sits wherever it was left, so
+        every Cartesian target would be silently offset by the true position —
+        the arm would go somewhere confidently wrong rather than fail.
+
+        `assume_rail_mm` is the explicit escape hatch for a controller with no
+        rail hardware at all (the Docker validator), where 0 really is correct.
+        """
+        if self._assume_rail_mm is not None:
+            print(f"[RealArm] rail position assumed to be "
+                  f"{self._assume_rail_mm:.0f} mm (declared by the caller; "
+                  f"correct only where there is no rail hardware)")
+            return True
+        try:
+            _, enabled = getattr(self.arm, "get_linear_motor_is_enabled")()
+            _, on_zero = getattr(self.arm, "get_linear_motor_on_zero")()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[RealArm] cannot query rail state ({exc}); Cartesian moves "
+                  f"will be refused")
+            return False
+        if not enabled:
+            print("[RealArm] rail is NOT ENABLED. Cartesian moves refused: its "
+                  "reported position cannot be trusted. Call "
+                  "set_linear_motor_enable(True), then home it.")
+            return False
+        if not on_zero:
+            print("[RealArm] rail is enabled but NOT HOMED (on_zero=0), so its "
+                  "reported position is meaningless. Cartesian moves refused. "
+                  "Home it with set_linear_motor_back_origin() — that MOVES the "
+                  "carriage along the full travel.")
+            return False
+        print("[RealArm] rail enabled and homed; position is trustworthy")
         return True
 
     def _apply_tcp_floor(self) -> None:
@@ -283,11 +323,22 @@ class RealXArmAPI:
         if bad:
             raise RealArmError("set_position refused (world frame): " + "; ".join(bad))
 
-        rc, rail_mm = self.get_rail_position()
-        if rc != 0 or rail_mm is None:
+        if not self._rail_trustworthy:
             raise RealArmError(
-                f"set_position: cannot read the rail position (code {rc}), so the "
-                f"world->base conversion would be wrong. Refusing to move.")
+                "set_position refused: the rail is not enabled/homed, so its "
+                "reported position is meaningless and the world->base conversion "
+                "would silently offset this target by however far the carriage "
+                "actually sits. Home the rail, or pass assume_rail_mm= if this "
+                "controller genuinely has no rail.")
+
+        if self._assume_rail_mm is not None:
+            rail_mm = self._assume_rail_mm
+        else:
+            rc, rail_mm = self.get_rail_position()
+            if rc != 0 or rail_mm is None:
+                raise RealArmError(
+                    f"set_position: cannot read the rail position (code {rc}), so "
+                    f"the world->base conversion would be wrong. Refusing to move.")
 
         bx, by, bz = world_to_base_mm((x, y, z), float(rail_mm),
                                       self.base_at_rail_zero)

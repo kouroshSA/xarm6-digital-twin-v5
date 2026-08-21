@@ -33,11 +33,17 @@ class FakeArm:
             self.get_linear_motor_pos = lambda: (0, self._rail_pos)
             self.set_linear_motor_enable = lambda e: 0
             self.set_linear_motor_back_origin = lambda wait=True: 0
+            self.get_linear_motor_is_enabled = lambda: (0, 1)
+            self.get_linear_motor_on_zero = lambda: (0, 1)
         elif rail_api == "track":
             self.set_linear_track_pos = self._rail_set
             self.get_linear_track_pos = lambda: (0, self._rail_pos)
             self.set_linear_track_enable = lambda e: 0
             self.set_linear_track_back_origin = lambda wait=True: 0
+            self.get_linear_track_is_enabled = lambda: (0, 1)
+            self.get_linear_track_on_zero = lambda: (0, 1)
+            self.get_linear_motor_is_enabled = lambda: (0, 1)
+            self.get_linear_motor_on_zero = lambda: (0, 1)
         # rail_api == "none" -> neither generation present
 
     def _rail_set(self, pos, speed=None, wait=True, timeout=100, **kw):
@@ -265,6 +271,28 @@ def test_floor_tracks_the_tcp_offset(real_arm, wrapper):
     return "FAIL  unset TCP accepted a z that puts the tip inside the bench"
 
 
+def test_unhomed_rail_refuses_cartesian(real_arm, wrapper):
+    """An un-homed rail reports 0 while the carriage sits elsewhere, so every
+    world->base conversion would be silently offset. Refuse rather than guess."""
+    class Unhomed(FakeArm):
+        def __init__(self, ip, **kw):
+            super().__init__(ip, **kw)
+            self.get_linear_motor_is_enabled = lambda: (0, 1)
+            self.get_linear_motor_on_zero = lambda: (0, 0)     # enabled, not homed
+    real_arm.XArmAPI = lambda ip: Unhomed(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    before = len([c for c in arm.arm.calls if c[0] == "set_position"])
+    try:
+        arm.set_position(x=0, y=-250, z=830)
+    except real_arm.RealArmError as exc:
+        if "homed" not in str(exc):
+            return f"FAIL  refused, but not for the rail: {exc}"
+        if len([c for c in arm.arm.calls if c[0] == "set_position"]) != before:
+            return "FAIL  refused but still dispatched"
+        return "PASS  un-homed rail refuses Cartesian moves"
+    return "FAIL  un-homed rail accepted a Cartesian move"
+
+
 TESTS = [
     test_missing_rail_api_raises_at_construction,
     test_both_sdk_generations_probe,
@@ -278,6 +306,7 @@ TESTS = [
     test_round_trip_is_symmetric,
     test_floor_constraint_blocks_the_benchtop,
     test_floor_tracks_the_tcp_offset,
+    test_unhomed_rail_refuses_cartesian,
 ]
 
 
