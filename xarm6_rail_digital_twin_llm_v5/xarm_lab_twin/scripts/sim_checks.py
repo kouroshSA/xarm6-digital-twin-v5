@@ -296,6 +296,56 @@ def check_perturbable_bodies_exist(scene) -> list[CheckResult]:
                         f"all {len(PERTURBABLE_BODIES)} perturbable bodies exist")]
 
 
+def check_joint_limits_match_scene(scene) -> list[CheckResult]:
+    """arm_backend's joint/rail limits must match the scene's jnt_range.
+
+    They are duplicated on purpose — hardware/real_arm.py must run on a machine
+    with no MuJoCo installed — so this is the guard that stops the copy drifting
+    from the scene the way the prompt coordinates did.
+    """
+    import numpy as np
+    from arm_backend import RAIL_LIMITS_MM, XARM6_JOINT_LIMITS_DEG
+    m = scene._model
+    bad = []
+    for i, (lo, hi) in enumerate(XARM6_JOINT_LIMITS_DEG, start=1):
+        try:
+            s_lo, s_hi = np.degrees(m.jnt_range[m.joint(f"joint{i}").id])
+        except Exception as exc:  # noqa: BLE001
+            bad.append(f"joint{i} not in scene ({exc})")
+            continue
+        if abs(s_lo - lo) > 0.15 or abs(s_hi - hi) > 0.15:
+            bad.append(f"joint{i}: arm_backend [{lo}, {hi}] vs scene "
+                       f"[{s_lo:.1f}, {s_hi:.1f}]")
+    r = m.jnt_range[m.joint("rail").id] * 1000.0
+    if abs(r[0] - RAIL_LIMITS_MM[0]) > 1 or abs(r[1] - RAIL_LIMITS_MM[1]) > 1:
+        bad.append(f"rail: arm_backend {RAIL_LIMITS_MM} vs scene "
+                   f"({r[0]:.0f}, {r[1]:.0f})")
+    if bad:
+        return [CheckResult("arm.joint_limits_match_scene", FAIL, "; ".join(bad))]
+    return [CheckResult("arm.joint_limits_match_scene", PASS,
+                        "6 joint limits + rail travel match the scene")]
+
+
+def check_arm_backend_parity(scene=None) -> list[CheckResult]:
+    """Both backends must cover the ArmBackend contract (B2).
+
+    A contract method that is merely absent on one backend is an AttributeError
+    waiting to fire partway through a plan — after part of it has already run on
+    a real arm. Hardware-free: the classes are inspected, never instantiated.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "-m", "test_arm_backend"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("PASS", "FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("arm.backend_parity", FAIL, "; ".join(failed))]
+    return [CheckResult("arm.backend_parity", PASS,
+                        f"{len(tail)} parity checks pass over "
+                        f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
+
+
 def check_plan_gate(scene=None) -> list[CheckResult]:
     """The pre-action gate must dispatch nothing when it rejects a plan (A8).
 
@@ -379,6 +429,8 @@ STATIC_CHECKS = [
     check_perturbable_bodies_exist,
     check_recording_units,
     check_real_arm_contract,
+    check_joint_limits_match_scene,
+    check_arm_backend_parity,
     check_plan_gate,
     check_motion_error_audit,
 ]

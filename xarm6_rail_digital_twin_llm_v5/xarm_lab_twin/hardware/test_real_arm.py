@@ -46,7 +46,11 @@ class FakeArm:
             self._rail_pos = pos
         return self._rail_code
 
+    # a real controller reports a serial number; blank is the Docker case
+    sn = "XI1305A2024"
+
     # motion
+    def clean_error(self): return 0
     def motion_enable(self, enable=True): return 0
     def set_mode(self, mode): return 0
     def set_state(self, state): return 0

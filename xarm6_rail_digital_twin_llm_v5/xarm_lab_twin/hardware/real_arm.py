@@ -24,9 +24,24 @@ from typing import Optional
 
 from xarm.wrapper import XArmAPI
 
+from arm_backend import check_joint_limits_deg, unsupported
+
 # Effector types this wrapper can drive. "none" is honest about a bare flange
 # rather than pretending a gripper is attached.
 EFFECTORS = ("standard", "bio", "vacuum", "none")
+
+# Home pose. Mirrors SimXArmAPI.go_home so "go home" means the same thing on both
+# backends -- a planner that learned a home-relative approach in sim would
+# otherwise be wrong on hardware.
+HOME_RAIL_MM = 350.0
+HOME_RAIL_SPEED_MM_S = 50.0
+HOME_JOINTS_DEG = [90.0, 45.0, -45.0, 0.0, 30.0, 0.0]
+HOME_JOINT_SPEED_DEG_S = 20.0
+
+# wave_goodbye: joint-6 rocking amplitude and speed. Small and slow on purpose --
+# this runs on a real arm near a bench.
+WAVE_AMPLITUDE_DEG = 20.0
+WAVE_SPEED_DEG_S = 30.0
 
 # Gripper position (0-850ish) below which the standard gripper counts as closed.
 # Used only to distinguish "closed on nothing" from "closed on an object"; tune
@@ -59,17 +74,27 @@ class RealXArmAPI:
         self.effector = effector
 
         self.arm = XArmAPI(ip)
-        self.arm.motion_enable(enable=True)
-        self.arm.set_mode(0)
-        self.arm.set_state(0)
-
+        self.arm.clean_error()
         self._rail_api = self._probe_rail_api()
+        self._sdk_joint_check_broken = self._probe_sn_defect()
         self._log_identity()
 
         if effector != "none":
             self._enable_effector()
         if ft_sensor:
             self._enable_ft_sensor()
+
+        # Put the arm in a ready state LAST. Enabling the effector and the F/T
+        # sensor can leave the controller in state 5 (stopped), so asserting
+        # readiness before that setup -- as this did originally -- meant the first
+        # motion came back with code -2 and no obvious cause.
+        self.ready()
+
+    def ready(self) -> int:
+        """Enable motion, position mode, ready state. Safe to re-call."""
+        self.arm.motion_enable(enable=True)
+        self.arm.set_mode(0)
+        return self._check(self.arm.set_state(0), "set_state")
 
     # -- probing ------------------------------------------------------------
 
@@ -96,6 +121,23 @@ class RealXArmAPI:
             "set_linear_motor_pos (SDK >= ~1.15) or set_linear_track_pos "
             "(SDK <= 1.14.x). Check the xarm-python-sdk pin in requirements.txt."
         )
+
+    def _probe_sn_defect(self) -> bool:
+        """True if this controller reports a blank serial number.
+
+        The SDK's joint-limit path does `int(self.sn[2:6])`, so a blank SN makes
+        it raise ValueError rather than check anything. The Docker controller used
+        for pre-action validation has no SN. Detected once here so the fallback in
+        set_servo_angle is a known, announced condition rather than a surprise.
+        """
+        sn = (getattr(self.arm, "sn", "") or "").strip()
+        if sn:
+            return False
+        print("[RealArm] controller reports a BLANK serial number: the SDK's own "
+              "joint-limit check cannot run on this target (it would raise "
+              "ValueError). Joint limits are enforced locally instead. Expected "
+              "for the Docker controller; NOT expected on real hardware.")
+        return True
 
     def _log_identity(self) -> None:
         """Record firmware and gripper versions — several SDK calls carry
@@ -178,8 +220,32 @@ class RealXArmAPI:
             "set_position")
 
     def set_servo_angle(self, angle, speed=30, wait=True, **kwargs) -> int:
-        return self._check(self.arm.set_servo_angle(angle=angle, speed=speed, wait=wait),
-                           "set_servo_angle")
+        """Joint move, degrees. Limits are checked here before the SDK sees them.
+
+        Checking locally is not redundant. The SDK's own check reads the robot's
+        serial number (`int(self.sn[2:6])`), which the Docker controller leaves
+        blank -- so on that target the SDK raises ValueError instead of checking,
+        and every joint move dies. Validating first means limits are enforced on
+        both targets, and the SDK check stays active on real hardware.
+        """
+        bad = check_joint_limits_deg(angle)
+        if bad:
+            raise RealArmError("set_servo_angle rejected: " + "; ".join(bad))
+        try:
+            ret = self.arm.set_servo_angle(angle=angle, speed=speed, wait=wait)
+        except ValueError:
+            if not self._sdk_joint_check_broken:
+                raise
+            # Known container artifact, announced at connect. Limits were verified
+            # above, so retry with the SDK's broken check disabled.
+            self._disable_sdk_joint_check()
+            ret = self.arm.set_servo_angle(angle=angle, speed=speed, wait=wait)
+        return self._check(ret, "set_servo_angle")
+
+    def _disable_sdk_joint_check(self) -> None:
+        inner = getattr(self.arm, "arm", None)
+        if inner is not None and hasattr(inner, "_check_joint_limit"):
+            inner._check_joint_limit = False
 
     def get_position(self):
         return self.arm.get_position()
@@ -268,27 +334,86 @@ class RealXArmAPI:
             raise RealArmError("iden_ft_sensor_load_offset absent in this SDK build")
         return self._check(fn(), "iden_ft_sensor_load_offset")
 
-    # -- sim-only operations ------------------------------------------------
+    # -- poses the planner uses ---------------------------------------------
 
-    def nudge_body(self, *args, **kwargs):
-        raise NotImplementedError(
-            "nudge_body teleports a body in simulation; there is no physical "
-            "equivalent. Move the object by hand and re-run perception.")
+    def go_home(self, wait: bool = True, **kwargs) -> int:
+        """Canonical home pose. Mirrors the sim's: rail mid-travel, arm folded.
 
-    def reset_scene(self, *args, **kwargs):
-        raise NotImplementedError(
-            "reset_scene restores simulator state. On hardware, resetting the "
-            "cell is a manual operator step -- see docs/hardware_preflight.md.")
+        Implemented rather than declared unsupported -- "go home" is one of the
+        planner's most-used actions and is entirely achievable on hardware.
+        """
+        self.set_rail_position(HOME_RAIL_MM, speed_mm_s=HOME_RAIL_SPEED_MM_S, wait=wait)
+        return self.set_servo_angle(HOME_JOINTS_DEG, speed=HOME_JOINT_SPEED_DEG_S,
+                                    wait=wait)
 
-    def physical_outcome(self, *args, **kwargs):
-        raise NotImplementedError(
-            "physical_outcome reads privileged simulator state. On hardware the "
-            "equivalent must come from perception (see PerceptionOutcomeReporter).")
+    def wave_goodbye(self, n_waves: int = 3, **kwargs) -> int:
+        """Wave by rocking joint 6 about the current pose.
 
-    def get_body_pose(self, name: str):
-        raise NotImplementedError(
-            f"get_body_pose({name!r}) reads simulator ground truth. On hardware "
-            f"object poses come from perception, not the controller.")
+        Cosmetic, but the planner emits it and failing the whole plan on a
+        greeting would be a silly reason to abort a hardware run.
+        """
+        code, angles = self.get_servo_angle()
+        if code != 0 or not angles:
+            raise RealArmError(f"wave_goodbye: could not read joint angles (code {code})")
+        base = list(angles[:6])
+        for _ in range(max(1, int(n_waves))):
+            for delta in (WAVE_AMPLITUDE_DEG, -WAVE_AMPLITUDE_DEG):
+                target = list(base)
+                target[5] = base[5] + delta
+                self.set_servo_angle(target, speed=WAVE_SPEED_DEG_S, wait=True)
+        return self.set_servo_angle(base, speed=WAVE_SPEED_DEG_S, wait=True)
+
+    def set_gripper(self, mode: str) -> int:
+        """Confirm the fitted effector matches what the plan assumes.
+
+        In sim this swaps a visual and a grasp tolerance. On hardware there is no
+        automatic tool changer, so this cannot *change* anything -- it can only
+        check. A mismatch raises: silently continuing with the wrong effector
+        fitted means every subsequent grasp height and force threshold is wrong.
+        """
+        if mode not in EFFECTORS:
+            raise ValueError(f"mode must be one of {EFFECTORS}, got {mode!r}")
+        if mode != self.effector:
+            raise RealArmError(
+                f"plan expects the {mode!r} effector but {self.effector!r} is "
+                f"fitted. There is no automatic tool changer: swap it by hand, "
+                f"re-run identify_tool_load(), and restart with "
+                f"effector={mode!r}.")
+        return 0
+
+    # -- operations with no hardware equivalent -----------------------------
+    # Each raises with a reason. None may return a success code: a scene
+    # manipulation that quietly does nothing would let a plan report success
+    # while the bench was untouched.
+
+    @unsupported("teleports a body in simulation; no physical equivalent. "
+                 "Move the object by hand and re-run perception")
+    def nudge_body(self, *args, **kwargs): ...
+
+    @unsupported("restores simulator state. On hardware, resetting the cell is a "
+                 "manual operator step -- see docs/hardware_preflight.md")
+    def reset_scene(self, *args, **kwargs): ...
+
+    @unsupported("reads privileged simulator state. On hardware the equivalent "
+                 "must come from perception (PerceptionOutcomeReporter, B5b)")
+    def physical_outcome(self, *args, **kwargs): ...
+
+    @unsupported("reads simulator ground truth. On hardware object poses come "
+                 "from perception, not the controller (locate(), B5b)")
+    def get_body_pose(self, *args, **kwargs): ...
+
+    @unsupported("needs the object's live pose, which only perception can supply "
+                 "on hardware. Blocked on locate() (B5b)")
+    def push_object(self, *args, **kwargs): ...
+
+    @unsupported("needs live rack-slot occupancy, which only perception can "
+                 "supply on hardware. Blocked on locate() (B5b)")
+    def place_tube_in_rack(self, *args, **kwargs): ...
+
+    @unsupported("the thermocycler lid is an Opentrons module under software "
+                 "control, not something the arm manipulates. Call the Opentrons "
+                 "API directly")
+    def set_pcr_lid(self, *args, **kwargs): ...
 
     # -- lifecycle ----------------------------------------------------------
 
