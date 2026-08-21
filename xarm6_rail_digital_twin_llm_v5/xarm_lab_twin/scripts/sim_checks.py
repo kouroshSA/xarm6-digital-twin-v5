@@ -334,13 +334,14 @@ def check_base_offset_matches_scene(scene) -> list[CheckResult]:
     somewhere else — the failure this constant was added to fix.
     """
     import mujoco as mj
-    from arm_backend import BASE_AT_RAIL_ZERO_MM, BENCH_TOP_Z_MM
+    from arm_backend import (BENCH_TOP_Z_MM, MEASURED_BASE_Z_DELTA_MM,
+                             SCENE_BASE_AT_RAIL_ZERO_MM)
     m, d = scene._model, mj.MjData(scene._model)
     d.qpos[m.jnt_qposadr[m.joint("rail").id]] = 0.0
     mj.mj_kinematics(m, d)
     base = d.xpos[m.body("xarm_base").id] * 1000.0
     bad = []
-    for axis, got, want in zip("xyz", base, BASE_AT_RAIL_ZERO_MM):
+    for axis, got, want in zip("xyz", base, SCENE_BASE_AT_RAIL_ZERO_MM):
         if abs(got - want) > 1.0:
             bad.append(f"base {axis}: arm_backend {want:.0f} vs scene {got:.0f}")
     gid = m.geom("bench_top").id
@@ -349,9 +350,12 @@ def check_base_offset_matches_scene(scene) -> list[CheckResult]:
         bad.append(f"bench top: arm_backend {BENCH_TOP_Z_MM:.0f} vs scene {top:.0f}")
     if bad:
         return [CheckResult("arm.base_offset_matches_scene", FAIL, "; ".join(bad))]
-    return [CheckResult("arm.base_offset_matches_scene", PASS,
-                        f"base at rail=0 {BASE_AT_RAIL_ZERO_MM} and bench top "
-                        f"{BENCH_TOP_Z_MM:.0f} match the scene")]
+    detail = (f"scene base at rail=0 {SCENE_BASE_AT_RAIL_ZERO_MM} and bench top "
+              f"{BENCH_TOP_Z_MM:.0f} match the scene")
+    if MEASURED_BASE_Z_DELTA_MM:
+        detail += (f"; measured cell base is {MEASURED_BASE_Z_DELTA_MM:+.0f} mm "
+                   f"from the scene (known sim-to-real gap, scene not yet corrected)")
+    return [CheckResult("arm.base_offset_matches_scene", PASS, detail)]
 
 
 def check_arm_backend_parity(scene=None) -> list[CheckResult]:

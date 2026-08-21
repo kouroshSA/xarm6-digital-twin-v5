@@ -24,9 +24,10 @@ from typing import Optional
 
 from xarm.wrapper import XArmAPI
 
-from arm_backend import (BASE_AT_RAIL_ZERO_MM, WORKSPACE_AABB_MM,
+from arm_backend import (BASE_AT_RAIL_ZERO_MM, TOOL_LENGTH_MM, WORKSPACE_AABB_MM,
                          WORKSPACE_FLOOR_Z_MM, base_to_world_mm,
                          check_joint_limits_deg, check_workspace_world,
+                         floor_z_for_tcp,
                          unsupported, world_to_base_mm)
 
 # Effector types this wrapper can drive. "none" is honest about a bare flange
@@ -92,6 +93,7 @@ class RealXArmAPI:
         self.arm.clean_error()
         self._rail_api = self._probe_rail_api()
         self._sdk_joint_check_broken = self._probe_sn_defect()
+        self._apply_tcp_floor()
         self._log_identity()
 
         if effector != "none":
@@ -153,6 +155,41 @@ class RealXArmAPI:
               "ValueError). Joint limits are enforced locally instead. Expected "
               "for the Docker controller; NOT expected on real hardware.")
         return True
+
+    def _apply_tcp_floor(self) -> None:
+        """Recompute the benchtop floor from the TCP offset the controller is
+        actually using.
+
+        The controller positions whatever the TCP points at. With no offset that
+        is the flange, and the gripper hangs a full tool-length below it — so a z
+        chosen for the *tip* would drive the tip that far into the bench. Reading
+        the live offset means the floor cannot be wrong because someone forgot to
+        set the TCP; it just moves up to compensate.
+        """
+        try:
+            tcp = list(getattr(self.arm, "tcp_offset", None) or [0, 0, 0, 0, 0, 0])
+            tcp_z = float(tcp[2])
+        except Exception as exc:  # noqa: BLE001
+            raise RealArmError(
+                f"cannot read the TCP offset ({type(exc).__name__}: {exc}), so the "
+                f"benchtop clearance cannot be computed. Refusing to continue.")
+
+        self.tcp_offset_z_mm = tcp_z
+        self.floor_z_mm = floor_z_for_tcp(tcp_z)
+        self.workspace_aabb["z"] = (self.floor_z_mm, self.workspace_aabb["z"][1])
+
+        if abs(tcp_z - TOOL_LENGTH_MM) < 5.0:
+            print(f"[RealArm] TCP offset z={tcp_z:.0f} mm — controlling the gripper "
+                  f"tip, matching the twin. Benchtop floor: world z="
+                  f"{self.floor_z_mm:.0f} mm")
+        else:
+            print(f"[RealArm] WARNING: TCP offset z={tcp_z:.0f} mm, expected "
+                  f"~{TOOL_LENGTH_MM:.0f} mm for the gripper tip. The controller is "
+                  f"positioning a point {TOOL_LENGTH_MM - tcp_z:.0f} mm ABOVE the "
+                  f"tip, so twin coordinates do NOT transfer directly. The floor "
+                  f"has been raised to world z={self.floor_z_mm:.0f} mm to "
+                  f"compensate. Set the TCP offset (preflight 1.2) to work in "
+                  f"twin coordinates.")
 
     def _log_identity(self) -> None:
         """Record firmware and gripper versions — several SDK calls carry

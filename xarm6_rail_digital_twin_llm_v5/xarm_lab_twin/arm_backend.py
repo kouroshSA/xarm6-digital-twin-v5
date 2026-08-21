@@ -92,10 +92,37 @@ RAIL_LIMITS_MM: tuple[float, float] = (0.0, 700.0)
 #:
 #: i.e. exactly linear in x, fixed in y and z.
 #:
-#: **These are nominal, from the scene.** The real cell's numbers must be
-#: measured (B4, sim-to-real pose delta) and overridden per deployment. Until
-#: then a real-hardware Cartesian move is approximate, not accurate.
-BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 790.0)
+#: What the SCENE models. The sweep asserts this still matches lab_scene.xml.
+SCENE_BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 790.0)
+
+#: What the REAL CELL measures. Used by RealXArmAPI for the world<->base
+#: conversion, because the physical arm is what it is regardless of the model.
+#:
+#: z is MEASURED (lab, 2026-08-21): the arm base sits 97 mm above the benchtop,
+#: so with the benchtop at world z=750 the base is at 847. x and y are still
+#: nominal and need measuring.
+#:
+#: **The 57 mm difference from the scene is a real sim-to-real error**, not a
+#: bookkeeping mismatch: the scene models the rail assembly too short. Recorded
+#: as MEASURED_BASE_Z_DELTA_MM below so the sweep fails if it changes
+#: unnoticed, and so it stays visible until the scene is corrected.
+BASE_AT_RAIL_ZERO_MM: tuple[float, float, float] = (-350.0, -50.0, 847.0)
+
+#: Known, deliberate gap between the two above. Fixing the scene means raising
+#: the rail assembly by this much and setting this back to 0.
+MEASURED_BASE_Z_DELTA_MM: float = (BASE_AT_RAIL_ZERO_MM[2]
+                                   - SCENE_BASE_AT_RAIL_ZERO_MM[2])
+
+#: Distance from the tool flange to the gripper tip, mm.
+#:
+#: DERIVED, not directly measured: with no TCP offset set, UFACTORY Studio
+#: reported z=145 (arm-base frame) at the pose where the gripper tip sat 25 mm
+#: above the benchtop. The base is 97 mm above the benchtop, so the tip was at
+#: -72 mm in the base frame and the tool spans 145 - (-72) = 217 mm.
+#:
+#: **Confirm this against the physical gripper before trusting it.** Everything
+#: about benchtop clearance depends on it.
+TOOL_LENGTH_MM: float = 217.0
 
 #: World z of the benchtop the rail is mounted on.
 BENCH_TOP_Z_MM: float = 750.0
@@ -122,7 +149,33 @@ BENCHTOP_CLEARANCE_MM: float = 25.0
 #: check. It is only meaningful if the TCP offset is set correctly (see
 #: docs/hardware_preflight.md §1.2): with no TCP set, z refers to the flange and
 #: the tool hangs below it, making this optimistic by the tool length.
-WORKSPACE_FLOOR_Z_MM: float = BENCH_TOP_Z_MM + BENCHTOP_CLEARANCE_MM
+def floor_z_for_tcp(tcp_offset_z_mm: float,
+                    bench_top_z=BENCH_TOP_Z_MM,
+                    clearance=BENCHTOP_CLEARANCE_MM,
+                    tool_length=TOOL_LENGTH_MM) -> float:
+    """Minimum commandable world z, given the TCP offset actually configured.
+
+    This has to depend on the TCP because the controller positions whatever the
+    TCP offset points at. With no offset it positions the **flange**, and the
+    gripper hangs `tool_length` below that -- so commanding the z you want the
+    *tip* at drives the tip a full tool-length into the bench.
+
+    Worked through:
+
+        controlled point sits (tool_length - tcp_z) above the tip
+        want:  tip_z >= bench_top + clearance
+        so: commanded_z >= bench_top + clearance + (tool_length - tcp_z)
+
+    tcp_z = 0   (no offset)      -> floor 992 mm, controlling the flange
+    tcp_z = 217 (tip configured) -> floor 775 mm, controlling the tip
+    """
+    return bench_top_z + clearance + (tool_length - tcp_offset_z_mm)
+
+
+#: Default floor assumes the TCP is configured at the gripper tip, which is what
+#: makes real-arm coordinates mean the same thing as the twin's. RealXArmAPI
+#: reads the live TCP offset at connect and recomputes rather than trusting this.
+WORKSPACE_FLOOR_Z_MM: float = floor_z_for_tcp(TOOL_LENGTH_MM)
 
 #: Commanded-pose bounds in world mm. Wider than the bench so reaching past an
 #: edge is allowed, but a plan that asks for metres away is refused.

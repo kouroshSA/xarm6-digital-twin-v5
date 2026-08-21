@@ -48,6 +48,10 @@ class FakeArm:
 
     # a real controller reports a serial number; blank is the Docker case
     sn = "XI1305A2024"
+    # TCP configured at the gripper tip, which is the correct setup and the one
+    # in which twin coordinates transfer directly. tcp_offset=[0,0,0,...] models
+    # the unconfigured case and is covered by its own test.
+    tcp_offset = [0.0, 0.0, 217.0, 0.0, 0.0, 0.0]
 
     # motion
     def clean_error(self): return 0
@@ -190,10 +194,10 @@ def test_world_to_base_conversion(real_arm, wrapper):
     arm.arm._rail_pos = 350.0                      # base sits at world x=0
     arm.set_position(x=0, y=-250, z=830)
     sent = [c for c in arm.arm.calls if c[0] == "set_position"][-1][1]
-    # base = world - (-350 + 350, -50, 790) = (0, -200, 40)
+    # base = world - (-350 + 350, -50, 847) = (0, -200, -17)
     got = (round(sent["x"]), round(sent["y"]), round(sent["z"]))
-    if got != (0, -200, 40):
-        return f"FAIL  world (0,-250,830) -> base {got}, expected (0, -200, 40)"
+    if got != (0, -200, -17):
+        return f"FAIL  world (0,-250,830) -> base {got}, expected (0, -200, -17)"
     return "PASS  world pose converted to base coordinates before dispatch"
 
 
@@ -217,7 +221,7 @@ def test_round_trip_is_symmetric(real_arm, wrapper):
     real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
     arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
     arm.arm._rail_pos = 350.0
-    arm.arm._position = [0.0, -200.0, 40.0, 180.0, 0.0, 0.0]   # base frame
+    arm.arm._position = [0.0, -200.0, -17.0, 180.0, 0.0, 0.0]  # base frame
     code, pose = arm.get_position()
     got = tuple(round(v) for v in pose[:3])
     if got != (0, -250, 830):
@@ -245,6 +249,22 @@ def test_floor_constraint_blocks_the_benchtop(real_arm, wrapper):
     return "FAIL  a pose 50mm inside the benchtop was accepted"
 
 
+def test_floor_tracks_the_tcp_offset(real_arm, wrapper):
+    """With no TCP set the controller positions the flange, so the floor must
+    rise by a tool length — otherwise a twin z drives the tip into the bench."""
+    class NoTcp(FakeArm):
+        tcp_offset = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    real_arm.XArmAPI = lambda ip: NoTcp(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    if abs(arm.floor_z_mm - 992.0) > 1.0:
+        return f"FAIL  unset TCP gave floor {arm.floor_z_mm:.0f}, expected 992"
+    try:
+        arm.set_position(x=0, y=-250, z=775)     # a twin-frame grasp height
+    except real_arm.RealArmError:
+        return "PASS  unset TCP raises the floor and refuses a twin-frame grasp z"
+    return "FAIL  unset TCP accepted a z that puts the tip inside the bench"
+
+
 TESTS = [
     test_missing_rail_api_raises_at_construction,
     test_both_sdk_generations_probe,
@@ -257,6 +277,7 @@ TESTS = [
     test_conversion_tracks_the_rail,
     test_round_trip_is_symmetric,
     test_floor_constraint_blocks_the_benchtop,
+    test_floor_tracks_the_tcp_offset,
 ]
 
 
