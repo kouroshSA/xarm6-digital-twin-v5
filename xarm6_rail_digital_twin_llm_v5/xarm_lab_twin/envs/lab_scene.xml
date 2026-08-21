@@ -99,12 +99,20 @@
     <material name="red_mat"   rgba="0.9 0.2 0.2 1"/>
     <material name="green_mat" rgba="0.2 0.8 0.3 1"/>
     <material name="blue_mat"  rgba="0.2 0.4 0.9 1"/>
-    <!-- Opaque off-white plastic beaker. Deliberately NOT transparent: a
-         RealSense D435 is structured-light/stereo IR and returns little or no
-         depth on transparent surfaces, so a see-through cup would be one of the
-         hardest things in the scene to perceive on real hardware. Off-white also
-         separates cleanly in hue from the red/green/blue objects. -->
-    <material name="clear_cup_mat" rgba="0.93 0.93 0.91 1"/>
+    <!-- Milky off-white polypropylene beaker: translucent, not transparent.
+         Light diffuses through the wall but you cannot read contents through it,
+         which is what an ordinary lab cup actually looks like.
+
+         Deliberately not fully clear: a RealSense D435 is structured-light /
+         stereo IR and returns little or no depth on transparent surfaces, so a
+         see-through cup would be among the hardest objects in the scene to
+         perceive on real hardware. Milky plastic returns depth fine. Off-white
+         also separates cleanly in hue from the red/green/blue objects, which
+         matters for the colour-segmentation backend planned for locate().
+
+         alpha 0.85 renders as translucent without letting the cube inside read
+         as unobstructed. -->
+    <material name="translucent_cup_mat" rgba="0.93 0.93 0.91 0.85"/>
     <material name="red_bin_mat"   rgba="0.9 0.2 0.2 0.6"/>
     <material name="green_bin_mat" rgba="0.2 0.8 0.3 0.6"/>
     <material name="blue_bin_mat"  rgba="0.2 0.4 0.9 0.6"/>
@@ -407,7 +415,7 @@
             size="0.002 0.040 0.030" pos=" 0.040 0 0.030"/>
     </body>
 
-    <!-- Clear cup: a round, open-top beaker acting as a third bin. Sits in the
+    <!-- Translucent cup: a round, open-top beaker acting as a third bin. Sits in the
          bin row at x=-0.20, left of green_bin, on the same y as the other bins.
 
          Opaque, not see-through -- see the material comment above for why.
@@ -419,38 +427,38 @@
 
          Lighter than the moulded bins (0.15 kg vs 0.5) because it is a plastic
          cup. Verified stable for cube releases from 830 mm (just above the rim)
-         and 900 mm: it does not tip and the cube is graded "in clear_cup".
+         and 900 mm: it does not tip and the cube is graded "in translucent_cup".
          Being light and tall it is likelier than the bins to topple under a
          lateral hit -- not measured, so treat that as a risk, not a fact. -->
-    <body name="clear_cup" pos="-0.20 -0.35 0.75">
+    <body name="translucent_cup" pos="-0.20 -0.35 0.75">
       <inertial pos="0 0 0.020" mass="0.15" diaginertia="1.4e-4 1.4e-4 1.0e-4"/>
-      <joint type="free" name="clear_cup_joint"/>
-      <geom name="clear_cup_floor" type="cylinder" size="0.033 0.001"
-            pos="0 0 0.001" material="clear_cup_mat"
+      <joint type="free" name="translucent_cup_joint"/>
+      <geom name="translucent_cup_floor" type="cylinder" size="0.033 0.001"
+            pos="0 0 0.001" material="translucent_cup_mat"
             contype="1" conaffinity="1" mass="0"/>
-      <geom name="clear_cup_w00" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w00" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="0.03100 0.00000 0.032" euler="0 0 1.57080"/>
-      <geom name="clear_cup_w01" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w01" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="0.02685 0.01550 0.032" euler="0 0 2.09440"/>
-      <geom name="clear_cup_w02" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w02" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="0.01550 0.02685 0.032" euler="0 0 2.61799"/>
-      <geom name="clear_cup_w03" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w03" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="0.00000 0.03100 0.032" euler="0 0 3.14159"/>
-      <geom name="clear_cup_w04" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w04" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.01550 0.02685 0.032" euler="0 0 3.66519"/>
-      <geom name="clear_cup_w05" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w05" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.02685 0.01550 0.032" euler="0 0 4.18879"/>
-      <geom name="clear_cup_w06" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w06" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.03100 0.00000 0.032" euler="0 0 4.71239"/>
-      <geom name="clear_cup_w07" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w07" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.02685 -0.01550 0.032" euler="0 0 5.23599"/>
-      <geom name="clear_cup_w08" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w08" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.01550 -0.02685 0.032" euler="0 0 5.75959"/>
-      <geom name="clear_cup_w09" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w09" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="-0.00000 -0.03100 0.032" euler="0 0 6.28319"/>
-      <geom name="clear_cup_w10" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w10" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="0.01550 -0.02685 0.032" euler="0 0 6.80678"/>
-      <geom name="clear_cup_w11" class="cup_wall" material="clear_cup_mat"
+      <geom name="translucent_cup_w11" class="cup_wall" material="translucent_cup_mat"
             size="0.0085 0.002 0.03" pos="0.02685 -0.01550 0.032" euler="0 0 7.33038"/>
     </body>
     <body name="blue_bin" pos="0.20 -0.35 0.75">
@@ -1111,7 +1119,7 @@
        the cube is "carried" while the weld is active.
   ============================================================ -->
   <equality>
-    <weld name="grip_clear_cup"     body1="gripper" body2="clear_cup"     active="false"/>
+    <weld name="grip_translucent_cup"     body1="gripper" body2="translucent_cup"     active="false"/>
     <weld name="grip_red_cube_back"  body1="gripper" body2="red_cube_back"  active="false"/>
     <weld name="grip_red_cube_front" body1="gripper" body2="red_cube_front" active="false"/>
     <weld name="grip_green_cube" body1="gripper" body2="green_cube" active="false"/>
