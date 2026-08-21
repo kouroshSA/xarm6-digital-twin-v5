@@ -233,8 +233,11 @@ def test_floor_constraint_blocks_the_benchtop(real_arm, wrapper):
     try:
         arm.set_position(x=0, y=-250, z=700)       # 50 mm INTO the bench
     except real_arm.RealArmError as exc:
-        if "floor" not in str(exc):
-            return f"FAIL  refused, but not for the floor: {exc}"
+        # Match on the benchtop reference rather than an exact phrase: the
+        # wording changed once already and a brittle assertion failed a correct
+        # refusal. What matters is that it cites the surface being protected.
+        if "benchtop" not in str(exc).lower():
+            return f"FAIL  refused, but not for the benchtop: {exc}"
         after = len([c for c in arm.arm.calls if c[0] == "set_position"])
         if after != before:
             return "FAIL  refused but still dispatched to the controller"
