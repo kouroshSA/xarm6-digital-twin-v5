@@ -24,7 +24,7 @@ RAIL_ACT    = 0
 # snapshot code both read this, so adding a container is a one-line change here
 # rather than three hardcoded tuples that drift apart -- which is exactly how
 # `red_bin` survived in the grader prompt long after leaving the scene.
-BIN_BODIES = ("green_bin", "blue_bin", "clear_cup")
+BIN_BODIES = ("green_bin", "blue_bin", "translucent_cup")
 
 GRIPPABLE_BODIES = {
     # Cubes. The two red cubes straddle the rail (200 mm either side of its
@@ -44,7 +44,7 @@ GRIPPABLE_BODIES = {
     # Bins / containers (free bodies, so they can be pushed around too)
     "green_bin":  "grip_green_bin",
     "blue_bin":   "grip_blue_bin",
-    "clear_cup":  "grip_clear_cup",
+    "translucent_cup":  "grip_translucent_cup",
     # Tube racks (also free now -- pushable)
     "left_tube_rack":  "grip_left_rack",
     "right_tube_rack": "grip_right_rack",

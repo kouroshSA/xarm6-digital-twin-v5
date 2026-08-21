@@ -203,14 +203,17 @@ def build_default_registry() -> ObjectRegistry:
         object_type="cube",
     ))
     reg.register(LabObject(
-        name="clear_cup",
-        aliases=["clear cup", "cup", "beaker", "white cup",
-                 "plastic cup", "clear beaker"],
+        name="translucent_cup",
+        # "clear cup" is kept as an alias on purpose: it was the object's name
+        # for a while and is still how it gets referred to out loud.
+        aliases=["translucent cup", "cup", "beaker", "white cup",
+                 "plastic cup", "clear cup"],
         position_xyz_m=[-0.2, -0.35, 0.75],
         optimal_rail_mm=150.0,
         grasp=bin_grasp,
-        safety_notes=("Round open-top OPAQUE off-white plastic beaker used as a "
-                      "third bin (the name is historical -- it is not see-through). "
+        safety_notes=("Round open-top translucent off-white plastic beaker used as a "
+                      "third bin -- milky plastic, light passes through but "
+                      "contents are not readable through the wall. "
                       "58 mm "
                       "inner diameter, 60 mm tall, rim at z=810. Release cubes "
                       "above the rim and let them drop -- that is verified to "

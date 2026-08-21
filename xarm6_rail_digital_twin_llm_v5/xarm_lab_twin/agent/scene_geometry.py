@@ -141,7 +141,7 @@ class SceneGeometry:
 PROMPT_BODIES = [
     "red_cube_front", "red_cube_back",
     "green_cube", "blue_cube",
-    "green_bin", "blue_bin", "clear_cup",
+    "green_bin", "blue_bin", "translucent_cup",
     "left_tube_rack", "right_tube_rack",
     "tube_L1", "tube_L2", "tube_L3", "tube_R1", "tube_R2", "tube_R3",
     "well_plate_A", "well_plate_B", "tip_box",
@@ -213,9 +213,9 @@ def render_object_names(scene=None) -> str:
     """
     scene = _as_scene(scene)
 
-    # Containers come from BIN_BODIES, not from a name pattern. `clear_cup` is a
+    # Containers come from BIN_BODIES, not from a name pattern. `translucent_cup` is a
     # bin with no "bin" in its name, and mis-filing it as generic movable would
-    # tell the grader that "<cube> in clear_cup" is not a success shape — which
+    # tell the grader that "<cube> in translucent_cup" is not a success shape — which
     # it is, and which physical_outcome() does emit.
     try:
         from sim.mujoco_env import BIN_BODIES  # local import: avoids a cycle
