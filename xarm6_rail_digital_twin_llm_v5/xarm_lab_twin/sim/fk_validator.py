@@ -15,6 +15,9 @@ class ValidationResult:
     achieved_pos: Optional[np.ndarray] = None
     position_error_mm: Optional[float] = None
     has_collision: bool = False
+    #: Colliding (geomA, geomB) pairs, so a caller can tell a NEW collision
+    #: from one that was already present before it asked for anything.
+    contacts: tuple = ()
 
 
 class FKValidator:
@@ -192,7 +195,8 @@ class FKValidator:
                                     f"({arm_hits[:3]})"),
                             achieved_pos=achieved,
                             position_error_mm=error_mm,
-                            has_collision=True
+                            has_collision=True,
+                            contacts=tuple(tuple(sorted(h)) for h in arm_hits),
                         )
 
                 return ValidationResult(

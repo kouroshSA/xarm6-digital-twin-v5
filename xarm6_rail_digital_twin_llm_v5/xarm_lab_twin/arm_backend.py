@@ -92,6 +92,18 @@ XARM6_JOINT_LIMITS_DEG: tuple[tuple[float, float], ...] = (
 )
 RAIL_LIMITS_MM: tuple[float, float] = (0.0, 700.0)
 
+# The home pose, VERIFIED on the real arm 2026-08-21, shared by both backends.
+# It lived in two places with two different values: hardware/real_arm.py held
+# these joint angles, while sim/mujoco_env.py had its own "looks tidy" pose
+# with joint1 at +90 deg -- base rotated to face the wall, which put the
+# gripper inside the PCR module. Nothing noticed until the rail gained
+# swept-path validation, at which point every episode died on its first
+# command because the arm was already in contact and could not move at all.
+#
+# Two homes is two robots. This is the one.
+HOME_JOINTS_DEG: tuple[float, ...] = (-0.6, -31.8, -25.4, 0.0, 57.2, -0.4)
+HOME_RAIL_MM: float = 350.0
+
 
 #: Where the arm's base sits in world coordinates when the rail is at 0 mm, and
 #: how it moves with the rail. Measured from the scene:
