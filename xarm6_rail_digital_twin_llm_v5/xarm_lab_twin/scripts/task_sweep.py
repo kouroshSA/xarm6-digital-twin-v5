@@ -196,12 +196,16 @@ def task_swept_path_validated(arm):
     """
     import numpy as np
     arm.set_rail_position(350.0, wait=True)
-    start = (-200.0, -250.0, 800.0)
-    target = (200.0, -250.0, 800.0)
+    # Lane chosen so the straight run passes over green_bin while both ends are
+    # clear. It is layout-dependent by nature, so the test reports INCONCLUSIVE
+    # rather than pass/fail if the scene moves under it -- which it already did
+    # once, when the blue block was placed on the previous target.
+    start = (-250.0, -150.0, 795.0)
+    target = (250.0, -150.0, 795.0)
     # Reach the start via a clearance height. Going straight there from home is
     # itself path-blocked now, which would make this test inconclusive rather
     # than failing -- a reminder that the check applies to the setup too.
-    if arm.set_position(start[0], start[1], 980.0, roll=180, wait=True) != 0:
+    if arm.set_position(start[0], start[1], 950.0, roll=180, wait=True) != 0:
         return False, "could not reach the clearance pose; test is inconclusive"
     if arm.set_position(*start, roll=180, wait=True) != 0:
         return False, "could not reach the start pose; test is inconclusive"

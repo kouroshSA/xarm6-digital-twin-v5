@@ -234,7 +234,10 @@ def build_default_registry() -> ObjectRegistry:
     reg.register(LabObject(
         name="blue_cube",
         aliases=["blue cube", "blue block", "blue"],
-        position_xyz_m=[0.2, -0.15, 0.78],
+        # 30 x 30 x 60 mm standing, 200 mm SOUTH of red_cube_front (south is
+        # +x, toward the OT-2 -- see the compass block in the scene XML).
+        # Parallel to the rail, so both blocks sit 200 mm from its centreline.
+        position_xyz_m=[0.2, -0.25, 0.78],
         optimal_rail_mm=550.0,
         grasp=cube_grasp,
         safety_notes="Small graspable cube. Approach from above.",
