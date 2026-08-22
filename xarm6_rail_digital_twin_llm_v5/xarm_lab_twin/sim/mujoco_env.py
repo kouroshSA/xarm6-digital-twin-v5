@@ -1280,11 +1280,19 @@ class SimXArmAPI:
             # Release any grasped cube
             for eqid in self.weld_eqids.values():
                 self.data.eq_active[eqid] = 0
-            # Restore each cube's free-joint qpos/qvel to XML defaults
-            for cube_name, bid in self.cube_bids.items():
-                jnt_adr = self.model.body_jntadr[bid]
-                qpos_adr = self.model.jnt_qposadr[jnt_adr]
-                dof_adr  = self.model.jnt_dofadr[jnt_adr]
+            # Restore EVERY free-floating body to its XML pose, not just the
+            # grippable ones. This used to iterate self.cube_bids, so anything
+            # the arm knocked into that it could not grasp -- heater_shaker,
+            # the bins, racks -- kept its displacement across episodes. The
+            # episode loop is documented as starting each attempt from a
+            # deterministic baseline, and it was not: by episode 6 the world
+            # differed from episode 1 by every collision in between, so the
+            # constraints it learned described a scene that no longer existed.
+            for jid in range(self.model.njnt):
+                if self.model.jnt_type[jid] != mujoco.mjtJoint.mjJNT_FREE:
+                    continue
+                qpos_adr = self.model.jnt_qposadr[jid]
+                dof_adr  = self.model.jnt_dofadr[jid]
                 self.data.qpos[qpos_adr:qpos_adr + 7] = \
                     self.model.qpos0[qpos_adr:qpos_adr + 7]
                 self.data.qvel[dof_adr:dof_adr + 6] = 0.0
