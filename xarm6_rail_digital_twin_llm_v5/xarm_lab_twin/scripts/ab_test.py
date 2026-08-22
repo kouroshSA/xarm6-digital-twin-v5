@@ -125,6 +125,9 @@ def run_once(task: str, difficulty: str, arm: str, spec: dict,
     env = dict(os.environ)
     env.update(spec.get("env", {}))
     env.setdefault("MUJOCO_GL", "egl")
+    # Applied to BOTH arms, so it cannot favour either. The Opus session
+    # review only writes world_model.md, which is reset around every run here.
+    env.setdefault("XARM_NO_REVIEW", "1")
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as fh:
         summary_path = fh.name
