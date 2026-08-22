@@ -241,6 +241,18 @@ def check_graspable(arm, obj) -> tuple:
     if rc == 0 and pose is not None:
         import numpy as np
         grasp_z = pose[2] + GRASP_MAX_AXIAL_M * 1000.0 * 0.6
+        # The grasp height is GEOMETRY -- object centre plus jaw depth -- so it
+        # is always computable and always worth telling the planner. It used to
+        # be reported only when the reachability sweep below also succeeded,
+        # and that sweep is flaky because the controller's IK alternates
+        # branches. The single most useful number was therefore delivered
+        # intermittently: watching a live run, the planner got no grasp height,
+        # guessed 795 mm for a block whose top is at 810, and drove the gripper
+        # into it. Report it unconditionally; reachability is reported apart.
+        facts.append(f"{obj.name}: grasp at z={grasp_z:.0f} mm "
+                     f"(jaws reach ~{GRASP_MAX_AXIAL_M*1000:.0f} mm below the "
+                     f"tool, so descending lower drives the gripper into it)")
+
         tgt = np.array([pose[0], pose[1], grasp_z]) / 1000.0
         reachable_at = [r for r in RAIL_SAMPLES_MM
                         if _reachable_at_rail(arm, tgt, r)]
@@ -259,8 +271,8 @@ def check_graspable(arm, obj) -> tuple:
                 f"({int(RAIL_SAMPLES_MM[0])}-{int(RAIL_SAMPLES_MM[-1])} mm) -- "
                 f"likely infeasible, but this is a screen, not a proof")
         else:
-            facts.append(f"{obj.name}: grasp at z={grasp_z:.0f} mm, reachable "
-                         f"with rail at {', '.join(f'{r:.0f}' for r in reachable_at)} mm")
+            facts.append(f"{obj.name}: reachable with the rail at "
+                         f"{', '.join(f'{r:.0f}' for r in reachable_at)} mm")
     return blockers, warnings, facts
 
 

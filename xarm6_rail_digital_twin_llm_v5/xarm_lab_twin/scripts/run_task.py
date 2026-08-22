@@ -257,6 +257,15 @@ def main():
             if verdict.facts or verdict.warnings or verdict.blockers:
                 print(verdict.render())
                 print()
+            # The facts must reach the PLANNER, not just the console. This
+            # printed them and stopped, which made Layer 1 a reporting tool
+            # rather than a grounding one: watching a live run, Layer 1
+            # computed "grasp at z=807" and the planner -- never shown it --
+            # chose 795 and drove the gripper into a block whose top is 810.
+            # They ride with the task, the same way Layer 0's constraints do.
+            if verdict.facts:
+                args.task = (f"{args.task} Measured from the scene: "
+                             + "; ".join(verdict.facts) + ".")
             if not verdict.feasible:
                 print("[System] Task REFUSED before planning -- the blockers "
                       "above are geometric, so no action sequence can succeed. "
