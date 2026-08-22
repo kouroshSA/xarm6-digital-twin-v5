@@ -1,0 +1,6 @@
+# Tasks chosen to exercise what Layer 0 actually does: class-level
+# constraints, decomposition, and loose phrasing. All are achievable in the
+# scene, so there is headroom for a difference to show.
+move the blue block into the translucent cup | medium: class constraint (release above the rim)
+carefully place the red cube inside the translucent cup without tipping the cup | medium: constraint-laden phrasing
+put the red cube into the cup, then put the blue cube into the cup as well | hard: two components to decompose
