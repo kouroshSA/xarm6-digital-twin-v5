@@ -1085,6 +1085,14 @@ def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]
     any error. The "non-fatal" guarantee matters: a flaky API call should
     not invalidate a successful training session.
     """
+    # Escape hatch for the A/B harness. The review's output lands in
+    # world_model.md, which the harness snapshots and restores around every
+    # run -- so for an experiment it is pure cost and latency. ab_test.py sets
+    # this for BOTH arms, so it cannot bias the comparison. Unset in normal
+    # use; the review is how cross-session knowledge accumulates.
+    import os as _os
+    if _os.environ.get("XARM_NO_REVIEW"):
+        return None
     try:
         from agent.review_session import review_session
         from agent.lessons import (read_lessons_section, read_reviews_section,
