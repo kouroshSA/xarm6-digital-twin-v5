@@ -1,5 +1,6 @@
 ---
 name: safe-traverse
+audience: planner
 applies_to: any task that moves the arm between two places in the cell
 scene_contract: swept-path validation; jaw-depth grasp gate
 ---

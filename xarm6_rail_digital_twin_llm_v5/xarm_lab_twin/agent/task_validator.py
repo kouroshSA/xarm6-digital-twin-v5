@@ -31,6 +31,7 @@ trace back to something this module measured.
 from __future__ import annotations
 
 import argparse
+import re
 import os
 import sys
 from dataclasses import dataclass, field
@@ -85,6 +86,32 @@ RAIL_SAMPLES_MM = (0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0)
 IK_ATTEMPTS_PER_RAIL = 3
 
 
+#: How much of an alias an n-gram must cover to count as naming it. Substring
+#: matching alone is far too eager: "the rail" is a substring of the alias
+#: "red cube behind the rail", so a prompt mentioning the rail resolved to a
+#: red cube, invented a fact about it, and then made Layer 2's contract reject
+#: a perfectly good rewrite for "dropping" a referent that was never real.
+NGRAM_ALIAS_COVERAGE = 0.5
+
+
+def _ngram_matches(registry, phrase: str) -> list:
+    """Objects an n-gram plausibly names, by alias coverage rather than mere
+    containment. Exact name or exact alias always wins."""
+    out = []
+    for obj in registry.objects.values():
+        if phrase == obj.name.lower():
+            return [obj]
+        for alias in obj.aliases:
+            a = alias.lower().strip()
+            if phrase == a:
+                out.append(obj)
+                break
+            if phrase in a and len(phrase) / max(len(a), 1) >= NGRAM_ALIAS_COVERAGE:
+                out.append(obj)
+                break
+    return out
+
+
 def resolve_referents(task: str, registry) -> list:
     """Bind phrases in `task` to scene objects via the registry's aliases.
 
@@ -95,6 +122,35 @@ def resolve_referents(task: str, registry) -> list:
     """
     low = task.lower()
     seen, out = set(), []
+
+    # Phrases FROM THE TASK, matched against the registry. This direction
+    # matters and was missing: the loop below asks "does this alias appear in
+    # the task", which needs the operator to use an alias verbatim. No red
+    # cube carries the bare alias "red cube" -- they are registered as "front
+    # red cube", "near red cube" and so on -- so "put the red cube in the cup"
+    # matched NOTHING and Layer 1 reported no ambiguity at all. A silent
+    # non-resolution is worse than an ambiguous one: the planner is left to
+    # guess and nobody is told. registry.find_all does substring matching the
+    # other way round, so feeding it n-grams from the task catches it.
+    words = re.findall(r"[a-z0-9_]+", low)
+    for n in (3, 2):
+        for i in range(len(words) - n + 1):
+            phrase = " ".join(words[i:i + n])
+            matches = _ngram_matches(registry, phrase)
+            if not matches:
+                continue
+            key = (phrase, tuple(sorted(o.name for o in matches)))
+            if key in seen:
+                continue
+            # Skip a shorter phrase already covered by a longer one that
+            # resolved to the same objects ("red cube" under "front red cube").
+            if any(phrase in p_ and set(o.name for o in matches) ==
+                   set(o.name for o in m_) for p_, m_ in
+                   [(r.phrase, r.matches) for r in out]):
+                continue
+            seen.add(key)
+            out.append(Resolution(phrase=phrase, matches=matches))
+
     for obj in registry.objects.values():
         # The body NAME counts too, and is tried first. Naming an object
         # explicitly is exactly how an operator disambiguates "the red cube",
@@ -243,6 +299,16 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
     for c in containers:
         for m in movables:
             v.blockers += check_fits_container(arm, m, c)
+
+    # The two matchers can both find the same object, so the same measured
+    # fact appears twice. Dedupe while preserving order -- a report that
+    # repeats itself reads as two separate observations.
+    for attr in ("facts", "warnings", "blockers"):
+        seen, uniq = set(), []
+        for item in getattr(v, attr):
+            if item not in seen:
+                seen.add(item); uniq.append(item)
+        setattr(v, attr, uniq)
     return v
 
 

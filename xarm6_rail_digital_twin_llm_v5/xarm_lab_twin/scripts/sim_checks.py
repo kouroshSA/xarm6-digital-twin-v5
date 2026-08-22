@@ -384,6 +384,25 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+def check_prompt_refiner(scene=None) -> list[CheckResult]:
+    """Layer 2's contract must reject invention, fabrication and plans.
+
+    No model and no sim: the self-test drives check_contract directly and
+    stubs the model call, so the guardrail is verified without spending a
+    token. The guardrail is the only reason Layer 2 is safe to enable.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "-m", "agent.prompt_refiner", "--self-test"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("[PASS", "[FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("[FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("agent.prompt_refiner", FAIL, "; ".join(failed))]
+    return [CheckResult("agent.prompt_refiner", PASS,
+                        f"{len(tail)} Layer 2 contract tests pass")]
+
+
 def check_skills(scene=None) -> list[CheckResult]:
     """Planning skills must load, and must not smuggle geometry into the prompt.
 
@@ -531,6 +550,7 @@ STATIC_CHECKS = [
     check_preflight_level1,
     check_task_validator,
     check_skills,
+    check_prompt_refiner,
     check_motion_error_audit,
 ]
 

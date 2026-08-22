@@ -31,6 +31,12 @@ def main():
                              "You are then executing an unchecked plan on a "
                              "physical arm; the operator must be at the e-stop.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--refine-prompt", action="store_true",
+                        help="Layer 2: let a model rewrite an AMBIGUOUS task "
+                             "into an unambiguous one before planning. Off by "
+                             "default until an A/B shows it earns its place; "
+                             "the rewrite is discarded unless it passes "
+                             "re-validation against the scene.")
     parser.add_argument("--no-task-check", action="store_true",
                         help="skip Layer 1 task validation (resolution + "
                              "feasibility screen) before planning")
@@ -162,6 +168,24 @@ def main():
               "before it reaches the arm. Stay on the e-stop.")
 
     print(f"\n[Task] {args.task}\n")
+
+    # Layer 2 (opt-in): rewrite an ambiguous instruction before Layer 1's
+    # final pass. It runs AFTER a first Layer 1 read internally -- the refiner
+    # needs measured facts to write with -- and its output is re-validated, so
+    # a rewrite that invents an object or a number is discarded and the
+    # original prompt is used unchanged.
+    if args.refine_prompt and not args.no_task_check:
+        try:
+            from agent.prompt_refiner import refine
+            r = refine(args.task, registry, arm)
+            if r.used:
+                print(f"[Layer2] refined: {r.original!r}\n"
+                      f"      -> {r.refined!r}")
+                args.task = r.refined
+            else:
+                print(f"[Layer2] using the original prompt ({r.reason})")
+        except Exception as exc:  # noqa: BLE001 - never block a run on the refiner
+            print(f"[Layer2] skipped ({type(exc).__name__}: {exc})")
 
     # Layer 1: resolve the task against the scene before any planning happens.
     # Deterministic -- no LLM, no motion. It answers two questions the planner

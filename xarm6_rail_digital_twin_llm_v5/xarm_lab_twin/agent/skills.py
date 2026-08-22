@@ -66,11 +66,19 @@ def _check_no_geometry(name: str, text: str) -> None:
             f"at runtime, where there is one copy read from the scene.")
 
 
-def load_skills(skills_dir: Path = SKILLS_DIR, strict: bool = False) -> list:
-    """[(name, body)] for every readable skill. Rejects skills with geometry.
+def load_skills(skills_dir: Path = SKILLS_DIR, strict: bool = False,
+                audience: str = "planner") -> list:
+    """[(name, body)] for skills addressed to `audience`. Rejects geometry.
 
-    `strict` re-raises rejections instead of skipping, which is what the
-    self-test and the sweep check use.
+    Audience matters because the two consumers need opposite things. The
+    planner needs procedure -- how to move without hitting anything. The
+    prompt refiner needs the opposite instruction: say what the task IS, and
+    do not describe how to do it. Feeding the planner's movement procedure to
+    the refiner would produce task statements with the plan already baked in,
+    which pre-empts the planner and freezes one strategy across every episode
+    -- exactly what the loop's exploration depends on not happening.
+
+    `strict` re-raises rejections instead of skipping.
     """
     out = []
     if not Path(skills_dir).is_dir():
@@ -80,10 +88,16 @@ def load_skills(skills_dir: Path = SKILLS_DIR, strict: bool = False) -> list:
         name = path.stem.replace("_", "-")
         m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
         body = text[m.end():] if m else text
+        skill_audience = "planner"
         if m:
             n = re.search(r"^name:\s*(.+)$", m.group(1), re.M)
             if n:
                 name = n.group(1).strip()
+            a = re.search(r"^audience:\s*(.+)$", m.group(1), re.M)
+            if a:
+                skill_audience = a.group(1).strip()
+        if skill_audience != audience:
+            continue
         try:
             _check_no_geometry(name, body)
         except SkillRejected as exc:
