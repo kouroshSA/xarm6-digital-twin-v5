@@ -1703,6 +1703,48 @@ class SimXArmAPI:
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
         return 0
 
+    def object_width_m(self, name: str) -> float:
+        """Width the jaws must span to take `name`, in metres.
+
+        Approaching from above the jaws close horizontally, so what matters is
+        the NARROWER of the object's two world-horizontal extents -- a real
+        gripper yaws to take the narrow side.
+
+        mjGEOM size fields mean different things per type (for a cylinder
+        size[1] is HALF-LENGTH, not a radius), so each geom is converted to an
+        equivalent half-extent triple before being rotated into the world
+        frame. Reading size[1] as lateral measured a 15 mm tube as 115 mm.
+
+        Single copy on purpose: the grasp gate and the task validator both ask
+        this question, and a second implementation is how they would come to
+        disagree.
+        """
+        import numpy as _np
+        bid = self.model.body(name).id
+        width = 0.0
+        with self.lock:
+            for g in range(self.model.ngeom):
+                if self.model.geom_bodyid[g] != bid:
+                    continue
+                t = int(self.model.geom_type[g])
+                sz = self.model.geom_size[g]
+                if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
+                    half = _np.array([sz[0], sz[0], sz[0]])
+                elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
+                           int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
+                    half = _np.array([sz[0], sz[0], sz[1]])
+                elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
+                           int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
+                    half = _np.array([sz[0], sz[1], sz[2]])
+                else:
+                    r = float(self.model.geom_rbound[g])
+                    half = _np.array([r, r, r])
+                R = self.data.geom_xmat[g].reshape(3, 3)
+                ext_x = float(_np.abs(R[0, :]) @ half)
+                ext_y = float(_np.abs(R[1, :]) @ half)
+                width = max(width, 2.0 * min(ext_x, ext_y))
+        return width
+
     def _validate_swept_path(self, start_rad, target_rad,
                              start_rail_m=None, target_rail_m=None,
                              n: int = None):
@@ -1790,27 +1832,7 @@ class SimXArmAPI:
         # cylinder size[1] is HALF-LENGTH, not a radius), so each type is
         # converted to an equivalent half-extent triple first; reading size[1]
         # as lateral measured a 15 mm tube as 115 mm and rejected it.
-        width = 0.0
-        for g in range(self.model.ngeom):
-            if self.model.geom_bodyid[g] != bid:
-                continue
-            t = int(self.model.geom_type[g])
-            sz = self.model.geom_size[g]
-            if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
-                half = _np.array([sz[0], sz[0], sz[0]])
-            elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
-                       int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
-                half = _np.array([sz[0], sz[0], sz[1]])
-            elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
-                       int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
-                half = _np.array([sz[0], sz[1], sz[2]])
-            else:
-                r = float(self.model.geom_rbound[g])
-                half = _np.array([r, r, r])
-            R = self.data.geom_xmat[g].reshape(3, 3)
-            ext_x = float(_np.abs(R[0, :]) @ half)
-            ext_y = float(_np.abs(R[1, :]) @ half)
-            width = max(width, 2.0 * min(ext_x, ext_y))
+        width = self.object_width_m(name)
         if width > aperture:
             reasons.append(f"object is {width*1000:.0f} mm wide, jaws span "
                            f"{aperture*1000:.0f} mm")
