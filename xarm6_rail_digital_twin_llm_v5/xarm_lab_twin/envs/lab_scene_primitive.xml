@@ -252,37 +252,37 @@
           <geom name="base_link" type="cylinder" size="0.06 0.04"
                 rgba="0.3 0.3 0.3 1" mass="0.5" class="arm_link"/>
           <joint name="joint1" type="hinge" axis="0 0 1"
-                 range="-3.14159 3.14159" damping="10"/>
+                 range="-6.28319 6.28319" damping="10"/>
 
           <body name="link1" pos="0 0 0.09">
             <geom name="link1_geom" type="box" size="0.055 0.055 0.11"
                   rgba="0.85 0.85 0.85 1" mass="2.16" class="arm_link"/>
             <joint name="joint2" type="hinge" axis="0 1 0"
-                   range="-2.0944 2.0944" damping="10"/>
+                   range="-2.05896 2.0944" damping="10"/>
 
             <body name="link2" pos="0 0 0.22">
               <geom name="link2_geom" type="box" size="0.045 0.045 0.105"
                     rgba="0.85 0.85 0.85 1" mass="1.71" class="arm_link"/>
               <joint name="joint3" type="hinge" axis="0 1 0"
-                     range="-3.14159 1.2217" damping="8"/>
+                     range="-3.92699 0.19199" damping="8"/>
 
               <body name="link3" pos="0 0 0.20">
                 <geom name="link3_geom" type="box" size="0.04 0.04 0.09"
                       rgba="0.8 0.8 0.8 1" mass="1.38" class="arm_link"/>
                 <joint name="joint4" type="hinge" axis="1 0 0"
-                       range="-1.9199 1.9199" damping="6"/>
+                       range="-6.28319 6.28319" damping="6"/>
 
                 <body name="link4" pos="0 0 0.175">
                   <geom name="link4_geom" type="box" size="0.035 0.035 0.075"
                         rgba="0.75 0.75 0.75 1" mass="1.05" class="arm_link"/>
                   <joint name="joint5" type="hinge" axis="0 1 0"
-                         range="-2.6180 2.6180" damping="4"/>
+                         range="-1.69297 3.14159" damping="4"/>
 
                   <body name="link5" pos="0 0 0.13">
                     <geom name="link5_geom" type="box" size="0.03 0.03 0.055"
                           rgba="0.7 0.7 0.7 1" mass="0.72" class="arm_link"/>
                     <joint name="joint6" type="hinge" axis="1 0 0"
-                           range="-1.9199 1.9199" damping="3"/>
+                           range="-6.28319 6.28319" damping="3"/>
 
                     <body name="link6" pos="0 0 0.075">
                       <geom name="link6_geom" type="cylinder" size="0.025 0.03"
