@@ -1,4 +1,5 @@
 # agent/llm_brain.py
+import os
 import anthropic
 import json
 import re
@@ -9,6 +10,7 @@ from agent.lessons import read_lessons_section
 from agent.scene_geometry import (DEFAULT_SCENE, render_geometry_section,
                                   worked_example_coords)
 from agent.world_model import read_world_model, render_for_system_prompt
+from agent.skills import load_skills, render_skills_section
 from recording import Recorder, LLMSessionLog
 
 
@@ -242,6 +244,11 @@ before you see any of this prompt. Just plan as usual.
 
 ## Current scene registry
 {registry_context}
+
+## How to move in this cell
+Durable procedure, not facts about this scene. These describe *how* to act;
+every position and dimension still comes from the registry above.
+{skills_section}
 
 ## What we know about this scene and arm (from prior sessions)
 Accumulated cross-task invariants. High-confidence entries have held
@@ -532,7 +539,9 @@ class LLMBrain:
             self.registry.refresh_from_sim(self.arm)
         except Exception as e:
             print(f"[LLMBrain] registry refresh skipped: {e}")
+        skills = [] if os.environ.get("XARM_NO_SKILLS") else load_skills()
         system = SYSTEM_PROMPT_TEMPLATE.format(
+            skills_section=render_skills_section(skills),
             registry_context=self.registry.to_llm_context(),
             speed_cap_section=self._render_speed_cap_section(),
             world_model_section=wm_section if wm_section

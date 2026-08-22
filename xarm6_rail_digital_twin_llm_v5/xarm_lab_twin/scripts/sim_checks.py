@@ -72,6 +72,12 @@ def _render_prompt(scene) -> str:
         registry_context="(omitted)",
         speed_cap_section="(omitted)",
         world_model_section="(omitted)",
+        # Rendered for real, not stubbed: these checks scan the prompt for
+        # stale coordinates, and a skill is exactly the kind of place a stale
+        # coordinate could hide. Stubbing it would exempt skills from the one
+        # check that would catch that.
+        skills_section=__import__("agent.skills", fromlist=["x"]).render_skills_section(
+            __import__("agent.skills", fromlist=["x"]).load_skills()),
         lessons_section="(omitted)",
         scene_geometry_section=render_geometry_section(scene),
         **worked_example_coords(scene),
@@ -378,6 +384,25 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+def check_skills(scene=None) -> list[CheckResult]:
+    """Planning skills must load, and must not smuggle geometry into the prompt.
+
+    Skills carry procedure; positions and dimensions come from the registry at
+    runtime. A skill is a durable, authoritative-looking place for a stale
+    coordinate to hide, so the loader rejects any that contain one and this
+    check proves the rejection still works.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "-m", "agent.skills", "--self-test"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("[PASS", "[FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("[FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("agent.skills", FAIL, "; ".join(failed))]
+    return [CheckResult("agent.skills", PASS, f"{len(tail)} skill-loader tests pass")]
+
+
 def check_task_validator(scene=None) -> list[CheckResult]:
     """Layer 1 task validation must resolve referents and refuse the impossible.
 
@@ -505,6 +530,7 @@ STATIC_CHECKS = [
     check_plan_gate,
     check_preflight_level1,
     check_task_validator,
+    check_skills,
     check_motion_error_audit,
 ]
 
