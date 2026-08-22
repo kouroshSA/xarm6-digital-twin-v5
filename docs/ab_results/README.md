@@ -4,6 +4,56 @@ Evidence for whether a prompt layer changes behaviour. Raw harness output is
 kept verbatim so a later reader can re-derive the conclusion rather than
 trust the summary.
 
+## 2026-08-23 (fourth attempt) — Layer 0, grounding wired AND ambiguity fixed
+
+`--feature intake --repeats 5 --episodes 5 --render`, 30 runs, 1 lost.
+
+| task | A (no intake) | B (intake) | ep-to-first A | B | |
+|---|---|---|---|---|---|
+| move the blue block into the cup | 70% | **92%** | 2.2 | **1.4** | B better |
+| carefully place the red cube, no tipping | 88% | 88% | 1.2 | **1.0** | B better |
+| red cube then blue cube into the cup | 4% | **16%** | 3.0 | **1.5** | B better |
+
+**B better on 3, A better on 0.**
+
+### The arc across four attempts is the real result
+
+Same feature, same tasks, four measurements as the stack underneath got less
+broken:
+
+| attempt | state of the stack | verdict |
+|---|---|---|
+| 1 | home pose in contact; nothing could move | VOID (0% both arms) |
+| 2 | Layer 1's facts never reached the planner | B better on 3 |
+| 3 | facts wired; ambiguous referents got no geometry | B better on 1, A better on 2 |
+| 4 | facts wired; every candidate measured | B better on 3 |
+
+Attempt 2's win was Layer 0 compensating for missing grounding. Attempt 3
+showed the cost of that same constraint text once the planner had numbers for
+SOME objects but not the ambiguous ones -- more to read, nothing extra to use.
+Attempt 4 is the first where both arms had complete geometry, and Layer 0
+helps on all three.
+
+The single largest movement in the whole sequence was not a prompt layer. The
+"careful red cube" task went 67% -> 88% on the CONTROL arm from one fix:
+reporting geometry for ambiguous referents.
+
+### How much to believe attempt 4
+
+Less than the clean sweep suggests. Two of the three margins are thin:
+
+- The careful-cube task is a TIE on success rate (88% both); B wins only on
+  episodes-to-first, 1.0 vs 1.2.
+- The two-component task is 4% vs 16% -- that is 1/25 episodes against 4/25.
+  Both arms mostly fail it.
+
+Only the blue-block result (70% -> 92%, and 2.2 -> 1.4 episodes to first
+success) is comfortably clear of the noise at n=5 per arm.
+
+Error rate dropped from 5 lost runs of 30 to 1, with zero mjData races,
+suggesting the earlier losses were tied to the missing-geometry path rather
+than to rendering.
+
 ## 2026-08-22 (third attempt, rendered) — Layer 0, on a fully wired stack
 
 `--feature intake --repeats 5 --episodes 5 --render`, 30 runs. The first run
