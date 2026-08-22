@@ -74,6 +74,9 @@ GRIPPER_REACH_M = 0.07  # 70mm from EE site to body center (Claude's move_to tar
 # The bio-gripper attachment (auto-equipped for 96-well-plate / tip-rack
 # tasks) has wider pads with rubber lining, giving it a more forgiving
 # grasp envelope on SBS-footprint objects.
+from arm_backend import (HOME_JOINTS_DEG as _AB_HOME_JOINTS_DEG,
+                         HOME_RAIL_MM as _AB_HOME_RAIL_MM)
+
 GRIPPER_REACH_BIO_M = 0.10  # 100mm
 
 # --- Grasp validity ---------------------------------------------------------
@@ -938,15 +941,11 @@ class SimXArmAPI:
     #   joint5 = +30 deg  -> wrist pitched 30 deg down
     # Other joints stay at 0. Tweak by hand if you prefer a different look;
     # the value is used by go_home() and reset_scene() only.
-    HOME_RAIL_M = 0.35
-    HOME_JOINTS_RAD = (
-        np.pi / 2,    # joint1: base rotation, +90 deg
-        np.pi / 4,    # joint2: shoulder pitch forward, +45 deg
-        -np.pi / 4,   # joint3: elbow bend back, -45 deg
-        0.0,          # joint4
-        np.pi / 6,    # joint5: wrist pitch down, +30 deg
-        0.0,          # joint6
-    )
+    # Derived from arm_backend.HOME_JOINTS_DEG -- the pose verified on the real
+    # arm -- not chosen here. The previous hand-picked pose put joint1 at
+    # +90 deg, facing the wall, with the gripper resting inside the PCR module.
+    HOME_RAIL_M = _AB_HOME_RAIL_MM / 1000.0
+    HOME_JOINTS_RAD = tuple(np.deg2rad(a) for a in _AB_HOME_JOINTS_DEG)
 
     def go_home(self, wait: bool = True, **kwargs) -> int:
         """Drive rail to 350mm and all six joints to zero."""
@@ -1768,6 +1767,19 @@ class SimXArmAPI:
             n = SWEPT_PATH_SAMPLES
         start_rad = _np.asarray(start_rad, dtype=float)
         target_rad = _np.asarray(target_rad, dtype=float)
+
+        # Contacts that already exist where the arm is standing. A path check
+        # must report collisions the MOVE would cause, not ones it inherited:
+        # if the arm is already touching something, refusing every motion
+        # traps it with no way to back out, which is worse than the contact.
+        # This bit the loop hard -- the sim's home pose rests against the PCR
+        # module, so after the rail gained path validation EVERY rail move was
+        # refused at the first sample and every episode died on its first
+        # command.
+        pre = self.validator.validate(start_rad, _np.zeros(3),
+                                      rail_pos_m=start_rail_m,
+                                      check_position=False)
+        inherited = set(pre.contacts or ())
         for k in range(1, n):
             a = k / float(n)
             q = start_rad + a * (target_rad - start_rad)
@@ -1776,8 +1788,13 @@ class SimXArmAPI:
                 rail = start_rail_m + a * (target_rail_m - start_rail_m)
             res = self.validator.validate(q, _np.zeros(3), rail_pos_m=rail,
                                           check_position=False)
-            if not res.is_valid:
-                return False, f"at {a*100:.0f}% along the path: {res.reason}"
+            if res.is_valid:
+                continue
+            new_hits = [c for c in (res.contacts or ()) if c not in inherited]
+            if res.has_collision and not new_hits:
+                continue          # only the contacts we started with
+            detail = (f"Collision: {new_hits[:3]}" if new_hits else res.reason)
+            return False, f"at {a*100:.0f}% along the path: {detail}"
         return True, "OK"
 
     def _grasp_rejections(self, name: str, ee_pos, reach: float) -> list:

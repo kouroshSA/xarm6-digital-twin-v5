@@ -39,7 +39,8 @@ from typing import Optional
 
 from xarm.wrapper import XArmAPI
 
-from arm_backend import (BASE_AT_RAIL_ZERO_MM, TOOL_LENGTH_MM, WORKSPACE_AABB_MM,
+from arm_backend import (HOME_JOINTS_DEG, HOME_RAIL_MM,
+                         BASE_AT_RAIL_ZERO_MM, TOOL_LENGTH_MM, WORKSPACE_AABB_MM,
                          WORKSPACE_FLOOR_Z_MM, base_to_world_mm,
                          check_joint_limits_deg, check_workspace_world,
                          floor_z_for_tcp,
@@ -49,26 +50,29 @@ from arm_backend import (BASE_AT_RAIL_ZERO_MM, TOOL_LENGTH_MM, WORKSPACE_AABB_MM
 # rather than pretending a gripper is attached.
 EFFECTORS = ("standard", "bio", "vacuum", "none")
 
-# Home pose, VERIFIED ON THE REAL ARM (2026-08-21) and confirmed by eye:
-# the gripper tip sits 200 mm above the benchtop, 300 mm forward, with j1 at ~0
-# so reaching it never sweeps the arm sideways across the bench.
+# Home pose lives in arm_backend and is shared with the twin. It was VERIFIED
+# ON THE REAL ARM (2026-08-21): tip 200 mm above the benchtop, ~300 mm forward,
+# j1 near 0 so reaching it never sweeps the arm sideways across the bench.
 #
-# Derived by IK against the real kinematics and checked with the arm's own
-# forward kinematics before being commanded. It deliberately does NOT mirror the
-# sim's home: that pose ([90, 45, -45, 0, 30, 0]) puts the tip 126 mm BELOW this
-# benchtop, because the sim's tool is ~90 mm while the real one is 217 mm and the
-# base sits at a different height. Safe in simulation, a collision on hardware.
+# This file used to warn "never copy a pose across from the twin", and it was
+# right at the time: the sim's own pose ([90, 45, -45, 0, 30, 0]) faced the
+# wall and would have put the tip below this benchtop on hardware. The fix ran
+# the other way -- the twin now uses THIS pose, the measured one -- which is
+# the safe direction. The old warning still applies to any future divergence.
 #
-# Anything that changes the tool length or the bench height invalidates this.
-# Re-derive with get_inverse_kinematics + get_forward_kinematics; never copy a
-# pose across from the twin.
-HOME_JOINTS_DEG = [-0.6, -31.8, -25.4, 0.0, 57.2, -0.4]
+# NOTE the poses are shared in JOINT space, not tool space. The sim's tool is
+# ~90 mm and the real one is 217 mm, so identical joint angles put the two tips
+# at different heights. Home is clear of everything either way, but do not read
+# a matching home as evidence the z-reference gap is closed. It is not.
+#
+# Anything that changes the tool length or bench height invalidates this.
+# Re-derive with get_inverse_kinematics + get_forward_kinematics.
 HOME_TIP_ABOVE_BENCH_MM = 200.0
 HOME_JOINT_SPEED_DEG_S = 20.0
 
 # Rail target for home. Only commanded when the rail is trustworthy; go_home()
 # skips it otherwise rather than moving against a meaningless reference.
-HOME_RAIL_MM = 350.0
+
 HOME_RAIL_SPEED_MM_S = 50.0
 
 # wave_goodbye: joint-6 rocking amplitude and speed. Small and slow on purpose --

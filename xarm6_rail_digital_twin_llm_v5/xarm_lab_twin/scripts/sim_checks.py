@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 from dataclasses import asdict, dataclass
 
@@ -384,6 +385,64 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+def check_home_pose_is_clear(scene) -> list[CheckResult]:
+    """Home must be collision-free, and the twin must home where the cell does.
+
+    Both halves failed silently for a long time. The sim had its own
+    hand-picked home (joint1 = +90 deg, facing the wall) that rested the
+    gripper inside the PCR module, while hardware/real_arm.py used the pose
+    measured on the arm. Nothing compared them, and nothing checked that home
+    was reachable without touching anything -- so it only surfaced once the
+    rail gained swept-path validation and EVERY episode died on its first
+    command, unable to move at all from a pose already in contact.
+    """
+    import numpy as np, mujoco
+    from arm_backend import HOME_JOINTS_DEG, HOME_RAIL_MM
+    out = []
+    m, d = scene._model, mujoco.MjData(scene._model)
+
+    for i, a in enumerate(HOME_JOINTS_DEG, start=1):
+        d.qpos[m.joint(f"joint{i}").qposadr[0]] = np.deg2rad(a)
+    d.qpos[m.joint("rail").qposadr[0]] = HOME_RAIL_MM / 1000.0
+    mujoco.mj_forward(m, d)
+    mujoco.mj_collision(m, d)
+
+    ARM = {"base_link", "link1_geom", "link2_geom", "link3_geom", "link4_geom",
+           "link5_geom", "link6_geom", "gripper_geom", "carriage_geom"}
+    hits = []
+    for k in range(d.ncon):
+        c = d.contact[k]
+        g1 = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, c.geom1) or ""
+        g2 = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, c.geom2) or ""
+        if (ARM & {g1, g2}) and not ({g1, g2} <= ARM):
+            hits.append((g1, g2))
+    if hits:
+        out.append(CheckResult("arm.home_pose_clear", FAIL,
+                               f"home pose is in contact with {hits[:3]}"))
+    else:
+        out.append(CheckResult("arm.home_pose_clear", PASS,
+                               "home pose is collision-free in this scene"))
+
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("hardware.real_arm")
+        shares = spec is not None
+    except Exception:  # noqa: BLE001
+        shares = False
+    src = (pathlib.Path("hardware/real_arm.py").read_text()
+           if pathlib.Path("hardware/real_arm.py").exists() else "")
+    redefines = any(ln.startswith("HOME_JOINTS_DEG =") for ln in src.splitlines())
+    if redefines:
+        out.append(CheckResult("arm.home_pose_shared", FAIL,
+                               "hardware/real_arm.py defines its own HOME_JOINTS_DEG "
+                               "instead of importing arm_backend's -- two homes is "
+                               "two robots"))
+    else:
+        out.append(CheckResult("arm.home_pose_shared", PASS,
+                               "both backends take the home pose from arm_backend"))
+    return out
+
+
 def check_ab_harness(scene=None) -> list[CheckResult]:
     """The A/B harness must not confuse "no headroom" with "no benefit".
 
@@ -589,6 +648,7 @@ STATIC_CHECKS = [
     check_prompt_refiner,
     check_instruction_intake,
     check_ab_harness,
+    check_home_pose_is_clear,
     check_motion_error_audit,
 ]
 
