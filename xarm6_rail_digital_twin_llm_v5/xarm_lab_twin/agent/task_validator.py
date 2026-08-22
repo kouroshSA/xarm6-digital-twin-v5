@@ -300,6 +300,18 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
             v.warnings.append(
                 f"'{r.phrase}' matches {len(r.matches)}: "
                 f"{', '.join(o.name for o in r.matches)}. Name one explicitly.")
+            # Still measure EVERY candidate. Ambiguity about which object is
+            # meant is not ambiguity about their geometry, and skipping this
+            # left the planner with no grasp height at all for "the red cube"
+            # -- so it guessed, exactly as it did before facts were wired in.
+            # Measured: the two red-cube tasks in the 2026-08-22 A/B trailed
+            # the unambiguous blue-block one on BOTH arms, and this is why.
+            #
+            # Facts only. A blocker found on one candidate must not refuse the
+            # task, because the operator may well have meant the other one.
+            for cand in r.matches:
+                _b, _w, f = check_graspable(arm, cand)
+                v.facts += f
             continue
         b, w, f = check_graspable(arm, r.matches[0])
         v.blockers += b; v.warnings += w; v.facts += f
