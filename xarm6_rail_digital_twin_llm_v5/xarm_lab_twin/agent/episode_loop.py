@@ -414,8 +414,11 @@ def _move_to_body_aware_constraint(x_mm, y_mm, z_mm, registry) -> Optional[str]:
             f"approach at z={heights['approach_z_mm']}mm, descend to "
             f"z={heights['grasp_z_mm']}mm for grasping (NOT to cap level -- "
             f"the validator rejects descents below z~895mm in the rack "
-            f"zone, and the gripper's 70mm reach still engages the cap "
-            f"from z={heights['grasp_z_mm']}mm). To PLACE a held tube "
+            f"zone). NOTE: the jaws only reach ~45mm below the tool, so "
+            f"if validation blocks a descent low enough to put the cap "
+            f"between them, the tube CANNOT be grasped from this rail "
+            f"position -- move the rail or change the approach rather "
+            f"than closing early. To PLACE a held tube "
             f"into '{obj.name}', use "
             f"`place_tube_in_rack(rack_name='{obj.name}')` instead of "
             f"`move_to` -- the macro seats the tube without entering the "
@@ -430,9 +433,10 @@ def _move_to_body_aware_constraint(x_mm, y_mm, z_mm, registry) -> Optional[str]:
             f"at z={heights['approach_z_mm']}mm, then descend to "
             f"z={heights['grasp_z_mm']}mm for `gripper_close`. Do NOT "
             f"descend to cap level (z={env['z_max_mm']}mm) or below -- "
-            f"validation rejects it. At z={heights['grasp_z_mm']}mm the "
-            f"gripper's 70mm reach still engages the cap geom, so the "
-            f"grasp succeeds."
+            f"validation rejects it. The jaws reach only ~45mm below the "
+            f"tool, so verify the cap actually falls inside that band; "
+            f"closing while merely near the tube now fails with a reason "
+            f"naming the condition that was not met."
         )
     if obj.object_type == "bin":
         return (
@@ -529,9 +533,21 @@ def analyse_command_failure(failed_step: Dict[str, Any],
                 f"optimal position.")
 
     if action == "gripper_close":
-        return ("gripper_close did not grasp the intended object. The EE site "
-                "must be within ~70 mm of the object centre when closing. "
-                "Lower z further or re-centre xy before closing.")
+        # Proximity alone stopped being the grasp criterion; the sim now
+        # requires a pose a real parallel gripper could have grasped from.
+        # This text is injected into the next attempt's prompt, so a stale
+        # rule here actively teaches the planner the wrong thing -- it was
+        # still advising "within ~70 mm of the object centre" after the
+        # simulator had begun rejecting exactly that.
+        return ("gripper_close did not grasp anything. Proximity is not "
+                "enough: the jaws must actually be around the object. The "
+                "object centre must be within ~45 mm BELOW the tool (they do "
+                "not reach further), within ~30 mm of the tool axis in xy, "
+                "narrower than the jaws (75 mm; 130 mm for the bio gripper), "
+                "approached from above, and the arm must not be penetrating "
+                "anything at the grasp pose. Stopping short and closing is "
+                "the most common cause -- the printed reason says which "
+                "condition failed, so read it rather than guessing.")
 
     return f"Action '{action}' failed with code {code}. Avoid this exact step."
 
@@ -582,8 +598,9 @@ def analyse_physical_failure(task: str, physical: str,
     if family in ("placement", "sort"):
         if nothing_moved:
             return ("All commands succeeded but nothing moved -- the grasp "
-                    "likely failed. The EE site must be within ~70 mm of the "
-                    "target body's centre when `gripper_close` fires. Use "
+                    "likely failed. The jaws must be around the object, not "
+                    "merely near it: centre within ~45 mm below the tool and "
+                    "~30 mm of the tool axis when `gripper_close` fires. Use "
                     "the registry's grip height for the target object "
                     "(cubes/tubes/bins/racks have different heights), "
                     "set the rail closer, and verify xy matches the object's "
