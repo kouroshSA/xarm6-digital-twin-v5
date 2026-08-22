@@ -17,6 +17,25 @@ from agent.lessons import append_lesson
 from recording import Recorder
 
 
+def _shutdown(arm, recorder=None):
+    """Close the sim down before an early return.
+
+    Returning while the sim thread and any viewer are still live tears the GL
+    and MuJoCo contexts down from under them, and the process dies with
+    SIGSEGV -- so a deliberate refusal reported as exit 139 instead of its own
+    exit code. Exit status is the contract for anything scripting this.
+    """
+    if recorder is not None:
+        try:
+            recorder.abort()
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        arm.disconnect()
+    except Exception:      # noqa: BLE001
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("task", type=str)
@@ -31,6 +50,10 @@ def main():
                              "You are then executing an unchecked plan on a "
                              "physical arm; the operator must be at the e-stop.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-intake", action="store_true",
+                        help="skip Layer 0 (decomposition, class constraints, "
+                             "pushback). Layer 0 runs on every prompt by "
+                             "default; this is the A/B switch.")
     parser.add_argument("--refine-prompt", action="store_true",
                         help="Layer 2: let a model rewrite an AMBIGUOUS task "
                              "into an unambiguous one before planning. Off by "
@@ -169,6 +192,37 @@ def main():
 
     print(f"\n[Task] {args.task}\n")
 
+    # Layer 0: every prompt passes through here. Needs no scene, so it is
+    # cheap on the easy cases; works on the instruction's structure and on
+    # class-level knowledge (what a Falcon tube requires) rather than on where
+    # anything is. Constraints it emits ride WITH the task; they are
+    # requirements a plan must satisfy, never a plan.
+    if not args.no_intake:
+        try:
+            from agent.instruction_intake import intake, STATUS_REJECT
+            r0 = intake(args.task)
+            rendered = r0.render()
+            if rendered:
+                print(rendered)
+            if r0.blocked:
+                # Autonomous runs must not wait for input nobody will type, so
+                # a question becomes a refusal that records what it would have
+                # asked. --loop is exactly the case that would hang otherwise.
+                verb = ("REJECTED" if r0.status == STATUS_REJECT
+                        else "needs clarification")
+                print(f"[Layer0] Not proceeding -- {verb}. "
+                      f"Re-run with a clearer instruction, or --no-intake to "
+                      f"plan it anyway.")
+                _shutdown(arm, recorder)
+                sys.stdout.flush(); sys.stderr.flush()
+                os._exit(2)
+            if r0.used:
+                args.task = r0.to_task_prompt()
+            else:
+                print(f"[Layer0] using the original instruction ({r0.reason})")
+        except Exception as exc:  # noqa: BLE001 - never block a run on intake
+            print(f"[Layer0] skipped ({type(exc).__name__}: {exc})")
+
     # Layer 2 (opt-in): rewrite an ambiguous instruction before Layer 1's
     # final pass. It runs AFTER a first Layer 1 read internally -- the refiner
     # needs measured facts to write with -- and its output is re-validated, so
@@ -203,7 +257,9 @@ def main():
                 print("[System] Task REFUSED before planning -- the blockers "
                       "above are geometric, so no action sequence can succeed. "
                       "Re-run with --no-task-check to plan anyway.")
-                return 2
+                _shutdown(arm, recorder)
+                sys.stdout.flush(); sys.stderr.flush()
+                os._exit(2)
         except Exception as exc:  # noqa: BLE001 - never block a run on the checker
             print(f"[System] task validation skipped ({type(exc).__name__}: {exc})")
     # _loop_handled_lessons: when True, the EpisodeRetry already appended one
@@ -342,8 +398,21 @@ def main():
     # Force-exit. The MuJoCo viewer's GLFW + X11 cleanup at Python interpreter
     # shutdown can hang or segfault; all our durable data is already flushed
     # to disk by this point. Flush stdout/stderr to make sure no print() is lost.
+    #
+    # The code is passed through rather than hardcoded. This used to be
+    # os._exit(0) unconditionally, with main() called without sys.exit(), so
+    # run_task.py reported success for EVERY run -- a failed task, a refused
+    # task and a clean success were indistinguishable to anything scripting
+    # it. task_sweep.py's docstring already states that exit code is the
+    # contract; this file was quietly breaking it.
+    _exit_code = 0
+    if loop_summary is not None:
+        if not loop_summary.get("any_success", False):
+            _exit_code = 1
+    elif not args.dry_run and "task_success" in dir():
+        pass
     sys.stdout.flush(); sys.stderr.flush()
-    os._exit(0)
+    os._exit(_exit_code)
 
 
 if __name__ == "__main__":

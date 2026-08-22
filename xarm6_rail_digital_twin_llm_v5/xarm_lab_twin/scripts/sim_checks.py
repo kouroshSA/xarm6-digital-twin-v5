@@ -384,6 +384,24 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+def check_instruction_intake(scene=None) -> list[CheckResult]:
+    """Layer 0's contract must reject plans, invented measurements and drift.
+
+    No model and no sim. Layer 0 runs on every prompt, so its guardrail is on
+    the critical path for every task the system attempts.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "-m", "agent.instruction_intake", "--self-test"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("[PASS", "[FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("[FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("agent.instruction_intake", FAIL, "; ".join(failed))]
+    return [CheckResult("agent.instruction_intake", PASS,
+                        f"{len(tail)} Layer 0 contract tests pass")]
+
+
 def check_prompt_refiner(scene=None) -> list[CheckResult]:
     """Layer 2's contract must reject invention, fabrication and plans.
 
@@ -551,6 +569,7 @@ STATIC_CHECKS = [
     check_task_validator,
     check_skills,
     check_prompt_refiner,
+    check_instruction_intake,
     check_motion_error_audit,
 ]
 
