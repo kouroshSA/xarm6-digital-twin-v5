@@ -384,6 +384,24 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+def check_ab_harness(scene=None) -> list[CheckResult]:
+    """The A/B harness must not confuse "no headroom" with "no benefit".
+
+    It is the instrument every prompt-layer claim will be measured with, so a
+    silent bug in its verdict logic would let unfalsifiable prose accumulate
+    while appearing to be evidence-based.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "scripts/ab_test.py", "--self-test"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("[PASS", "[FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("[FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("harness.ab_test", FAIL, "; ".join(failed))]
+    return [CheckResult("harness.ab_test", PASS, f"{len(tail)} A/B verdict tests pass")]
+
+
 def check_instruction_intake(scene=None) -> list[CheckResult]:
     """Layer 0's contract must reject plans, invented measurements and drift.
 
@@ -570,6 +588,7 @@ STATIC_CHECKS = [
     check_skills,
     check_prompt_refiner,
     check_instruction_intake,
+    check_ab_harness,
     check_motion_error_audit,
 ]
 
