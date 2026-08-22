@@ -76,6 +76,30 @@ GRIPPER_REACH_M = 0.07  # 70mm from EE site to body center (Claude's move_to tar
 # grasp envelope on SBS-footprint objects.
 GRIPPER_REACH_BIO_M = 0.10  # 100mm
 
+# --- Grasp validity ---------------------------------------------------------
+# The weld used to fire on distance alone: anything whose geom came within
+# GRIPPER_REACH_M of the EE site was welded, regardless of how the gripper was
+# oriented, whether the object fitted between the jaws, or whether the arm was
+# buried in the bench at the time.
+#
+# That is fine as a convenience for hand-written demos and fatal for a learning
+# loop. The loop optimises against physical_outcome(), and the cheapest policy
+# satisfying a proximity test is "hover 69 mm away and close" -- which is not a
+# grasp and does not transfer to real hardware. These make the weld require a
+# pose a real parallel gripper could actually have grasped from.
+GRASP_MAX_LATERAL_M = 0.030      # object centre offset from the tool axis
+GRASP_APERTURE_M = 0.075         # widest object the standard jaws span
+GRASP_APERTURE_BIO_M = 0.130     # bio gripper, SBS footprint
+GRASP_MIN_DOWNWARD = 0.70        # cos of angle between approach and world -Z
+GRASP_MAX_BEHIND_M = 0.015       # how far *above* the tool an object may sit
+# How far BELOW the EE site the jaws actually reach. Measured in the scene:
+# the standard fingers bottom out ~35 mm below the site, so an object centre
+# beyond this was never between the jaws. Without it, GRIPPER_REACH_M (70 mm)
+# was the only lower bound and "stop 50 mm short and close" counted as a grasp
+# -- which is what tube->rack was doing while its descent was refused.
+GRASP_MAX_AXIAL_M = 0.045
+GRASP_MAX_PENETRATION_M = 0.004  # deepest contact tolerated at the grasp pose
+
 # Cosmetic finger animation. The two finger joints have range [0, 0.015] m
 # where 0 = open, 0.015 = closed (inward). Both joints are driven to the
 # same ctrl value via act_finger_l / act_finger_r. Fingers are contype=0 so
@@ -1628,6 +1652,104 @@ class SimXArmAPI:
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
         return 0
 
+    def _grasp_rejections(self, name: str, ee_pos, reach: float) -> list:
+        """Why `name` could NOT be grasped from the current pose. [] means it can.
+
+        Caller must already hold self.lock (RLock, so re-entering is safe).
+
+        Distance alone is not a grasp. A real parallel gripper also needs the
+        object roughly on the tool axis, within the jaw aperture, approached
+        from the correct side, and not reached through something solid. Each
+        check below stands for one of those.
+        """
+        import numpy as _np
+        bid = self.cube_bids[name]
+        reasons = []
+
+        # Approach direction: from the gripper body out to the EE site. Derived
+        # from the model rather than assumed, so it stays correct if the tool
+        # frame changes.
+        gp = self.data.xpos[self.gripper_bid]
+        approach = _np.asarray(ee_pos) - _np.asarray(gp)
+        n = float(_np.linalg.norm(approach))
+        if n < 1e-9:
+            return []                       # degenerate; fall back to distance
+        approach = approach / n
+
+        down = float(_np.dot(approach, _np.array([0.0, 0.0, -1.0])))
+        if down < GRASP_MIN_DOWNWARD:
+            reasons.append(f"approach is not downward enough (cos={down:.2f} "
+                           f"< {GRASP_MIN_DOWNWARD})")
+
+        offset = self.data.xpos[bid] - _np.asarray(ee_pos)
+        axial = float(_np.dot(offset, approach))
+        lateral = float(_np.linalg.norm(offset - axial * approach))
+        if lateral > GRASP_MAX_LATERAL_M:
+            reasons.append(f"object is {lateral*1000:.0f} mm off the tool axis "
+                           f"(max {GRASP_MAX_LATERAL_M*1000:.0f})")
+        if axial < -GRASP_MAX_BEHIND_M:
+            reasons.append(f"object is {abs(axial)*1000:.0f} mm behind the jaws")
+        if axial > GRASP_MAX_AXIAL_M:
+            reasons.append(f"object is {axial*1000:.0f} mm below the jaws "
+                           f"(they reach {GRASP_MAX_AXIAL_M*1000:.0f} mm) -- "
+                           f"the gripper closed on air above it")
+
+        # Jaw aperture against the object's widest horizontal extent.
+        aperture = (GRASP_APERTURE_BIO_M if self._gripper_mode == "bio"
+                    else GRASP_APERTURE_M)
+        # Width the jaws must span. Approaching from above, the jaws close
+        # horizontally, so what matters is the narrower of the object's two
+        # world-horizontal extents -- a real gripper yaws to take the narrow
+        # side. mjGEOM size fields mean different things per type (for a
+        # cylinder size[1] is HALF-LENGTH, not a radius), so each type is
+        # converted to an equivalent half-extent triple first; reading size[1]
+        # as lateral measured a 15 mm tube as 115 mm and rejected it.
+        width = 0.0
+        for g in range(self.model.ngeom):
+            if self.model.geom_bodyid[g] != bid:
+                continue
+            t = int(self.model.geom_type[g])
+            sz = self.model.geom_size[g]
+            if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
+                half = _np.array([sz[0], sz[0], sz[0]])
+            elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
+                       int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
+                half = _np.array([sz[0], sz[0], sz[1]])
+            elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
+                       int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
+                half = _np.array([sz[0], sz[1], sz[2]])
+            else:
+                r = float(self.model.geom_rbound[g])
+                half = _np.array([r, r, r])
+            R = self.data.geom_xmat[g].reshape(3, 3)
+            ext_x = float(_np.abs(R[0, :]) @ half)
+            ext_y = float(_np.abs(R[1, :]) @ half)
+            width = max(width, 2.0 * min(ext_x, ext_y))
+        if width > aperture:
+            reasons.append(f"object is {width*1000:.0f} mm wide, jaws span "
+                           f"{aperture*1000:.0f} mm")
+
+        # Reaching through something solid is not a grasp. Contacts with the
+        # target itself are expected -- the fingers touch it.
+        for i in range(self.data.ncon):
+            c = self.data.contact[i]
+            if c.dist > -GRASP_MAX_PENETRATION_M:
+                continue
+            b1 = self.model.geom_bodyid[c.geom1]
+            b2 = self.model.geom_bodyid[c.geom2]
+            if bid in (b1, b2):
+                continue
+            arm_bids = set(self.arm_body_ids) if hasattr(self, "arm_body_ids") else set()
+            if arm_bids and not (b1 in arm_bids or b2 in arm_bids):
+                continue
+            n1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1)
+            n2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2)
+            reasons.append(f"arm is penetrating {n1}/{n2} by "
+                           f"{-c.dist*1000:.1f} mm at the grasp pose")
+            break
+
+        return reasons
+
     def close_lite6_gripper(self) -> int:
         """Grasp the nearest cube within GRIPPER_REACH_M of the EE site.
 
@@ -1660,10 +1782,18 @@ class SimXArmAPI:
             reach = (GRIPPER_REACH_BIO_M if self._gripper_mode == "bio"
                      else GRIPPER_REACH_M)
             if nearest is None or nearest_d > reach:
-                print(f"[SimXArm] Gripper close (no cube in reach; "
+                # rc=1, not 0. Closing on empty air is not a successful grasp,
+                # and an agent reading rc=0 would believe it holds something.
+                print(f"[SimXArm] Gripper close FAILED (nothing in reach; "
                       f"nearest={nearest} at {nearest_d*1000:.1f}mm, "
                       f"mode={self._gripper_mode}, reach={reach*1000:.0f}mm)")
-                return 0
+                return 1
+
+            rejections = self._grasp_rejections(nearest, ee_pos, reach)
+            if rejections:
+                print(f"[SimXArm] Gripper close FAILED on {nearest} "
+                      f"({nearest_d*1000:.1f}mm away): " + "; ".join(rejections))
+                return 1
 
             # Compute cube pose in gripper's local frame and stamp it into
             # eq_data so the weld locks the *current* relative pose.
