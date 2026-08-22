@@ -38,9 +38,18 @@ SCENES = {"primitive": "envs/lab_scene_primitive.xml", "meshes": "envs/lab_scene
 # ---------------------------------------------------------------------------
 
 def _bpos(arm, n):
+    """Body position in mm. Viewer-aware, for the same reason as _settle.
+
+    mj_forward mutates mjData. With a viewer live the sim thread is already
+    forwarding every step, so calling it from here is both unnecessary and a
+    race against the viewer's copy -- the abort is
+    "attempting to copy mjData while stack is in use". Read-only when a window
+    is open; forward explicitly when headless, where nothing else is stepping.
+    """
     import mujoco
     with arm.lock:
-        mujoco.mj_forward(arm.model, arm.data)
+        if getattr(arm, "_viewer", None) is None:
+            mujoco.mj_forward(arm.model, arm.data)
         return arm.data.xpos[arm.model.body(n).id].copy() * 1000.0
 
 
@@ -50,7 +59,20 @@ def _weld_active(arm, name):
 
 
 def _settle(arm, n=200):
+    """Advance physics so objects come to rest before measuring.
+
+    Viewer-aware. With `render=True` the sim already has a thread stepping
+    physics, and stepping it a second time from here races the viewer's mjData
+    copy -- MuJoCo aborts with "attempting to copy mjData while stack is in
+    use", taking the GL context down with it (GLXBadDrawable). When a viewer is
+    live we just wait instead and let the sim thread do the stepping. Headless,
+    which is how the sweep runs, the manual loop is still what advances time.
+    """
     import mujoco
+    import time as _time
+    if getattr(arm, "_viewer", None) is not None:
+        _time.sleep(max(n, 1) / 200.0)
+        return
     for _ in range(n):
         with arm.lock:
             mujoco.mj_step(arm.model, arm.data)
