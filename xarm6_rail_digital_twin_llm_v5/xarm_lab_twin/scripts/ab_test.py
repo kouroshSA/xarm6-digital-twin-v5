@@ -121,10 +121,16 @@ class Baseline:
 
 
 def run_once(task: str, difficulty: str, arm: str, spec: dict,
-             episodes: int, model: str, timeout: int) -> RunResult:
+             episodes: int, model: str, timeout: int,
+             render: bool = False) -> RunResult:
     env = dict(os.environ)
     env.update(spec.get("env", {}))
-    env.setdefault("MUJOCO_GL", "egl")
+    if render:
+        # A windowed viewer needs a real GL context; EGL is the headless path.
+        env.pop("MUJOCO_GL", None)
+        env.setdefault("DISPLAY", ":0")
+    else:
+        env.setdefault("MUJOCO_GL", "egl")
     # Applied to BOTH arms, so it cannot favour either. The Opus session
     # review only writes world_model.md, which is reset around every run here.
     env.setdefault("XARM_NO_REVIEW", "1")
@@ -134,13 +140,23 @@ def run_once(task: str, difficulty: str, arm: str, spec: dict,
 
     cmd = [sys.executable, "scripts/run_task.py", task,
            "--model", model, "--loop", "--max-episodes", str(episodes),
-           "--speed-tier", "fast", "--no-render",
+           "--speed-tier", "fast",
+           # No recordings: an A/B is an experiment, not a data-collection run,
+           # and the recorder's "Keep this recording?" prompt blocks on stdin.
+           "--no-record",
            "--summary-json", summary_path] + list(spec.get("args", []))
+    if not render:
+        cmd.insert(cmd.index("--speed-tier") + 2, "--no-render")
 
     r = RunResult(task=task, difficulty=difficulty, arm=arm)
     try:
+        # When rendering, let the child's narration through so the window and
+        # the log tell the same story. stdin is always closed: a blocked
+        # prompt would stall the whole matrix.
+        sink = None if render else subprocess.DEVNULL
         subprocess.run(cmd, env=env, timeout=timeout,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       stdin=subprocess.DEVNULL,
+                       stdout=sink, stderr=sink)
         with open(summary_path) as fh:
             payload = json.load(fh)
         loop = payload.get("loop") or {}
@@ -274,6 +290,11 @@ def main() -> int:
     ap.add_argument("--tasks", help="file of tasks, one per line, optional '| difficulty'")
     ap.add_argument("--list-features", action="store_true")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--render", action="store_true",
+                    help="open the MuJoCo viewer for every run so the motion "
+                         "can be watched. Slower and opens a window per run; "
+                         "the measurement is unaffected because both arms "
+                         "render identically.")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the matrix and cost estimate without running")
     args = ap.parse_args()
@@ -303,6 +324,8 @@ def main() -> int:
           f"= {n_runs} runs of up to {args.episodes} episodes")
     print(f"  arm A   : {spec_a['env'] or '{}'} {' '.join(spec_a['args']) or '(no extra args)'}")
     print(f"  arm B   : {spec_b['env'] or '{}'} {' '.join(spec_b['args']) or '(no extra args)'}")
+    if args.render:
+        print("  render  : ON -- a viewer window per run, both arms alike")
     if args.dry_run:
         print("\n  --dry-run: nothing executed.")
         return 0
@@ -321,7 +344,7 @@ def main() -> int:
                     print(f"\n  [rep {rep+1}/{args.repeats}] arm {arm}: {task[:56]}",
                           flush=True)
                     r = run_once(task, diff, arm, spec, args.episodes,
-                                 args.model, args.timeout)
+                                 args.model, args.timeout, render=args.render)
                     results.append(r)
                     print(f"      {r.successes}/{r.episodes} success"
                           f"{', first at ep %d' % r.first_success if r.first_success else ''}"
