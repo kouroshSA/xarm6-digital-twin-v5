@@ -72,13 +72,23 @@ ARM_BACKEND_METHODS: dict[str, str] = {
 #: (`arm.joint_limits_match_scene`). The duplication is accepted because
 #: `hardware/real_arm.py` must not depend on MuJoCo: it has to work on a machine
 #: driving the arm with no simulator installed.
+# MEASURED from the controller (2026-08-22) via `XArmAPI.reduced_joint_limits`,
+# and identical to UFACTORY's published xArm6 ranges -- two independent sources.
+#
+# These were previously (-178.2, 178.2) on J1/J4/J6, (-178.2, 11) on J3 and
+# (-97, 178.2) on J5. That 178.2 is 0.99*pi: it came from the xacro "limited"
+# variant of the URDF, which is a conservative build option, NOT the hardware
+# range. Gating on it rejected poses the arm can legally reach.
+#
+# This tuple is the ONE source. envs/build_mesh_scene.py imports it rather than
+# repeating the numbers, and scripts/sim_checks.py ties the scene back to it.
 XARM6_JOINT_LIMITS_DEG: tuple[tuple[float, float], ...] = (
-    (-178.2, 178.2),   # joint1
-    (-118.0, 120.0),   # joint2
-    (-178.2, 11.0),    # joint3
-    (-178.2, 178.2),   # joint4
-    (-97.0, 178.2),    # joint5
-    (-178.2, 178.2),   # joint6
+    (-360.0, 360.0),   # joint1
+    (-117.97, 120.0),  # joint2
+    (-225.0, 11.0),    # joint3
+    (-360.0, 360.0),   # joint4
+    (-97.0, 180.0),    # joint5
+    (-360.0, 360.0),   # joint6
 )
 RAIL_LIMITS_MM: tuple[float, float] = (0.0, 700.0)
 

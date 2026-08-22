@@ -49,7 +49,19 @@ DST = HERE / "lab_scene.xml"
 # so MuJoCo's default eulerseq="xyz" is unambiguous. Limits use the xacro
 # "limited" variant. Inertials copied verbatim (fullinertia order in MuJoCo is
 # ixx iyy izz ixy ixz iyz).
-PI99 = 3.11018  # pi * 0.99, the xacro "limited" bound for J1/J3/J4/J5/J6
+# Joint ranges are DERIVED from arm_backend.XARM6_JOINT_LIMITS_DEG, never
+# repeated here. This file used to carry PI99 = pi*0.99, the xacro "limited"
+# bound, which silently disagreed with both the controller and the hand-edited
+# primitive scene -- three copies, three different answers. One source now.
+import sys as _sys
+_sys.path.insert(0, str(HERE.parent))
+from arm_backend import XARM6_JOINT_LIMITS_DEG as _LIM
+import math as _math
+
+def _rng(j: int) -> str:
+    """MuJoCo range="lo hi" in radians for 1-indexed joint `j`."""
+    lo, hi = _LIM[j - 1]
+    return f"{_math.radians(lo):.5f} {_math.radians(hi):.5f}"
 
 MESH_ASSETS = """    <!-- xArm6 visual meshes (UFACTORY / xarm_ros2 xarm_description, BSD-3).
          Meshes are in metres; no scaling. Used for both visual + (convex-hull)
@@ -82,32 +94,32 @@ def _new_arm_subtree(gripper_block: str) -> str:
                 material="xarm6_link_mat" class="arm_link"/>
 
           <body name="link1" pos="0 0 0.267">
-            <joint name="joint1" axis="0 0 1" range="-{PI99} {PI99}" damping="10"/>
+            <joint name="joint1" axis="0 0 1" range="{_rng(1)}" damping="10"/>
             <geom name="link1_geom" type="mesh" mesh="xarm6_link1" mass="2.16"
                   material="xarm6_link_mat" class="arm_link"/>
 
             <body name="link2" pos="0 0 0" euler="-1.5708 0 0">
-              <joint name="joint2" axis="0 0 1" range="-2.059 2.0944" damping="10"/>
+              <joint name="joint2" axis="0 0 1" range="{_rng(2)}" damping="10"/>
               <geom name="link2_geom" type="mesh" mesh="xarm6_link2" mass="1.71"
                     material="xarm6_link_mat" class="arm_link"/>
 
               <body name="link3" pos="0.0535 -0.2845 0">
-                <joint name="joint3" axis="0 0 1" range="-{PI99} 0.19198" damping="8"/>
+                <joint name="joint3" axis="0 0 1" range="{_rng(3)}" damping="8"/>
                 <geom name="link3_geom" type="mesh" mesh="xarm6_link3" mass="1.384"
                       material="xarm6_link_mat" class="arm_link"/>
 
                 <body name="link4" pos="0.0775 0.3425 0" euler="-1.5708 0 0">
-                  <joint name="joint4" axis="0 0 1" range="-{PI99} {PI99}" damping="6"/>
+                  <joint name="joint4" axis="0 0 1" range="{_rng(4)}" damping="6"/>
                   <geom name="link4_geom" type="mesh" mesh="xarm6_link4" mass="1.115"
                         material="xarm6_link_mat" class="arm_link"/>
 
                   <body name="link5" pos="0 0 0" euler="1.5708 0 0">
-                    <joint name="joint5" axis="0 0 1" range="-1.69297 {PI99}" damping="4"/>
+                    <joint name="joint5" axis="0 0 1" range="{_rng(5)}" damping="4"/>
                     <geom name="link5_geom" type="mesh" mesh="xarm6_link5" mass="1.275"
                           material="xarm6_link_mat" class="arm_link"/>
 
                     <body name="link6" pos="0.076 0.097 0" euler="-1.5708 0 0">
-                      <joint name="joint6" axis="0 0 1" range="-{PI99} {PI99}" damping="3"/>
+                      <joint name="joint6" axis="0 0 1" range="{_rng(6)}" damping="3"/>
                       <geom name="link6_geom" type="mesh" mesh="xarm6_link6" mass="0.1096"
                             material="xarm6_link_mat" class="arm_link"/>
                       <!-- IK target marker, at the tool flange (+z out of link6). -->
