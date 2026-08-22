@@ -172,7 +172,11 @@ class SimXArmAPI:
         self.scene_xml = scene_xml
         self.model = mujoco.MjModel.from_xml_path(scene_xml)
         self.data  = mujoco.MjData(self.model)
-        self.lock  = threading.Lock()
+        # RLock, not Lock. IKSolver.solve() must hold this while it scribbles
+        # on the shared data.qpos, and some callers (set_position's retry path,
+        # _ik_pos_error) already hold it when they call in. Re-entrancy makes
+        # that safe instead of a deadlock.
+        self.lock  = threading.RLock()
         self._running = True
         self._viewer = None  # set by _launch_viewer so disconnect() can close it
 
@@ -746,7 +750,16 @@ class SimXArmAPI:
             v.cam.distance  = 2.8                # ~2.8 m back
             v.cam.azimuth   = 135.0              # front-right
             v.cam.elevation = -20.0              # slight downward tilt
-            v.sync()
+            # MUST hold the lock, like every other sync. _launch_viewer waits
+            # only 0.4s, but launch_passive has to create a window, so this
+            # first sync can land well after __init__ has returned and the
+            # caller is already driving the sim. Unlocked, it copies mjData
+            # while _sim_loop or a set_position is mid-mj_step/mj_forward, and
+            # MuJoCo aborts with "attempting to copy mjData while stack is in
+            # use", taking the GL context down (GLXBadDrawable). Intermittent
+            # by nature -- it depends on how long the window takes to appear.
+            with self.lock:
+                v.sync()
             self._print_viewer_keymap()
             try:
                 while v.is_running() and self._running:

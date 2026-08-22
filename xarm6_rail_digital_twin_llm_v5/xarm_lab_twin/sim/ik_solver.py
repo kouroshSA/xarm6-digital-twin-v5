@@ -85,32 +85,33 @@ class IKSolver:
 
         Returns: joint angles array (6,) in radians, or None if failed.
         """
-        joint_qpos_backup = np.array(
-            [self.data.qpos[jid] for jid in self.joint_ids]
-        )
-        rail_qpos_backup = float(self.data.qpos[self.rail_jid])
+        with self.lock:
+            joint_qpos_backup = np.array(
+                [self.data.qpos[jid] for jid in self.joint_ids]
+            )
+            rail_qpos_backup = float(self.data.qpos[self.rail_jid])
 
-        try:
-            if seed_q is not None:
+            try:
+                if seed_q is not None:
+                    for i, jid in enumerate(self.joint_ids):
+                        self.data.qpos[jid] = float(seed_q[i])
+                    mujoco.mj_forward(self.model, self.data)
+                if self.backend == "pink":
+                    # Pink path doesn't yet plumb orientation; ignore target_rot
+                    # for that backend and let the Jacobian fallback handle it
+                    # if the caller really cares. In practice pink init fails on
+                    # this MuJoCo build so we always end up in _solve_jacobian.
+                    result = self._solve_pink(target_pos_m, max_iter, tol)
+                else:
+                    result = self._solve_jacobian(
+                        target_pos_m, max_iter, tol, target_rot=target_rot
+                    )
+                return result
+            finally:
                 for i, jid in enumerate(self.joint_ids):
-                    self.data.qpos[jid] = float(seed_q[i])
+                    self.data.qpos[jid] = joint_qpos_backup[i]
+                self.data.qpos[self.rail_jid] = rail_qpos_backup
                 mujoco.mj_forward(self.model, self.data)
-            if self.backend == "pink":
-                # Pink path doesn't yet plumb orientation; ignore target_rot
-                # for that backend and let the Jacobian fallback handle it
-                # if the caller really cares. In practice pink init fails on
-                # this MuJoCo build so we always end up in _solve_jacobian.
-                result = self._solve_pink(target_pos_m, max_iter, tol)
-            else:
-                result = self._solve_jacobian(
-                    target_pos_m, max_iter, tol, target_rot=target_rot
-                )
-            return result
-        finally:
-            for i, jid in enumerate(self.joint_ids):
-                self.data.qpos[jid] = joint_qpos_backup[i]
-            self.data.qpos[self.rail_jid] = rail_qpos_backup
-            mujoco.mj_forward(self.model, self.data)
 
     def _solve_pink(self, target_pos_m: np.ndarray,
                     max_iter: int, tol: float) -> Optional[np.ndarray]:
@@ -213,12 +214,13 @@ class IKSolver:
 
     def _pos_error_for(self, q: np.ndarray,
                         target_pos_m: np.ndarray) -> float:
-        for i, jid in enumerate(self.joint_ids):
-            self.data.qpos[jid] = q[i]
-        mujoco.mj_forward(self.model, self.data)
-        return float(np.linalg.norm(
-            target_pos_m - self.data.site_xpos[self.ee_site]
-        ))
+        with self.lock:
+            for i, jid in enumerate(self.joint_ids):
+                self.data.qpos[jid] = q[i]
+            mujoco.mj_forward(self.model, self.data)
+            return float(np.linalg.norm(
+                target_pos_m - self.data.site_xpos[self.ee_site]
+            ))
 
     def _rot_error_for(self, q: np.ndarray,
                         target_rot: np.ndarray) -> float:
