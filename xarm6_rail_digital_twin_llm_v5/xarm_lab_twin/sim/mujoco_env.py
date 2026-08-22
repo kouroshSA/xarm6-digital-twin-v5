@@ -100,6 +100,22 @@ GRASP_MAX_BEHIND_M = 0.015       # how far *above* the tool an object may sit
 GRASP_MAX_AXIAL_M = 0.045
 GRASP_MAX_PENETRATION_M = 0.004  # deepest contact tolerated at the grasp pose
 
+# --- Swept-path validation ---------------------------------------------------
+# Motion primitives used to validate only their ENDPOINT. The pose you asked
+# for was checked; the poses the arm actually passed through on the way were
+# not. Since _execute_paced_arm interpolates ~50 configurations per move, that
+# left the whole trajectory unchecked, and the arm would shoulder a standing
+# object aside mid-descent -- after which the endpoint check passed cleanly,
+# because the obstruction had been knocked out of the way.
+#
+# The episode loop made this impossible to ignore: the planner would reach a
+# perfectly legal grasp height and fail anyway, because the cube it was
+# reaching for had been swept to the floor by an earlier leg of its own plan.
+#
+# 12 samples is a compromise. Enough to catch a 30 mm object on a 200 mm
+# descent; cheap enough that a move stays sub-millisecond in validation.
+SWEPT_PATH_SAMPLES = 12
+
 # Cosmetic finger animation. The two finger joints have range [0, 0.015] m
 # where 0 = open, 0.015 = closed (inward). Both joints are driven to the
 # same ctrl value via act_finger_l / act_finger_r. Fingers are contype=0 so
@@ -1359,6 +1375,22 @@ class SimXArmAPI:
         with self.lock:
             start_m = float(self.data.ctrl[self.act_ids[RAIL_ACT]])
         dist_mm = abs(pos_m - start_m) * 1000.0
+
+        # A rail traverse sweeps the whole arm sideways through the cell. This
+        # was entirely unvalidated: the loop watched a refused rail move still
+        # put a cube on the floor, because the carriage had already dragged the
+        # arm across it. Joint angles are held constant; only the rail varies.
+        if dist_mm > 1.0:
+            with self.lock:
+                cur_rad = np.array([float(self.data.qpos[jid])
+                                    for jid in self.joint_ids])
+                cur_rail = float(self.data.qpos[self.rail_jid])
+            swept_ok, swept_reason = self._validate_swept_path(
+                cur_rad, cur_rad, start_rail_m=cur_rail, target_rail_m=pos_m)
+            if not swept_ok:
+                print(f"[SimXArm] Rail path blocked {swept_reason}")
+                return 2
+
         if speed_mm_s and speed_mm_s > 0 and dist_mm > 1.0:
             duration_s = dist_mm / float(speed_mm_s)
             self._execute_paced_rail(pos_m, duration_s)
@@ -1491,6 +1523,17 @@ class SimXArmAPI:
 
         if not result.is_valid:
             print(f"[SimXArm] Validation failed: {result.reason}")
+            return 2
+
+        # The endpoint is legal. Now check the poses on the way to it -- the
+        # arm is about to be driven through ~50 interpolated configurations,
+        # and until this existed none of them were validated.
+        with self.lock:
+            start_rad = np.array([float(self.data.qpos[jid])
+                                  for jid in self.joint_ids])
+        swept_ok, swept_reason = self._validate_swept_path(start_rad, joint_angles)
+        if not swept_ok:
+            print(f"[SimXArm] Path blocked {swept_reason}")
             return 2
 
         # Pace the motion based on Cartesian distance / requested speed
@@ -1659,6 +1702,41 @@ class SimXArmAPI:
             self._set_finger_ctrl(GRIPPER_OPEN_CTRL_M)
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
         return 0
+
+    def _validate_swept_path(self, start_rad, target_rad,
+                             start_rail_m=None, target_rail_m=None,
+                             n: int = None):
+        """Collision-check the configurations BETWEEN start and target.
+
+        Returns (ok, reason). Endpoints are excluded -- the caller validates
+        the target, and the start is where the arm already is, so flagging it
+        would deadlock the arm any time it began a move touching something.
+
+        Linear interpolation in joint space, which is exactly what
+        _execute_paced_arm then executes, so this checks the path that will
+        actually be taken rather than an idealised one.
+        """
+        import numpy as _np
+        # Resolved at CALL time, not bound as a default. A default argument is
+        # evaluated once when the function is defined, so `n: int =
+        # SWEPT_PATH_SAMPLES` silently ignored any later change to the module
+        # constant -- including a test trying to switch the check off to prove
+        # it does something.
+        if n is None:
+            n = SWEPT_PATH_SAMPLES
+        start_rad = _np.asarray(start_rad, dtype=float)
+        target_rad = _np.asarray(target_rad, dtype=float)
+        for k in range(1, n):
+            a = k / float(n)
+            q = start_rad + a * (target_rad - start_rad)
+            rail = None
+            if start_rail_m is not None and target_rail_m is not None:
+                rail = start_rail_m + a * (target_rail_m - start_rail_m)
+            res = self.validator.validate(q, _np.zeros(3), rail_pos_m=rail,
+                                          check_position=False)
+            if not res.is_valid:
+                return False, f"at {a*100:.0f}% along the path: {res.reason}"
+        return True, "OK"
 
     def _grasp_rejections(self, name: str, ee_pos, reach: float) -> list:
         """Why `name` could NOT be grasped from the current pose. [] means it can.

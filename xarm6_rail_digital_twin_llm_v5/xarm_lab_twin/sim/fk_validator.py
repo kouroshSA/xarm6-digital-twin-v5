@@ -112,7 +112,15 @@ class FKValidator:
 
     def validate(self, joint_angles_rad: np.ndarray,
                  target_pos_m: np.ndarray,
-                 rail_pos_m: Optional[float] = None) -> ValidationResult:
+                 rail_pos_m: Optional[float] = None,
+                 check_position: bool = True) -> ValidationResult:
+        """Joint-limit, reachability and collision check for one configuration.
+
+        `check_position=False` skips the FK-vs-target comparison and checks
+        only limits and collision. That is what swept-path validation needs:
+        the poses *between* start and target are not supposed to be at the
+        target, so comparing them against it would reject every one of them.
+        """
         for i, jid in enumerate(self.joint_ids):
             lo, hi = self.model.jnt_range[jid]
             if not (lo <= joint_angles_rad[i] <= hi):
@@ -146,7 +154,7 @@ class FKValidator:
                 achieved = self.data.site_xpos[self.ee_site].copy()
                 error_mm = np.linalg.norm(achieved - target_pos_m) * 1000.0
 
-                if error_mm > self.POSITION_TOLERANCE_MM:
+                if check_position and error_mm > self.POSITION_TOLERANCE_MM:
                     return ValidationResult(
                         is_valid=False,
                         reason=(f"FK position error {error_mm:.1f}mm > "

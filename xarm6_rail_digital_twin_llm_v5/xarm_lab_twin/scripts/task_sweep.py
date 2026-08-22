@@ -175,12 +175,59 @@ def task_pacing_is_real(arm):
                          f"(need >2x and slow >2s)")
 
 
+def task_swept_path_validated(arm):
+    """A move whose ENDPOINT is legal but whose PATH collides must be refused.
+
+    Primitives used to validate only the endpoint. Since _execute_paced_arm
+    interpolates ~50 configurations per move, the trajectory was unchecked, and
+    the arm would shoulder a standing object aside mid-move -- after which the
+    endpoint check passed, because the obstruction was no longer there. The
+    episode loop hit this repeatedly: a plan would reach a legal grasp height
+    and fail anyway, because an earlier leg of the same plan had swept the cube
+    to the floor.
+
+    Interpolation happens in JOINT space, so the executed path bulges away from
+    the straight Cartesian line -- which is why checking only the two endpoints
+    can miss an obstacle that is nowhere near either of them.
+
+    The check is two-sided on purpose: it asserts the endpoint really is legal
+    (otherwise this would pass for the wrong reason, having merely found an
+    unreachable target) and that the move is nevertheless refused.
+    """
+    import numpy as np
+    arm.set_rail_position(350.0, wait=True)
+    start = (-200.0, -250.0, 800.0)
+    target = (200.0, -250.0, 800.0)
+    # Reach the start via a clearance height. Going straight there from home is
+    # itself path-blocked now, which would make this test inconclusive rather
+    # than failing -- a reminder that the check applies to the setup too.
+    if arm.set_position(start[0], start[1], 980.0, roll=180, wait=True) != 0:
+        return False, "could not reach the clearance pose; test is inconclusive"
+    if arm.set_position(*start, roll=180, wait=True) != 0:
+        return False, "could not reach the start pose; test is inconclusive"
+
+    # The endpoint on its own must be reachable and collision-free.
+    tgt_m = np.array(target) / 1000.0
+    angles = arm.ik_solver.solve(tgt_m, target_rot=None)
+    if angles is None:
+        return False, "no IK for the target; test is inconclusive"
+    endpoint = arm.validator.validate(angles, tgt_m)
+    if not endpoint.is_valid:
+        return False, f"endpoint itself is invalid ({endpoint.reason}); inconclusive"
+
+    rc = arm.set_position(*target, roll=180, wait=True)
+    ok = rc == 2
+    return ok, (f"endpoint valid, path move rc={rc} "
+                f"({'refused as expected' if ok else 'NOT refused -- path unchecked'})")
+
+
 BEHAVIOURAL_TASKS = [
     ("cube pick/place", task_cube_pickplace),
     ("tube -> rack", task_tube_to_rack),
     ("well-plate (bio)", task_wellplate_bio),
     ("bin push", task_bin_push),
     ("pacing is real", task_pacing_is_real),
+    ("swept path validated", task_swept_path_validated),
 ]
 
 
