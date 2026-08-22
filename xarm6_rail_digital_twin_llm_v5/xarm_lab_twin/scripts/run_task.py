@@ -31,6 +31,9 @@ def main():
                              "You are then executing an unchecked plan on a "
                              "physical arm; the operator must be at the e-stop.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-task-check", action="store_true",
+                        help="skip Layer 1 task validation (resolution + "
+                             "feasibility screen) before planning")
     parser.add_argument("--no-render", action="store_true")
     parser.add_argument("--no-record", action="store_true")
     parser.add_argument("--model", choices=list(MODELS.keys()), default=None)
@@ -159,6 +162,26 @@ def main():
               "before it reaches the arm. Stay on the e-stop.")
 
     print(f"\n[Task] {args.task}\n")
+
+    # Layer 1: resolve the task against the scene before any planning happens.
+    # Deterministic -- no LLM, no motion. It answers two questions the planner
+    # should not have to guess at: which object was meant, and whether the
+    # task is possible at all. Facts it reads are handed to the planner;
+    # blockers stop the run, because no plan can fix them.
+    if not args.no_task_check:
+        try:
+            from agent.task_validator import validate_task
+            verdict = validate_task(args.task, registry, arm)
+            if verdict.facts or verdict.warnings or verdict.blockers:
+                print(verdict.render())
+                print()
+            if not verdict.feasible:
+                print("[System] Task REFUSED before planning -- the blockers "
+                      "above are geometric, so no action sequence can succeed. "
+                      "Re-run with --no-task-check to plan anyway.")
+                return 2
+        except Exception as exc:  # noqa: BLE001 - never block a run on the checker
+            print(f"[System] task validation skipped ({type(exc).__name__}: {exc})")
     # _loop_handled_lessons: when True, the EpisodeRetry already appended one
     # lesson per episode, so the outer code at the bottom skips its
     # single-shot append_lesson() to avoid duplication.

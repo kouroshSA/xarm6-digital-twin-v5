@@ -378,6 +378,24 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+def check_task_validator(scene=None) -> list[CheckResult]:
+    """Layer 1 task validation must resolve referents and refuse the impossible.
+
+    Hardware-free and sim-free: the self-test drives it against a stub registry
+    containing the deliberate two-red-cube ambiguity.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "-m", "agent.task_validator", "--self-test"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("[PASS", "[FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("[FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("agent.task_validator", FAIL, "; ".join(failed))]
+    return [CheckResult("agent.task_validator", PASS,
+                        f"{len(tail)} Layer 1 task-validation tests pass")]
+
+
 def check_preflight_level1(scene=None) -> list[CheckResult]:
     """The Level 1 query gate must reject bad plans without a controller (A8.1).
 
@@ -486,6 +504,7 @@ STATIC_CHECKS = [
     check_arm_backend_parity,
     check_plan_gate,
     check_preflight_level1,
+    check_task_validator,
     check_motion_error_audit,
 ]
 
