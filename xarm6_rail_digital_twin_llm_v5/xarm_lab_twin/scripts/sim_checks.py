@@ -378,6 +378,26 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+def check_preflight_level1(scene=None) -> list[CheckResult]:
+    """The Level 1 query gate must reject bad plans without a controller (A8.1).
+
+    Hardware-free: the self-test drives the gate against a stub controller that
+    deliberately misbehaves the way the real one does -- is_tcp_limit and
+    is_joint_limit both lie -- and asserts the verdict does not depend on
+    either. See docs/vendor_reference/README.md for the measurements.
+    """
+    import subprocess
+    proc = subprocess.run([sys.executable, "scripts/preflight_level1.py", "--self-test"],
+                          capture_output=True, text=True)
+    tail = [ln.strip() for ln in proc.stdout.splitlines()
+            if ln.strip().startswith(("[PASS", "[FAIL"))]
+    if proc.returncode != 0:
+        failed = [ln for ln in tail if ln.startswith("[FAIL")] or [proc.stderr.strip()[-200:]]
+        return [CheckResult("preflight.level1_gate", FAIL, "; ".join(failed))]
+    return [CheckResult("preflight.level1_gate", PASS,
+                        f"{len(tail)} Level 1 gate tests pass (no controller needed)")]
+
+
 def check_plan_gate(scene=None) -> list[CheckResult]:
     """The pre-action gate must dispatch nothing when it rejects a plan (A8).
 
@@ -465,6 +485,7 @@ STATIC_CHECKS = [
     check_base_offset_matches_scene,
     check_arm_backend_parity,
     check_plan_gate,
+    check_preflight_level1,
     check_motion_error_audit,
 ]
 
