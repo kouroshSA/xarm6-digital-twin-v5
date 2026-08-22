@@ -50,6 +50,10 @@ def main():
                              "You are then executing an unchecked plan on a "
                              "physical arm; the operator must be at the e-stop.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--summary-json", metavar="PATH",
+                        help="write the loop/run summary as JSON. Lets a "
+                             "harness read results instead of screen-scraping "
+                             "stdout, which changes whenever a print does.")
     parser.add_argument("--no-intake", action="store_true",
                         help="skip Layer 0 (decomposition, class constraints, "
                              "pushback). Layer 0 runs on every prompt by "
@@ -405,6 +409,16 @@ def main():
     # task and a clean success were indistinguishable to anything scripting
     # it. task_sweep.py's docstring already states that exit code is the
     # contract; this file was quietly breaking it.
+    if args.summary_json:
+        try:
+            import json as _json
+            payload = {"task": args.task, "model": args.model,
+                       "loop": loop_summary}
+            with open(args.summary_json, "w") as fh:
+                _json.dump(payload, fh, indent=2, default=str)
+        except Exception as exc:  # noqa: BLE001 - reporting must not fail a run
+            print(f"[System] could not write --summary-json ({exc})")
+
     _exit_code = 0
     if loop_summary is not None:
         if not loop_summary.get("any_success", False):
