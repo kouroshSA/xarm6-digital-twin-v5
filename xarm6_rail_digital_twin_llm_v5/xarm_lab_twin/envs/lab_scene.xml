@@ -20,6 +20,28 @@
     <global azimuth="135" elevation="-25" offwidth="1280" offheight="720"/>
   </visual>
 
+  <!-- ============================ SCENE COMPASS ============================
+       Convention (2026-08-22): **the OT-2 is SOUTH.**
+
+       The OT-2 sits at x = +850, and the rail runs along x, so:
+
+           south  = +x   (toward the OT-2)
+           north  = -x   (toward the rail's power end)
+           east   = +y   (toward the wall)
+           west   = -y   (toward the operator, the open side of the bench)
+
+       east/west follow the map rule -- facing north, east is on the right --
+       so they are derived from the OT-2 anchor rather than chosen separately.
+
+       Two consequences worth stating, because they are what make the
+       convention useful:
+         - Moving north/south runs PARALLEL to the rail, so it does not change
+           an object's distance from the rail centreline (y = -50).
+         - Moving east/west crosses the rail. Nothing can rest on the benchtop
+           at the centreline: the track occupies y -115..+15 and stands 62 mm
+           proud of the bench.
+       ====================================================================== -->
+
   <default>
     <default class="arm_link">
       <geom contype="2" conaffinity="1"/>
@@ -406,8 +428,12 @@
       <geom name="green_cube_geom" class="cube" material="green_mat"/>
       <joint type="free" name="green_cube_joint"/>
     </body>
-    <body name="blue_cube" pos="0.20 -0.15 0.78">
-      <geom name="blue_cube_geom" class="cube" material="blue_mat"/>
+    <!-- Blue block: same stock as the red ones, 30 x 30 x 60 mm standing.
+         Placed 200 mm SOUTH of red_cube_front (parallel to the rail, so the
+         two blocks are the same distance from it). MEASURED 2026-08-22. -->
+    <body name="blue_cube" pos="0.20 -0.25 0.78">
+      <geom name="blue_cube_geom" class="cube" material="blue_mat"
+            size="0.015 0.015 0.030" mass="0.10"/>
       <joint type="free" name="blue_cube_joint"/>
     </body>
 
