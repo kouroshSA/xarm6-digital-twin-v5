@@ -85,6 +85,45 @@ RAIL_SAMPLES_MM = (0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0)
 #: single failed attempt is not evidence the pose is unreachable.
 IK_ATTEMPTS_PER_RAIL = 3
 
+#: How far below the tool a held object's centre sits. Derived from the same
+#: expression the grasp height uses (centre + GRASP_MAX_AXIAL_M*0.6), so the
+#: grasp fact and the placement fact cannot drift apart: if you grasp an object
+#: by putting the tool this far above its centre, you place it by putting the
+#: tool this far above where its centre must end up.
+def _held_centre_below_tool_mm() -> float:
+    from sim.mujoco_env import GRASP_MAX_AXIAL_M
+    return GRASP_MAX_AXIAL_M * 1000.0 * 0.6
+
+
+def check_placement(arm, mover, target) -> list:
+    """Measured fact: where to release `mover` so it lands on top of `target`.
+
+    Layer 1 reported grasp heights and nothing else, so a task like "put the
+    blue cube on top of the red cube" left the planner to invent a release
+    height. It chose one below the target's top surface, drove the carried
+    cube into it and knocked it flat -- repeatedly.
+
+    This is geometry, not a primitive: target's top surface, plus half the
+    carried object's height, plus the offset between the tool and a held
+    object's centre. Verified against the sim -- the computed 867 mm is
+    exactly the lowest release that produces a stack; 855 knocks the target
+    over.
+    """
+    try:
+        _, target_top_m = arm.object_z_extent_m(target.name)
+        lo_m, hi_m = arm.object_z_extent_m(mover.name)
+    except Exception:                                    # noqa: BLE001
+        return []
+    half_mover_mm = (hi_m - lo_m) * 1000.0 / 2.0
+    release_mm = target_top_m * 1000.0 + half_mover_mm + _held_centre_below_tool_mm()
+    return [f"to place {mover.name} on top of {target.name}: release with the "
+            f"tool at z={release_mm:.0f} mm or a little above "
+            f"({target.name}'s top surface is at "
+            f"z={target_top_m*1000:.0f} mm; releasing lower drives the carried "
+            f"object into it)"]
+
+
+
 
 #: How much of an alias an n-gram must cover to count as naming it. Substring
 #: matching alone is far too eager: "the rail" is a substring of the alias
@@ -323,6 +362,17 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
     for c in containers:
         for m in movables:
             v.blockers += check_fits_container(arm, m, c)
+
+    # Placement heights for stacking one named object on another. Capped:
+    # every ordered pair would be O(n^2) facts, and the planner only needs the
+    # ones it was actually asked about.
+    placements = 0
+    for mover in movables:
+        for target in movables:
+            if mover.name == target.name or placements >= 4:
+                continue
+            v.facts += check_placement(arm, mover, target)
+            placements += 1
 
     # The two matchers can both find the same object, so the same measured
     # fact appears twice. Dedupe while preserving order -- a report that

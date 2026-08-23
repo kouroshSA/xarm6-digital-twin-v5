@@ -251,6 +251,53 @@ def task_go_home_is_paced(arm):
                       f"({'paced' if dt > 2.0 else 'INSTANT -- unpaced'})")
 
 
+def task_placement_height_is_right(arm):
+    """Layer 1's "place on top of" height must actually produce a stack.
+
+    Two-sided on purpose. Asserting the fact merely EXISTS would pass for any
+    number; this executes the release at the reported height and requires the
+    stack, then repeats 20 mm lower and requires it to FAIL. A placement
+    height that is present but wrong is worse than none -- the planner
+    previously invented one, released below the target's top surface and
+    knocked it flat every time.
+    """
+    import re
+    from agent.object_registry import build_default_registry
+    from agent.task_validator import check_placement
+
+    reg = build_default_registry()
+    mover, target = reg.find("blue_cube"), reg.find("red_cube_front")
+    if mover is None or target is None:
+        return False, "blue_cube / red_cube_front missing from the registry"
+    facts = check_placement(arm, mover, target)
+    if not facts:
+        return False, "Layer 1 reported no placement height at all"
+    m = re.search(r"tool at z=(\d+)", facts[0])
+    if not m:
+        return False, f"placement fact has no height: {facts[0][:80]}"
+    z = float(m.group(1))
+
+    def attempt(release_z):
+        arm.reset_scene()
+        arm.set_rail_position(350.0, wait=True)
+        arm.set_position(200, -250, 950, roll=180, wait=True)
+        arm.set_position(200, -250, 807, roll=180, wait=True)
+        arm.close_lite6_gripper()
+        arm.set_position(200, -250, 950, roll=180, wait=True)
+        arm.set_position(0, -250, 950, roll=180, wait=True)
+        arm.set_position(0, -250, release_z, roll=180, wait=True)
+        arm.open_lite6_gripper()
+        _settle(arm, 400)
+        return "blue_cube on red_cube_front" in arm.physical_outcome()
+
+    at_height = attempt(z)
+    too_low = attempt(z - 20.0)
+    ok = at_height and not too_low
+    return ok, (f"reported z={z:.0f} -> stacked={at_height}; "
+                f"z={z-20:.0f} -> stacked={too_low} "
+                f"({'height is load-bearing' if ok else 'height does not discriminate'})")
+
+
 BEHAVIOURAL_TASKS = [
     ("cube pick/place", task_cube_pickplace),
     ("tube -> rack", task_tube_to_rack),
@@ -259,6 +306,7 @@ BEHAVIOURAL_TASKS = [
     ("pacing is real", task_pacing_is_real),
     ("swept path validated", task_swept_path_validated),
     ("go_home is paced", task_go_home_is_paced),
+    ("placement height is right", task_placement_height_is_right),
 ]
 
 

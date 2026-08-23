@@ -1770,6 +1770,46 @@ class SimXArmAPI:
                 width = max(width, 2.0 * min(ext_x, ext_y))
         return width
 
+    def object_z_extent_m(self, name: str) -> tuple:
+        """(bottom_z, top_z) of `name` in world metres.
+
+        Companion to object_width_m, and single-sourced for the same reason:
+        the grasp gate, the task validator and anything reasoning about
+        stacking all need an object's vertical extent, and three
+        implementations would eventually disagree.
+
+        Same per-type conversion as object_width_m -- mjGEOM size fields mean
+        different things per type -- but projected onto world Z instead of the
+        horizontal plane.
+        """
+        import numpy as _np
+        bid = self.model.body(name).id
+        lo, hi = float("inf"), float("-inf")
+        with self.lock:
+            for g in range(self.model.ngeom):
+                if self.model.geom_bodyid[g] != bid:
+                    continue
+                t = int(self.model.geom_type[g])
+                sz = self.model.geom_size[g]
+                if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
+                    half = _np.array([sz[0], sz[0], sz[0]])
+                elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
+                           int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
+                    half = _np.array([sz[0], sz[0], sz[1]])
+                elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
+                           int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
+                    half = _np.array([sz[0], sz[1], sz[2]])
+                else:
+                    r = float(self.model.geom_rbound[g])
+                    half = _np.array([r, r, r])
+                R = self.data.geom_xmat[g].reshape(3, 3)
+                half_z = float(_np.abs(R[2, :]) @ half)
+                cz = float(self.data.geom_xpos[g][2])
+                lo, hi = min(lo, cz - half_z), max(hi, cz + half_z)
+        if lo == float("inf"):
+            raise ValueError(f"{name} has no geoms")
+        return lo, hi
+
     def _validate_swept_path(self, start_rad, target_rad,
                              start_rail_m=None, target_rail_m=None,
                              n: int = None):
