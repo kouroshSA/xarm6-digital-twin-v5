@@ -190,6 +190,14 @@ def resolve_referents(task: str, registry) -> list:
             seen.add(key)
             out.append(Resolution(phrase=phrase, matches=matches))
 
+    # Objects the n-gram pass above already pinned down. Used to suppress a
+    # short, ambiguous alias that adds nothing: "blue" is an alias of
+    # blue_cube, but it also appears in blue_bin's and three blue-capped
+    # tubes' aliases, so it resolved 5 ways and dragged all five into the
+    # fact list. A two-object task emitted ~15 facts that way -- more text
+    # with no more signal, which is exactly what measurably hurt Layer 0.
+    already = {o.name for r in out for o in r.matches}
+
     for obj in registry.objects.values():
         # The body NAME counts too, and is tried first. Naming an object
         # explicitly is exactly how an operator disambiguates "the red cube",
@@ -201,6 +209,15 @@ def resolve_referents(task: str, registry) -> list:
             if len(a) < 3 or a not in low:
                 continue
             matches = registry.find_all(a)
+            # Drop a single-word alias that resolves several ways when a
+            # longer phrase has already resolved one of them. "blue cube"
+            # having pinned blue_cube, "blue" adds only ambiguity. A
+            # single-word alias that resolves several ways and pins NOTHING is
+            # kept -- there the ambiguity is the real answer and the operator
+            # needs to see it.
+            if (len(matches) > 1 and len(a.split()) == 1
+                    and any(o.name in already for o in matches)):
+                continue
             key = (a, tuple(sorted(o.name for o in matches)))
             if key in seen:
                 continue
@@ -426,12 +443,32 @@ def self_test() -> int:
     fails += 0 if ok2 else 1
     print(f"  [{'PASS' if ok2 else 'FAIL'}] an explicit name resolves to exactly one")
 
+    reg2 = _FakeRegistry([
+        _FakeObj("blue_cube", ["blue cube", "blue"]),
+        _FakeObj("blue_bin", ["blue bin", "blue"], container=True, otype="bin"),
+        _FakeObj("tube_B1", ["blue capped tube", "blue"]),
+    ])
+    r4 = resolve_referents("put the blue cube in the blue bin", reg2)
+    phrases = {x.phrase for x in r4}
+    ok4 = "blue" not in phrases and "blue cube" in phrases
+    fails += 0 if ok4 else 1
+    print(f"  [{'PASS' if ok4 else 'FAIL'}] a short ambiguous alias is dropped once a "
+          f"longer phrase resolved   {sorted(phrases)}")
+
+    # ...but an ambiguous short alias that pins NOTHING must still be reported:
+    # there the ambiguity IS the answer and the operator has to see it.
+    r5 = resolve_referents("grab the blue one", reg2)
+    ok5 = any(x.phrase == "blue" and len(x.matches) == 3 for x in r5)
+    fails += 0 if ok5 else 1
+    print(f"  [{'PASS' if ok5 else 'FAIL'}] an ambiguous alias that pins nothing is "
+          f"still reported            {[(x.phrase, len(x.matches)) for x in r5]}")
+
     v = TaskVerdict(task="t", blockers=["x"])
     ok3 = not v.feasible and TaskVerdict(task="t").feasible
     fails += 0 if ok3 else 1
     print(f"  [{'PASS' if ok3 else 'FAIL'}] a blocker makes the task infeasible")
 
-    print(f"\n  {3 - fails} PASS  {fails} FAIL")
+    print(f"\n  {5 - fails} PASS  {fails} FAIL")
     return 1 if fails else 0
 
 
