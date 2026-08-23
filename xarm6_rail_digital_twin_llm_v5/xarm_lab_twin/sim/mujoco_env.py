@@ -1810,6 +1810,105 @@ class SimXArmAPI:
             raise ValueError(f"{name} has no geoms")
         return lo, hi
 
+    def _held_body_path_hits(self, start_rad, target_rad,
+                             start_rail_m=None, target_rail_m=None,
+                             n: int = None):
+        """Does the object the gripper is CARRYING hit anything along the path?
+
+        Swept-path validation checked the arm's own geoms and stopped there, so
+        a carried cube could plough through the cup or a bin while every
+        command returned 0. Seen in a real run as several objects displaced
+        hundreds of mm with no refusal anywhere.
+
+        A held body is a FREE body: it follows the arm through the weld
+        constraint, which only acts during mj_step. Under the FK-only
+        evaluation the validator uses it would simply stay put, so this
+        computes where it WOULD be -- gripper pose composed with the relative
+        pose the weld locked in -- and places it there before checking.
+
+        Returns [] when nothing is held or nothing is hit.
+        """
+        import numpy as _np
+        if n is None:
+            n = SWEPT_PATH_SAMPLES
+
+        held = None
+        with self.lock:
+            for name, eqid in self.weld_eqids.items():
+                if self.data.eq_active[eqid]:
+                    held = (name, eqid)
+                    break
+        if held is None:
+            return []
+        name, eqid = held
+        bid = self.cube_bids.get(name)
+        if bid is None:
+            return []
+        jadr = self.model.body_jntadr[bid]
+        if jadr < 0:
+            return []
+        qadr = self.model.jnt_qposadr[jadr]
+
+        held_geoms = {g for g in range(self.model.ngeom)
+                      if self.model.geom_bodyid[g] == bid}
+        arm_names = {"base_link", "link1_geom", "link2_geom", "link3_geom",
+                     "link4_geom", "link5_geom", "link6_geom", "gripper_geom",
+                     "carriage_geom", "finger_left_geom", "finger_right_geom"}
+
+        rel_pos = _np.array(self.model.eq_data[eqid, 3:6], dtype=float)
+        rel_quat = _np.array(self.model.eq_data[eqid, 6:10], dtype=float)
+
+        start_rad = _np.asarray(start_rad, dtype=float)
+        target_rad = _np.asarray(target_rad, dtype=float)
+        hits = []
+        with self.lock:
+            saved = self.data.qpos.copy()
+            try:
+                for k in range(1, n):
+                    a = k / float(n)
+                    q = start_rad + a * (target_rad - start_rad)
+                    for i, jid in enumerate(self.joint_ids):
+                        self.data.qpos[jid] = q[i]
+                    if start_rail_m is not None and target_rail_m is not None:
+                        self.data.qpos[self.rail_jid] = (
+                            start_rail_m + a * (target_rail_m - start_rail_m))
+                    mujoco.mj_forward(self.model, self.data)
+
+                    gp = self.data.xpos[self.gripper_bid].copy()
+                    gq = self.data.xquat[self.gripper_bid].copy()
+                    wpos = _np.zeros(3)
+                    mujoco.mju_rotVecQuat(wpos, rel_pos, gq)
+                    wpos += gp
+                    wquat = _np.zeros(4)
+                    mujoco.mju_mulQuat(wquat, gq, rel_quat)
+                    self.data.qpos[qadr:qadr + 3] = wpos
+                    self.data.qpos[qadr + 3:qadr + 7] = wquat
+                    mujoco.mj_forward(self.model, self.data)
+                    mujoco.mj_collision(self.model, self.data)
+
+                    for c_i in range(self.data.ncon):
+                        c = self.data.contact[c_i]
+                        g1, g2 = int(c.geom1), int(c.geom2)
+                        if not ({g1, g2} & held_geoms):
+                            continue
+                        other = g2 if g1 in held_geoms else g1
+                        if other in held_geoms:
+                            continue
+                        oname = mujoco.mj_id2name(
+                            self.model, mujoco.mjtObj.mjOBJ_GEOM, other) or ""
+                        # The gripper holding it is not a collision.
+                        if oname in arm_names:
+                            continue
+                        if c.dist < -0.002:
+                            hits.append((a, name, oname))
+                            break
+                    if hits:
+                        break
+            finally:
+                self.data.qpos[:] = saved
+                mujoco.mj_forward(self.model, self.data)
+        return hits
+
     def _validate_swept_path(self, start_rad, target_rad,
                              start_rail_m=None, target_rail_m=None,
                              n: int = None):
@@ -1861,6 +1960,14 @@ class SimXArmAPI:
                 continue          # only the contacts we started with
             detail = (f"Collision: {new_hits[:3]}" if new_hits else res.reason)
             return False, f"at {a*100:.0f}% along the path: {detail}"
+
+        # The arm is clear. What it is carrying might not be.
+        carried = self._held_body_path_hits(start_rad, target_rad,
+                                            start_rail_m, target_rail_m, n)
+        if carried:
+            frac, held_name, other = carried[0]
+            return False, (f"at {frac*100:.0f}% along the path: the carried "
+                           f"{held_name} would hit {other}")
         return True, "OK"
 
     def _grasp_rejections(self, name: str, ee_pos, reach: float) -> list:

@@ -298,6 +298,33 @@ def task_placement_height_is_right(arm):
                 f"({'height is load-bearing' if ok else 'height does not discriminate'})")
 
 
+def task_carried_object_path_checked(arm):
+    """What the gripper CARRIES must be checked along the path, not just the arm.
+
+    Swept-path validation looked at the arm's own geoms only, so a carried
+    cube could plough through the cup or a bin while every command returned 0.
+    Observed in a real run as several objects displaced hundreds of mm with no
+    refusal anywhere.
+
+    The lane here threads the gripper OVER the cup rim (820 mm) while the held
+    cube -- whose centre sits ~27 mm below the tool -- passes through it. So
+    the arm is genuinely clear and only the cargo collides, which is precisely
+    the case the old check could not see.
+    """
+    arm.set_rail_position(350.0, wait=True)
+    arm.set_position(200, -250, 950, roll=180, wait=True)
+    arm.set_position(200, -250, 807, roll=180, wait=True)
+    arm.close_lite6_gripper()
+    if not _weld_active(arm, "blue_cube"):
+        return False, "could not grasp blue_cube; test inconclusive"
+    arm.set_position(200, -250, 950, roll=180, wait=True)
+    if arm.set_position(-50, -350, 847, roll=180, wait=True) != 0:
+        return False, "could not reach the start of the lane; inconclusive"
+    rc = arm.set_position(-350, -350, 847, roll=180, wait=True)
+    return rc == 2, (f"traverse over the cup while carrying: rc={rc} "
+                     f"({'refused' if rc == 2 else 'NOT refused -- cargo unchecked'})")
+
+
 BEHAVIOURAL_TASKS = [
     ("cube pick/place", task_cube_pickplace),
     ("tube -> rack", task_tube_to_rack),
@@ -307,6 +334,7 @@ BEHAVIOURAL_TASKS = [
     ("swept path validated", task_swept_path_validated),
     ("go_home is paced", task_go_home_is_paced),
     ("placement height is right", task_placement_height_is_right),
+    ("carried object path checked", task_carried_object_path_checked),
 ]
 
 
