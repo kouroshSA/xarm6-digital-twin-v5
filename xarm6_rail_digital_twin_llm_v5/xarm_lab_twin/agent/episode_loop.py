@@ -724,28 +724,6 @@ class EpisodeRetry:
         outcome_feedback: List[str] = []
 
         while ctx.episode_num <= ctx.max_episodes:
-            # Re-run the prompt layers with what the previous episodes
-            # physically did. Non-fatal: any failure leaves `task` as it was.
-            if self.prepare_task is not None and outcome_feedback:
-                print(f"[EpisodeLoop] feeding {len(outcome_feedback)} "
-                      f"end-of-action observation(s) back to Layer 0")
-                try:
-                    revised = self.prepare_task(original_task, outcome_feedback)
-                    if revised:
-                        # Compare only the instruction, not the measured facts
-                        # Layer 1 re-appends every episode -- those change
-                        # whenever an object moved, which would make every
-                        # episode look like a revision.
-                        _cut = lambda t: t.split(" Measured from the scene:")[0]
-                        if _cut(revised) != _cut(task):
-                            print("[EpisodeLoop] Layer 0 revised the instruction "
-                                  "from end-of-action feedback:")
-                            print(f"    {_cut(revised)[:220]}")
-                        task = revised
-                except Exception as exc:  # noqa: BLE001
-                    print(f"[EpisodeLoop] task revision skipped "
-                          f"({type(exc).__name__}: {exc})")
-
             print(f"\n{'=' * 70}")
             print(f"[EpisodeLoop] Episode {ctx.episode_num}/{ctx.max_episodes}: {task}")
             if ctx.learned_constraints:
@@ -756,6 +734,33 @@ class EpisodeRetry:
             # 1. Reset the scene and (re-)attach a fresh recorder.
             self.arm.reset_scene()
             time.sleep(0.5)
+
+            # 2. NOW re-run the prompt layers. This has to happen AFTER the
+            # reset, not before: Layer 1 measures the scene, and before the
+            # reset the scene is whatever the previous episode left behind --
+            # cube knocked aside, cup displaced -- which is then restored out
+            # from under the numbers. Running it first fed every episode after
+            # the first a set of coordinates describing a world that no longer
+            # existed, and cost this task 76% -> 40% before it was found.
+            if self.prepare_task is not None and outcome_feedback:
+                print(f"[EpisodeLoop] feeding {len(outcome_feedback)} "
+                      f"end-of-action observation(s) back to Layer 0")
+                try:
+                    revised = self.prepare_task(original_task, outcome_feedback)
+                    if revised:
+                        # Compare only the instruction, not the measured facts
+                        # Layer 1 re-appends every episode.
+                        _cut = lambda t: t.split(" Measured from the scene:")[0]
+                        if _cut(revised) != _cut(task):
+                            print("[EpisodeLoop] Layer 0 revised the instruction "
+                                  "from end-of-action feedback:")
+                            print(f"    {_cut(revised)[:220]}")
+                        task = revised
+                        print(f"[EpisodeLoop] Episode {ctx.episode_num} task: "
+                              f"{task[:150]}")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[EpisodeLoop] task revision skipped "
+                          f"({type(exc).__name__}: {exc})")
 
             recorder = None
             if self.recorder_factory is not None:

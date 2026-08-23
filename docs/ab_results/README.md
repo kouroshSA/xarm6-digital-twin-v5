@@ -4,6 +4,44 @@ Evidence for whether a prompt layer changes behaviour. Raw harness output is
 kept verbatim so a later reader can re-derive the conclusion rather than
 trust the summary.
 
+## 2026-08-23 (sixth) — a regression I introduced, found by the re-check
+
+`--feature intake --repeats 8 --episodes 5`, 16 runs, **0 lost** (the harness
+fix holding). A 40%, B 22%.
+
+The number that mattered was not A vs B but **A across sessions**: 76% (n=12)
+before the prompt layers were wired per-episode, 40% after. And arm A scored
+**exactly 2/5, first success at episode 3, in all eight repeats** -- identical,
+not scattered. Deterministic outcomes rule out variance and make isolation
+cheap: one run per condition decides.
+
+### Three hypotheses, all killed by measurement
+
+- *the carried-object check refuses legitimate moves into the cup* -- no:
+  "the carried" appears zero times in 16 runs
+- *the 0/2 seen earlier proves a regression* -- no: that was two-episode runs
+  on a task whose first success lands around episode 3
+- *the placement fact bloats the prompt* -- no: **2/5 with it, 2/5 without it**
+
+### The actual cause
+
+The per-episode layer re-run (added with the Layer 0 feedback loop, ec1be96)
+ran BEFORE `reset_scene()`. Layer 1 measures the scene, so from episode 2
+onward it reported coordinates for the scene the PREVIOUS episode left behind
+-- cube knocked aside, cup displaced -- and the reset then restored the world
+out from under those numbers.
+
+The signature fits exactly: episode 1 unaffected, later episodes degraded,
+first success pushed from episode 1 to episode 3.
+
+Moving the re-run after the reset: **2/5 -> 3/5** on the same deterministic
+task. Pinned by `agent.layers_measure_after_reset`, which fails if the order
+is ever swapped back.
+
+Not fully back to 76%, and that is left honest rather than tuned: the
+historical figure came from a session whose per-run rates ranged 0.4-1.0,
+whereas this build is deterministic, so the two are not cleanly comparable.
+
 ## 2026-08-23 (fifth) — 12 repeats on one task, and a retraction
 
 24 runs, 5 lost, 3 mjData races. One task, the only one whose margin looked

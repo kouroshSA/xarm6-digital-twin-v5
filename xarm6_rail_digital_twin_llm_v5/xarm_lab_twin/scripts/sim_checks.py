@@ -396,6 +396,44 @@ _LOCK_EXEMPT_FUNCS = {
 }
 
 
+def check_layers_measure_after_reset(scene=None) -> list[CheckResult]:
+    """The per-episode layer re-run must happen AFTER reset_scene(), not before.
+
+    Layer 1 MEASURES the scene. Before the reset, the scene is whatever the
+    previous episode left behind -- cube knocked aside, cup displaced -- and
+    the reset then restores it out from under those numbers. So every episode
+    after the first planned against coordinates for a world that no longer
+    existed.
+
+    Cost, measured: this task ran at 76% (n=12) before the feedback loop was
+    wired, 40% after (n=8, deterministic 2/5 every run), and 60% once the
+    re-run was moved after the reset.
+
+    Structural rather than behavioural, for the same reason as
+    sim.shared_state_locked: the defect is an ORDERING, and asserting the
+    order directly cannot be flaky. A behavioural version would have to
+    detect a degraded success rate, which needs many runs and still could not
+    say why.
+    """
+    src = pathlib.Path("agent/episode_loop.py").read_text()
+    i = src.find("while ctx.episode_num <= ctx.max_episodes:")
+    if i < 0:
+        return [CheckResult("agent.layers_measure_after_reset", FAIL,
+                            "could not find the episode loop")]
+    body = src[i:]
+    reset_at = body.find("self.arm.reset_scene()")
+    prep_at = body.find("self.prepare_task(")
+    if reset_at < 0 or prep_at < 0:
+        return [CheckResult("agent.layers_measure_after_reset", FAIL,
+                            "reset_scene() or prepare_task() missing from the loop")]
+    if prep_at < reset_at:
+        return [CheckResult("agent.layers_measure_after_reset", FAIL,
+                            "prepare_task() runs BEFORE reset_scene(): Layer 1 "
+                            "would measure the previous episode's leftovers")]
+    return [CheckResult("agent.layers_measure_after_reset", PASS,
+                        "the per-episode layer re-run measures a freshly reset scene")]
+
+
 def check_shared_state_locked(scene=None) -> list[CheckResult]:
     """Every touch of the shared mjData in sim/ must hold the lock.
 
@@ -706,6 +744,7 @@ STATIC_CHECKS = [
     check_ab_harness,
     check_home_pose_is_clear,
     check_shared_state_locked,
+    check_layers_measure_after_reset,
     check_motion_error_audit,
 ]
 
