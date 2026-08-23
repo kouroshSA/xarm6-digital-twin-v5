@@ -385,6 +385,62 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
                         f"{len(__import__('arm_backend').ARM_BACKEND_METHODS)} contract methods")]
 
 
+#: Internal helpers in sim/ik_solver.py that touch the shared mjData without
+#: taking the lock themselves. Every caller reaches them through solve() or
+#: _pos_error_for(), both of which hold it, and self.lock is an RLock so the
+#: nesting is safe. Listed explicitly so the check below stays strict about
+#: everything else.
+_LOCK_EXEMPT_FUNCS = {
+    "_solve_pink", "_rot_error_for",
+    "_solve_jacobian_position", "_solve_jacobian_6dof",
+}
+
+
+def check_shared_state_locked(scene=None) -> list[CheckResult]:
+    """Every touch of the shared mjData in sim/ must hold the lock.
+
+    The sim thread steps physics continuously while a viewer thread copies
+    mjData to draw it. Any third party touching that data unlocked can land
+    mid-step, and MuJoCo aborts the PROCESS with "attempting to copy mjData
+    while stack is in use".
+
+    That is not theoretical: it was losing whole runs. `launch_passive` copies
+    mjData internally to build its scene and was called outside the lock, so
+    construction itself could kill the run -- 2 of 6 rendered runs died before
+    executing a single episode. Locking it took a 7-run sample to zero losses.
+
+    A structural check rather than a behavioural one on purpose: the failure is
+    a thread race, so a behavioural test would be flaky in exactly the way that
+    makes a check untrustworthy. This cannot be flaky -- it either finds an
+    unguarded call or it does not.
+    """
+    import re
+    bad = []
+    for f in sorted(pathlib.Path("sim").glob("*.py")):
+        lines = f.read_text().split("\n")
+        stack, fn = [], "?"
+        for i, l in enumerate(lines):
+            if not l.strip() or l.strip().startswith("#"):
+                continue
+            ind = len(l) - len(l.lstrip())
+            stack = [d for d in stack if d < ind]
+            m = re.match(r"\s*def (\w+)", l)
+            if m:
+                fn = m.group(1)
+            if re.search(r"with\s+[\w\.]*lock\b", l):
+                stack.append(ind)
+                continue
+            touches = re.search(r"\bmujoco\.mj_(step|forward|collision)\(", l) \
+                or "viewer.launch_passive" in l
+            if touches and not stack and fn not in _LOCK_EXEMPT_FUNCS:
+                bad.append(f"{f.name}:{i+1} in {fn}()")
+    if bad:
+        return [CheckResult("sim.shared_state_locked", FAIL,
+                            f"{len(bad)} unguarded: {'; '.join(bad[:4])}")]
+    return [CheckResult("sim.shared_state_locked", PASS,
+                        "every mjData touch in sim/ holds the lock")]
+
+
 def check_home_pose_is_clear(scene) -> list[CheckResult]:
     """Home must be collision-free, and the twin must home where the cell does.
 
@@ -649,6 +705,7 @@ STATIC_CHECKS = [
     check_instruction_intake,
     check_ab_harness,
     check_home_pose_is_clear,
+    check_shared_state_locked,
     check_motion_error_audit,
 ]
 

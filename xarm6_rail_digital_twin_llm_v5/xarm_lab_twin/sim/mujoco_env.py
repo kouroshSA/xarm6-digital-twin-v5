@@ -792,10 +792,22 @@ class SimXArmAPI:
 
     def _launch_viewer(self):
         def _run():
-            v = mujoco.viewer.launch_passive(
-                self.model, self.data,
-                key_callback=self._viewer_key_callback,
-            )
+            # MUST hold the lock. launch_passive copies mjData internally to
+            # build its scene, and _sim_loop is already stepping physics by
+            # the time this thread starts -- so the copy can land mid-step and
+            # MuJoCo aborts with "attempting to copy mjData while stack is in
+            # use", killing the process during construction.
+            #
+            # This was the startup race that lost runs under --render: both
+            # failures in a 6-run sample died immediately after import, before
+            # any episode, one of them without even printing the abort. Every
+            # OTHER sync was already locked; this first one was not, because it
+            # happens inside the library call rather than after it.
+            with self.lock:
+                v = mujoco.viewer.launch_passive(
+                    self.model, self.data,
+                    key_callback=self._viewer_key_callback,
+                )
             self._viewer = v   # remember handle so disconnect() can close it
             # Frame the bench/arm: lookat the working area, pull the
             # camera back enough to see the whole arm and the cubes/bins.
