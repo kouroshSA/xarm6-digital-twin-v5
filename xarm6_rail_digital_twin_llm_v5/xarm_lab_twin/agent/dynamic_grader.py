@@ -155,6 +155,10 @@ Categorical events (exclusive per object -- only one per object per call):
                                     slot (tubes still in their home rack
                                     are NOT reported)
   - `<object> off bench`         -- xy is past the bench edge, still elevated
+  - `<a> on <b>`                 -- `a` is RESTING ON TOP OF `b`: centres
+                                    within a body-width laterally, and `a`
+                                    sitting 20-70 mm above `b`. Fixtures
+                                    (bins, racks) are never the `b` here.
 
 Displacement / proximity facts (added on top of the above):
   - `<object> moved (Δx, Δy)mm`         -- emitted for any movable body
@@ -175,8 +179,16 @@ Examples:
   - "tube_L2 in right_tube_rack"
   - "tube_R3 fell to floor; blue_bin off bench"
   - "green_bin moved (180, 5)mm; green_bin closer to blue_bin"
+  - "blue_cube on red_cube_front"
   - "red_cube_back moved (-50, 100)mm; red_cube_back closer to green_cube; red_cube_back farther from blue_cube"
   - "no objects displaced"
+
+For a "put X on top of Y" / "stack X on Y" task the criterion is `<X> on <Y>`
+and NOTHING WEAKER. Do NOT accept `<X> moved (...)mm` or `<X> closer to <Y>`
+for a stacking task: an object knocked flat beside the target satisfies both,
+and that has actually happened -- the arm shoved the target block over and set
+the other one next to it, and a grader built before `on` existed scored it a
+success. If the task says on top of, require the `on` fact.
 
 For a "push X closer to Y" task, the natural success criterion is
 `<X> closer to <Y>`. Note that `<a>` and `<b>` are in a canonical
