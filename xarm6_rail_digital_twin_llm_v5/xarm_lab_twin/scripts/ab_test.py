@@ -207,14 +207,28 @@ def summarise(results: list, feature: str, desc: str) -> None:
         # "No headroom" is a distinct outcome from "no benefit". A task the
         # control already solves on episode 1 cannot show an improvement, and
         # counting it as evidence against the feature would be wrong.
+        # Success rate DECIDES; time-to-first only breaks a tie.
+        #
+        # This used to read `b_rate > a_rate or b_ttf < a_ttf`, which called a
+        # run "B better" when B scored 26% against A's 76% -- a 50-point
+        # collapse -- purely because B reached its first success sooner in the
+        # few runs where it succeeded at all. That is not a tiebreaker, it is
+        # survivorship: episodes-to-first is conditioned on succeeding, so an
+        # arm that fails most runs and gets lucky early in the rest looks
+        # fast. A harness that can report a collapse as an improvement is
+        # worse than no harness.
+        RATE_TIE = 0.05
         if a_ttf == 1 and a_rate >= 0.99:
             verdict = "no headroom (control already solves it immediately)"
-        elif abs(a_rate - b_rate) < 1e-9 and a_ttf == b_ttf:
-            verdict = "no measurable difference on this task"
-        elif b_rate > a_rate or (b_ttf and a_ttf and b_ttf < a_ttf):
-            verdict = "B better"
+        elif abs(a_rate - b_rate) > RATE_TIE:
+            verdict = "B better" if b_rate > a_rate else "A better"
+        elif a_ttf is not None and b_ttf is not None and a_ttf != b_ttf:
+            faster = "B" if b_ttf < a_ttf else "A"
+            verdict = (f"{faster} better (rates within {RATE_TIE:.0%}; decided "
+                       f"on episodes-to-first, which only counts runs that "
+                       f"succeeded)")
         else:
-            verdict = "A better"
+            verdict = "no measurable difference on this task"
         print(f"    -> {verdict}")
         verdicts.append((task, diff, verdict))
 

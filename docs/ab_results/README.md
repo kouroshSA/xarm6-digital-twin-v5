@@ -4,6 +4,56 @@ Evidence for whether a prompt layer changes behaviour. Raw harness output is
 kept verbatim so a later reader can re-derive the conclusion rather than
 trust the summary.
 
+## 2026-08-23 (fifth) — 12 repeats on one task, and a retraction
+
+24 runs, 5 lost, 3 mjData races. One task, the only one whose margin looked
+clear at n=5.
+
+    success rate      A 76%   B 26%
+    episodes to first A 1.8   B 1.3
+    -> A better
+
+Within this run the difference is solid: per-run rates A 0.76 (sd 0.21, n=9)
+vs B 0.26 (sd 0.22, n=10), Welch t = 4.8, barely-overlapping ranges.
+
+### This retracts the previous entry
+
+The fourth attempt reported **B 92%** on this same task. Same code -- only a
+docs commit between them -- and the prompts are BYTE-IDENTICAL: Layer 0
+produced the same rewrite and the same single constraint in every run of both
+sessions. Nothing about the experiment changed.
+
+B measured 0.92 on 5 runs, then 0.26 on 10. **The between-session shift is
+larger than the effect being measured.** At n=5 the harness cannot distinguish
+Layer 0 from noise, and the "B better on 3" headline should not have been
+written.
+
+Best current reading: on this task Layer 0 does not help and may hurt. Held
+loosely -- the same caution that makes this a retraction applies to reading
+too much into 10 runs either.
+
+### A bug in the harness, found by this run
+
+It printed "B better" for 76% vs 26%. The verdict rule was
+`b_rate > a_rate OR b_ttf < a_ttf`, so a faster time-to-first overrode a
+50-point collapse in success rate. Worse, episodes-to-first is conditioned on
+succeeding: an arm that fails most runs and gets lucky early in the rest looks
+FAST. Success rate now decides; time-to-first only breaks a tie within 5
+points, and says so when it does.
+
+Every verdict in the entries below was produced by the buggy rule. Re-checked
+by hand: attempt 4's three verdicts are unchanged under the corrected rule,
+because its rate differences all pointed the same way as its tiebreakers.
+
+### The harness is too lossy to settle anything yet
+
+5 of 24 runs lost (21%), 3 of them `mj_copyDataVisual` races under the viewer
+-- after a run that lost 1 of 30 with none. Losses are not evenly spread
+either: 3 of arm A's 12 runs died. A harness that discards a fifth of its
+runs, unevenly, cannot support a conclusion this fine.
+
+**Fix the losses before running more comparisons.**
+
 ## 2026-08-23 (fourth attempt) — Layer 0, grounding wired AND ambiguity fixed
 
 `--feature intake --repeats 5 --episodes 5 --render`, 30 runs, 1 lost.
