@@ -40,6 +40,7 @@ from typing import Optional
 from xarm.wrapper import XArmAPI
 
 from arm_backend import (HOME_JOINTS_DEG, HOME_RAIL_MM,
+                         HOME_JOINT_SPEED_DEG_S, HOME_RAIL_SPEED_MM_S,
                          BASE_AT_RAIL_ZERO_MM, TOOL_LENGTH_MM, WORKSPACE_AABB_MM,
                          WORKSPACE_FLOOR_Z_MM, base_to_world_mm,
                          check_joint_limits_deg, check_workspace_world,
@@ -68,12 +69,10 @@ EFFECTORS = ("standard", "bio", "vacuum", "none")
 # Anything that changes the tool length or bench height invalidates this.
 # Re-derive with get_inverse_kinematics + get_forward_kinematics.
 HOME_TIP_ABOVE_BENCH_MM = 200.0
-HOME_JOINT_SPEED_DEG_S = 20.0
 
 # Rail target for home. Only commanded when the rail is trustworthy; go_home()
 # skips it otherwise rather than moving against a meaningless reference.
 
-HOME_RAIL_SPEED_MM_S = 50.0
 
 # wave_goodbye: joint-6 rocking amplitude and speed. Small and slow on purpose --
 # this runs on a real arm near a bench.

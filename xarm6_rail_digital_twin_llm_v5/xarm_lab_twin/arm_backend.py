@@ -104,6 +104,14 @@ RAIL_LIMITS_MM: tuple[float, float] = (0.0, 700.0)
 HOME_JOINTS_DEG: tuple[float, ...] = (-0.6, -31.8, -25.4, 0.0, 57.2, -0.4)
 HOME_RAIL_MM: float = 350.0
 
+# How fast the arm goes home. Shared, because the twin used to SNAP home --
+# go_home wrote ctrl directly with no interpolation, so the arm returned at
+# whatever the PD gains allowed -- while the real backend crept there at
+# 20 deg/s. That is both a parity defect and an unsafe habit to rehearse: a
+# motion nobody would command on hardware should not look normal in the twin.
+HOME_JOINT_SPEED_DEG_S: float = 20.0
+HOME_RAIL_SPEED_MM_S: float = 50.0
+
 
 #: Where the arm's base sits in world coordinates when the rail is at 0 mm, and
 #: how it moves with the rail. Measured from the scene:

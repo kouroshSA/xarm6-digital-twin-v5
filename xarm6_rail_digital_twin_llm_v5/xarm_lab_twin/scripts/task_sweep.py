@@ -225,6 +225,32 @@ def task_swept_path_validated(arm):
                 f"({'refused as expected' if ok else 'NOT refused -- path unchecked'})")
 
 
+def task_go_home_is_paced(arm):
+    """Returning home must cost wall-clock time, like every other motion.
+
+    go_home wrote ctrl directly for a long time, so the arm SNAPPED back to
+    the home pose at whatever the PD gains allowed -- and it runs after every
+    episode, so it was the single most-executed motion in the system. Nobody
+    would command that on hardware; the real backend creeps home at 20 deg/s.
+    Rehearsing a motion in the twin that would be unsafe on the arm is exactly
+    what the twin exists to prevent.
+
+    Sibling of `pacing is real`, which covers set_position/set_rail_position.
+    That check passed throughout the period go_home was unpaced, because it
+    never looked at go_home.
+    """
+    import time
+    arm.set_rail_position(600.0, wait=True)
+    arm.set_position(292, -250, 950, roll=180, wait=True)
+    t0 = time.time()
+    rc = arm.go_home(wait=True)
+    dt = time.time() - t0
+    if rc not in (0, None):
+        return False, f"go_home returned {rc}"
+    return dt > 2.0, (f"go_home took {dt:.2f}s "
+                      f"({'paced' if dt > 2.0 else 'INSTANT -- unpaced'})")
+
+
 BEHAVIOURAL_TASKS = [
     ("cube pick/place", task_cube_pickplace),
     ("tube -> rack", task_tube_to_rack),
@@ -232,6 +258,7 @@ BEHAVIOURAL_TASKS = [
     ("bin push", task_bin_push),
     ("pacing is real", task_pacing_is_real),
     ("swept path validated", task_swept_path_validated),
+    ("go_home is paced", task_go_home_is_paced),
 ]
 
 

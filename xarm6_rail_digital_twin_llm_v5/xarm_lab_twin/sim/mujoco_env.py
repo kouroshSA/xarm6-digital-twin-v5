@@ -75,7 +75,9 @@ GRIPPER_REACH_M = 0.07  # 70mm from EE site to body center (Claude's move_to tar
 # tasks) has wider pads with rubber lining, giving it a more forgiving
 # grasp envelope on SBS-footprint objects.
 from arm_backend import (HOME_JOINTS_DEG as _AB_HOME_JOINTS_DEG,
-                         HOME_RAIL_MM as _AB_HOME_RAIL_MM)
+                         HOME_RAIL_MM as _AB_HOME_RAIL_MM,
+                         HOME_JOINT_SPEED_DEG_S as _AB_HOME_JOINT_SPEED_DEG_S,
+                         HOME_RAIL_SPEED_MM_S as _AB_HOME_RAIL_SPEED_MM_S)
 
 GRIPPER_REACH_BIO_M = 0.10  # 100mm
 
@@ -956,11 +958,27 @@ class SimXArmAPI:
     HOME_JOINTS_RAD = tuple(np.deg2rad(a) for a in _AB_HOME_JOINTS_DEG)
 
     def go_home(self, wait: bool = True, **kwargs) -> int:
-        """Drive rail to 350mm and all six joints to zero."""
+        """Return to the home pose, PACED at the same speed as the real arm.
+
+        This used to write ctrl directly, so the arm snapped home at whatever
+        the PD gains allowed -- a violent return that ran after every single
+        episode. Nobody would command that on hardware, and rehearsing it in
+        the twin makes it look normal. The real backend has always crept home
+        at HOME_JOINT_SPEED_DEG_S; the twin now matches, joints first then
+        rail, in the same order.
+        """
+        target = np.array(self.HOME_JOINTS_RAD, dtype=float)
         with self.lock:
-            self.data.ctrl[self.act_ids[RAIL_ACT]] = self.HOME_RAIL_M
-            for i, ang in enumerate(self.HOME_JOINTS_RAD):
-                self.data.ctrl[self.act_ids[1 + i]] = float(ang)
+            cur = np.array([float(self.data.qpos[jid])
+                            for jid in self.joint_ids], dtype=float)
+            cur_rail_m = float(self.data.qpos[self.rail_jid])
+
+        max_deg = float(np.max(np.abs(np.rad2deg(target - cur))))
+        self._execute_paced_arm(target, max_deg / _AB_HOME_JOINT_SPEED_DEG_S)
+
+        rail_mm = abs(self.HOME_RAIL_M - cur_rail_m) * 1000.0
+        self._execute_paced_rail(self.HOME_RAIL_M,
+                                 rail_mm / _AB_HOME_RAIL_SPEED_MM_S)
         if wait:
             self._wait_rail_settled(self.HOME_RAIL_M)
             self._wait_arm_settled(np.array(self.HOME_JOINTS_RAD))
