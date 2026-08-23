@@ -195,6 +195,12 @@ def main():
               "before it reaches the arm. Stay on the e-stop.")
 
     print(f"\n[Task] {args.task}\n")
+    # The operator's words, before any layer touches them. The per-episode
+    # revision must start from THIS, not from the already-layered string:
+    # re-running Layer 0 over its own output (plus Layer 1's measured facts)
+    # made every rewrite look like it had "dropped most of the instruction",
+    # because it was being compared against a sentence full of coordinates.
+    raw_task = args.task
 
     # Layer 0: every prompt passes through here. Needs no scene, so it is
     # cheap on the easy cases; works on the instruction's structure and on
@@ -308,6 +314,44 @@ def main():
                 enable_frames=args.save_frames,
             )
 
+        def _prepare_task(original_task, feedback):
+            """Re-run the prompt layers for the next episode.
+
+            Layer 0 sees what the previous attempts physically left behind --
+            read at the end of the action, before the arm homed -- so a plan
+            that satisfied the words but not the intent can be restated.
+            Layer 1's facts are re-appended afterwards because they are
+            measured fresh from the scene each time.
+
+            Every step is optional and non-fatal; the worst case returns the
+            original instruction, which is what a run with the layers off does
+            anyway.
+            """
+            # `original_task` from the loop is the task as episode 1 saw it,
+            # which is already layered. Start from the operator's words.
+            t = raw_task
+            if not args.no_intake:
+                try:
+                    from agent.instruction_intake import intake
+                    r0 = intake(t, feedback=feedback, allow_questions=False)
+                    if r0.used and not r0.blocked:
+                        t = r0.to_task_prompt()
+                    else:
+                        print(f"[Layer0] revision not applied "
+                              f"(used={r0.used} blocked={r0.blocked}: {r0.reason})")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[Layer0] revision skipped ({type(exc).__name__}: {exc})")
+            if not args.no_task_check:
+                try:
+                    from agent.task_validator import validate_task
+                    v = validate_task(t, registry, arm)
+                    if v.facts:
+                        t += (" Measured from the scene: "
+                              + "; ".join(v.facts) + ".")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[Layer1] refresh skipped ({type(exc).__name__}: {exc})")
+            return t
+
         loop = EpisodeRetry(
             brain=brain, arm=arm, registry=registry,
             recorder_factory=_recorder_factory,
@@ -316,6 +360,7 @@ def main():
             speed_tier_override=args.speed_tier,
             led_enabled=args.led_enabled,
             human_feedback_enabled=args.hloop,
+            prepare_task=_prepare_task,
         )
         summary = loop.run(args.task)
         loop_summary = summary

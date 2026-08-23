@@ -639,10 +639,20 @@ class EpisodeRetry:
                  stringency: str = "loose",
                  speed_tier_override: Optional[str] = None,
                  led_enabled: bool = False,
-                 human_feedback_enabled: bool = False):
+                 human_feedback_enabled: bool = False,
+                 prepare_task=None):
         """
         Args:
             brain:            LLMBrain instance (already constructed).
+            prepare_task:     optional callable(original_task, feedback) -> str,
+                              run at the START of every episode. This is how
+                              Layer 0 sees what the last attempt actually did:
+                              `feedback` carries the physical result observed
+                              at the END OF THE ACTION, before the arm homed,
+                              so a plan that satisfied the words but not the
+                              intent can be restated. Returning the task
+                              unchanged is fine and is what happens when the
+                              layers are disabled.
             arm:              SimXArmAPI (needs reset_scene() and physical_outcome()).
             registry:         ObjectRegistry (unchanged across episodes).
             recorder_factory: callable() -> Recorder, called fresh per episode,
@@ -670,6 +680,7 @@ class EpisodeRetry:
         self.speed_tier_override = speed_tier_override
         self.led_enabled = led_enabled
         self.human_feedback_enabled = human_feedback_enabled
+        self.prepare_task = prepare_task
 
     def run(self, task: str) -> Dict[str, Any]:
         ctx = EpisodeContext(task=task, max_episodes=self.max_episodes)
@@ -709,7 +720,32 @@ class EpisodeRetry:
         if hasattr(self.arm, "set_led"):
             self.arm.set_led(self.led_enabled, ctx.speed_tier)
 
+        original_task = task
+        outcome_feedback: List[str] = []
+
         while ctx.episode_num <= ctx.max_episodes:
+            # Re-run the prompt layers with what the previous episodes
+            # physically did. Non-fatal: any failure leaves `task` as it was.
+            if self.prepare_task is not None and outcome_feedback:
+                print(f"[EpisodeLoop] feeding {len(outcome_feedback)} "
+                      f"end-of-action observation(s) back to Layer 0")
+                try:
+                    revised = self.prepare_task(original_task, outcome_feedback)
+                    if revised:
+                        # Compare only the instruction, not the measured facts
+                        # Layer 1 re-appends every episode -- those change
+                        # whenever an object moved, which would make every
+                        # episode look like a revision.
+                        _cut = lambda t: t.split(" Measured from the scene:")[0]
+                        if _cut(revised) != _cut(task):
+                            print("[EpisodeLoop] Layer 0 revised the instruction "
+                                  "from end-of-action feedback:")
+                            print(f"    {_cut(revised)[:220]}")
+                        task = revised
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[EpisodeLoop] task revision skipped "
+                          f"({type(exc).__name__}: {exc})")
+
             print(f"\n{'=' * 70}")
             print(f"[EpisodeLoop] Episode {ctx.episode_num}/{ctx.max_episodes}: {task}")
             if ctx.learned_constraints:
@@ -886,6 +922,40 @@ class EpisodeRetry:
 
             ctx.episode_outcomes.append(episode_outcome)
             ctx.episode_tasks.append(task)
+
+            # Feedback for the next episode's Layer 0 pass. `physical` was read
+            # after the plan finished and BEFORE the next reset homes the arm,
+            # so it describes the scene the actions actually left behind.
+            verdict = ("succeeded" if episode_outcome is True
+                       else "failed" if episode_outcome is False else "ungraded")
+            # The grader's reason is an ANALYSIS -- "expected X, got Y" -- not
+            # a dump of sim vocabulary, and that difference decides whether
+            # Layer 0 can act on it. Given the raw outcome string
+            # ("red_cube_front moved (-17, 25)mm; blue_cube moved ...") it
+            # changed nothing; given the same episode expressed as expectation
+            # versus result it added the right constraints, unprompted.
+            # State the DISCREPANCY in plain words. Framing alone was not
+            # enough: given the grader's "Expected one of ['blue_cube on
+            # red_cube_front']; got: red_cube_front moved (-47, 0)mm; ..."
+            # Layer 0 changed nothing, because the "got" half is still sim
+            # vocabulary that does not say what went wrong. Told instead that
+            # the required end state was absent and which objects ended up
+            # displaced, it added the constraints that matter -- "the red cube
+            # must not be knocked over", "the blue cube must come to rest on
+            # its top surface, not beside it" -- without being prompted.
+            import re as _re
+            _reason = str(locals().get("reason") or "")
+            _m = _re.search(r"Expected one of \[(.*?)\]", _reason)
+            parts = [f"attempt {ctx.episode_num}: {verdict}."]
+            if _m and episode_outcome is not True:
+                parts.append(f"The required end state ({_m.group(1)}) was NOT "
+                             f"present in the final scene.")
+            _disp = [c.strip() for c in str(physical).split(";")
+                     if "moved" in c or " on " in c or "fell" in c][:4]
+            if _disp:
+                parts.append("What the actions actually left behind: "
+                             + "; ".join(_disp) + ".")
+            outcome_feedback.append(" ".join(parts)[:500])
             _record_lesson(task, self.brain, result, physical, ctx,
                            episode_outcome, self.stringency, quality=quality,
                            milestones=milestones)

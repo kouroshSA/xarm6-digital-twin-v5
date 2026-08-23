@@ -93,6 +93,11 @@ Rules:
   different things, and "rejected" when it is impossible or meaningless.
   Otherwise "ok".
 - If the instruction is already clear, return it unchanged with status "ok".
+- You may be shown what happened on PREVIOUS attempts: what the arm was asked
+  to do and what physically resulted. Use it to state the goal more precisely
+  or to add a constraint the last attempt violated. Do NOT turn it into a
+  plan, and do NOT invent a number -- if an attempt put an object in the wrong
+  place, say what the correct end state is, not what height to use.
 
 Output only the JSON object.
 """
@@ -141,8 +146,14 @@ def _numbers(t: str) -> set:
     return set(re.findall(r"-?\d+(?:\.\d+)?", t))
 
 
-def check_contract(original: str, data: dict) -> tuple:
-    """(ok, reason). No scene and no model needed."""
+def check_contract(original: str, data: dict, feedback=None) -> tuple:
+    """(ok, reason). No scene and no model needed.
+
+    Numbers from `feedback` count as known: an outcome saying an object
+    "moved (-172, -30)mm" may legitimately be quoted back. Without this the
+    no-invented-numbers rule would reject Layer 0 for repeating what the
+    simulator itself reported.
+    """
     if not isinstance(data, dict):
         return False, "intake did not return an object"
     status = data.get("status", STATUS_OK)
@@ -161,7 +172,8 @@ def check_contract(original: str, data: dict) -> tuple:
     if hits:
         return False, f"names motion primitives, so it is a plan not a task ({hits})"
 
-    stray = _numbers(blob) - _numbers(original)
+    known = _numbers(original) | _numbers(" ".join(feedback or []))
+    stray = _numbers(blob) - known
     if stray:
         return False, (f"invented measurements Layer 0 cannot know: "
                        f"{sorted(stray)} -- it has not seen the scene")
@@ -184,8 +196,29 @@ def check_contract(original: str, data: dict) -> tuple:
 
 
 def intake(task: str, model: str = INTAKE_MODEL_DEFAULT,
-           call_model=None, interactive: bool = False) -> IntakeResult:
-    """Run Layer 0. Falls back to the original instruction on any doubt."""
+           call_model=None, interactive: bool = False,
+           feedback=None, allow_questions: bool = True) -> IntakeResult:
+    """Run Layer 0. Falls back to the original instruction on any doubt.
+
+    `feedback` is what previous episodes actually did -- each entry pairing the
+    attempt with the physical result the simulator observed at the END OF THE
+    ACTION, before the arm returned home. It lets Layer 0 sharpen the goal
+    when an attempt satisfied the words but not the intent: "place it on top"
+    followed by "the target block ended up lying flat beside it" says the
+    statement needs to rule that out.
+
+    It is still Layer 0's job to state the GOAL. Feedback must not become a
+    plan, and numbers appearing in it may be echoed but never invented -- the
+    contract checks both.
+
+    `allow_questions=False` for the mid-loop revision pass. Asking for
+    clarification is only useful at intake, where a human is present; mid-run
+    there is nobody to answer, and a question there costs the revision
+    entirely. That is not hypothetical -- the first version of this loop asked
+    which red cube was meant on EVERY revision (the feedback names both
+    candidates), so every revision was discarded and the feedback channel did
+    nothing at all.
+    """
     from agent.skills import load_skills, render_skills_section
 
     system = SYSTEM_PROMPT + "\n\n" + render_skills_section(
@@ -200,8 +233,18 @@ def intake(task: str, model: str = INTAKE_MODEL_DEFAULT,
                 system=system, messages=[{"role": "user", "content": user}])
             return "".join(b.text for b in resp.content if b.type == "text").strip()
 
+    user = task
+    if not allow_questions:
+        user += ("\n\nNobody is available to answer a question right now. Do "
+                 "not use status \"needs_clarification\": make the most "
+                 "reasonable assumption and state the goal as clearly as you "
+                 "can.")
+    if feedback:
+        user += ("\n\nWhat previous attempts did, and what physically "
+                 "resulted at the end of the action:\n"
+                 + "\n".join(f"  - {f}" for f in feedback))
     try:
-        raw = call_model(system, task)
+        raw = call_model(system, user)
     except Exception as exc:                                # noqa: BLE001
         return IntakeResult(task, task, reason=
                             f"intake call failed ({type(exc).__name__}); using original")
@@ -212,7 +255,7 @@ def intake(task: str, model: str = INTAKE_MODEL_DEFAULT,
     except Exception:                                       # noqa: BLE001
         return IntakeResult(task, task, reason="intake returned unparseable JSON; using original")
 
-    ok, reason = check_contract(task, data)
+    ok, reason = check_contract(task, data, feedback=feedback)
     if not ok:
         return IntakeResult(task, task, reason=f"{reason}; using original")
 
