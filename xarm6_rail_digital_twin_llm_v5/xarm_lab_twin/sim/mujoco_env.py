@@ -129,6 +129,16 @@ GRASP_MAX_PENETRATION_M = 0.004  # deepest contact tolerated at the grasp pose
 # descent; cheap enough that a move stays sub-millisecond in validation.
 SWEPT_PATH_SAMPLES = 12
 
+#: Contact tolerance for a CARRIED object. Zero, deliberately: an object the
+#: gripper is holding should not touch scene furniture at all. The arm's own
+#: check tolerates a little penetration because meshes overlap harmlessly at
+#: rest; cargo brushing a free-standing block topples it.
+CARRIED_CONTACT_TOL_M = 0.0
+
+#: Roughly one swept-path sample per this much rail travel, so a long traverse
+#: is not checked at a coarser resolution than a short one.
+SWEPT_SAMPLE_SPACING_MM = 8.0
+
 # Cosmetic finger animation. The two finger joints have range [0, 0.015] m
 # where 0 = open, 0.015 = closed (inward). Both joints are driven to the
 # same ctrl value via act_finger_l / act_finger_r. Fingers are contype=0 so
@@ -1843,6 +1853,12 @@ class SimXArmAPI:
         import numpy as _np
         if n is None:
             n = SWEPT_PATH_SAMPLES
+        # Denser sampling for long paths. 12 fixed samples across a 200 mm rail
+        # traverse is a 17 mm step, wide enough for a clipping contact to fall
+        # between two clean snapshots.
+        if start_rail_m is not None and target_rail_m is not None:
+            travel_mm = abs(target_rail_m - start_rail_m) * 1000.0
+            n = max(n, min(int(travel_mm / SWEPT_SAMPLE_SPACING_MM) + 1, 60))
 
         held = None
         with self.lock:
@@ -1911,7 +1927,12 @@ class SimXArmAPI:
                         # The gripper holding it is not a collision.
                         if oname in arm_names:
                             continue
-                        if c.dist < -0.002:
+                        # ANY contact, not 2 mm of penetration. A graze is
+                        # enough to topple a 60 mm standing block: a rail move
+                        # carrying a cube shoved the target 18 mm sideways and
+                        # this returned rc=0, because the deepest contact along
+                        # the path never reached the old -2 mm threshold.
+                        if c.dist < CARRIED_CONTACT_TOL_M:
                             hits.append((a, name, oname))
                             break
                     if hits:

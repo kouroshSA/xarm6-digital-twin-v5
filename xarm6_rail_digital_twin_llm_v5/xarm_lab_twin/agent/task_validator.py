@@ -85,6 +85,12 @@ RAIL_SAMPLES_MM = (0.0, 100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0)
 #: single failed attempt is not evidence the pose is unreachable.
 IK_ATTEMPTS_PER_RAIL = 3
 
+#: Extra height for CARRYING over a target, above the height for releasing onto
+#: it. Measured on the bench: carrying at 870 clipped a target whose release
+#: height is 867 and shoved it 18 mm; 875 was the first height that cleared.
+#: 25 mm keeps a margin instead of sitting on the measured edge.
+CARRY_CLEARANCE_MM = 25.0
+
 #: How far below the tool a held object's centre sits. Derived from the same
 #: expression the grasp height uses (centre + GRASP_MAX_AXIAL_M*0.6), so the
 #: grasp fact and the placement fact cannot drift apart: if you grasp an object
@@ -116,11 +122,19 @@ def check_placement(arm, mover, target) -> list:
         return []
     half_mover_mm = (hi_m - lo_m) * 1000.0 / 2.0
     release_mm = target_top_m * 1000.0 + half_mover_mm + _held_centre_below_tool_mm()
-    return [f"to place {mover.name} on top of {target.name}: release with the "
-            f"tool at z={release_mm:.0f} mm or a little above "
-            f"({target.name}'s top surface is at "
-            f"z={target_top_m*1000:.0f} mm; releasing lower drives the carried "
-            f"object into it)"]
+    # Carrying needs MORE height than releasing. At the release height the
+    # carried object's underside sits exactly on the target's top surface, so
+    # travelling at that height drags it across the target instead of over it.
+    # Measured: carrying at 870 clipped the target and shoved it 18 mm; 875 was
+    # the first height that cleared. CARRY_CLEARANCE_MM keeps a real margin
+    # rather than sitting on the measured edge.
+    carry_mm = release_mm + CARRY_CLEARANCE_MM
+    return [f"to place {mover.name} on top of {target.name}: carry it at "
+            f"z>={carry_mm:.0f} mm until it is over {target.name}, then release "
+            f"with the tool at z={release_mm:.0f} mm "
+            f"({target.name}'s top surface is at z={target_top_m*1000:.0f} mm; "
+            f"travelling at the release height drags the carried object "
+            f"through the target instead of over it)"]
 
 
 
