@@ -374,7 +374,21 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
 
     singles = [r.matches[0] for r in v.resolutions if r.ok]
     containers = [o for o in singles if o.is_container or o.object_type in ("bin", "rack")]
-    movables = [o for o in singles
+
+    # EVERY candidate, not just unambiguously-resolved ones. check_graspable
+    # was already fixed to measure all candidates of an ambiguous referent;
+    # this list was not, so placement heights were withheld exactly when the
+    # referent was ambiguous. Measured consequence: on "place the blue cube on
+    # top of the red cube" -- where "the red cube" matches two -- the planner
+    # got the grasp height (807, which it used correctly) and no placement
+    # height, guessed 820, and drove the carried cube into the target block.
+    # Every attempt. The number it needed existed and was not shown to it.
+    candidates = []
+    for r in v.resolutions:
+        for o in r.matches:
+            if o not in candidates:
+                candidates.append(o)
+    movables = [o for o in candidates
                 if not (o.is_container or o.object_type in ("bin", "rack", "instrument"))]
     for c in containers:
         for m in movables:
