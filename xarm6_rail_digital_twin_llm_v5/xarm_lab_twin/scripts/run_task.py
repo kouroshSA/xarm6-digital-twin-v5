@@ -421,8 +421,19 @@ def main():
     if args.summary_json:
         try:
             import json as _json
+            # Final qpos too, so a frame can be rendered LATER, offscreen,
+            # from a saved state. Grabbing a screenshot in-process would mean
+            # a second GL context while the viewer holds one, which is the
+            # mj_copyDataVisual race that has been eating runs.
+            try:
+                with arm.lock:
+                    final_qpos = [float(v) for v in arm.data.qpos]
+            except Exception:  # noqa: BLE001
+                final_qpos = None
             payload = {"task": args.task, "model": args.model,
-                       "loop": loop_summary}
+                       "loop": loop_summary,
+                       "scene_xml": getattr(arm, "scene_xml", "envs/lab_scene.xml"),
+                       "final_qpos": final_qpos}
             with open(args.summary_json, "w") as fh:
                 _json.dump(payload, fh, indent=2, default=str)
         except Exception as exc:  # noqa: BLE001 - reporting must not fail a run

@@ -135,8 +135,15 @@ def run_once(task: str, difficulty: str, arm: str, spec: dict,
     # review only writes world_model.md, which is reset around every run here.
     env.setdefault("XARM_NO_REVIEW", "1")
 
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as fh:
-        summary_path = fh.name
+    keep = os.environ.get("AB_SUMMARY_DIR")
+    if keep:
+        os.makedirs(keep, exist_ok=True)
+        summary_path = os.path.join(
+            keep, f"{arm}_{difficulty.split(':')[0].strip()}_"
+                  f"{abs(hash((task, arm))) % 10**6}_{len(os.listdir(keep))}.json")
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as fh:
+            summary_path = fh.name
 
     cmd = [sys.executable, "scripts/run_task.py", task,
            "--model", model, "--loop", "--max-episodes", str(episodes),
@@ -172,10 +179,11 @@ def run_once(task: str, difficulty: str, arm: str, spec: dict,
     except Exception as exc:                                # noqa: BLE001
         r.error = f"{type(exc).__name__}: {exc}"
     finally:
-        try:
-            os.unlink(summary_path)
-        except OSError:
-            pass
+        if not os.environ.get("AB_SUMMARY_DIR"):
+            try:
+                os.unlink(summary_path)
+            except OSError:
+                pass
     return r
 
 

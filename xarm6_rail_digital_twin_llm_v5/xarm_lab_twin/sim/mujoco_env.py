@@ -101,6 +101,14 @@ GRASP_MAX_BEHIND_M = 0.015       # how far *above* the tool an object may sit
 # was the only lower bound and "stop 50 mm short and close" counted as a grasp
 # -- which is what tube->rack was doing while its descent was refused.
 GRASP_MAX_AXIAL_M = 0.045
+
+# How far one object's centre must sit above another's for physical_outcome to
+# call it stacked. EVALUATION ONLY -- see the "Resting on another object" block
+# in physical_outcome. A 30 mm cube on a 60 mm standing block rises ~45 mm
+# centre-to-centre; the window is wide enough for a cube on a cube (~30 mm) and
+# tight enough to exclude one merely leaning against another.
+STACK_MIN_RISE_M = 0.020
+STACK_MAX_RISE_M = 0.070
 GRASP_MAX_PENETRATION_M = 0.004  # deepest contact tolerated at the grasp pose
 
 # --- Swept-path validation ---------------------------------------------------
@@ -2155,6 +2163,47 @@ class SimXArmAPI:
             )
             if off_bench_now and not still_at_init:
                 notes.append(f"{obj_name} off bench")
+                categorical.add(obj_name)
+
+        # --- Resting on another object ------------------------------------
+        # EVALUATION ONLY. This exists so a stacking task can be GRADED; it is
+        # not a planning aid and deliberately exposes no primitive, no target
+        # height and no registry entry. The planner must still work out where
+        # the top of an object is; this only reports whether it got there.
+        #
+        # Without it, "put the blue cube on top of the red cube" is
+        # ungradeable: a perfect stack and a near-miss both read as
+        # "blue_cube closer to red_cube_front", so both arms of an A/B would
+        # score zero regardless of what the arm actually did.
+        for obj_name, p_obj in object_positions.items():
+            if obj_name in categorical:
+                continue
+            top_of = None
+            for other, p_oth in object_positions.items():
+                # Fixtures are not stack targets. Without this, every tube
+                # sitting in its own home rack reported "tube_L2 on
+                # left_tube_rack" on a scene that nobody had touched -- noise
+                # in every outcome string, and a grader could latch onto it.
+                if (other == obj_name or other in bin_positions
+                        or other in rack_positions):
+                    continue
+                try:
+                    half_obj = self.object_width_m(obj_name) / 2.0
+                    half_oth = self.object_width_m(other) / 2.0
+                except Exception:  # noqa: BLE001
+                    continue
+                lateral = float(((p_obj[0] - p_oth[0]) ** 2 +
+                                 (p_obj[1] - p_oth[1]) ** 2) ** 0.5)
+                # Centres close enough that it is genuinely on top, not beside.
+                if lateral > max(half_obj, half_oth):
+                    continue
+                # And sitting at roughly the other's top, not intersecting it.
+                rise = float(p_obj[2] - p_oth[2])
+                if STACK_MIN_RISE_M < rise < STACK_MAX_RISE_M:
+                    top_of = other
+                    break
+            if top_of is not None:
+                notes.append(f"{obj_name} on {top_of}")
                 categorical.add(obj_name)
 
         # --- Displacement + proximity facts ---
