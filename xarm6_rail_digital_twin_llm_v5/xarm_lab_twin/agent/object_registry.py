@@ -36,8 +36,22 @@ class ObjectRegistry:
             self.load()
 
     def register(self, obj: LabObject):
+        """Add an object. Deliberately does NOT persist.
+
+        This used to call save() on every registration, which meant
+        build_default_registry() -- 19 register() calls -- rewrote
+        agent/objects.json from its own hardcoded positions 19 times per
+        startup. The file is documented as a seed that regen_registry.py
+        keeps in step with the scene, but nothing it wrote ever survived: the
+        next process to build a registry overwrote the file from the Python
+        it was supposed to be checking. So the seed could not drift from the
+        Python, only from the scene, and regen_registry's rewrite was a no-op
+        that read as a fix. It also made merely LOOKING at the registry a
+        write, which is how a --check run reverted the file it was checking.
+
+        objects.json is now written only by scripts/regen_registry.py.
+        """
         self.objects[obj.name] = obj
-        self.save()
 
     def find_all(self, query: str) -> list[LabObject]:
         """Every object matching `query`, exact name first.
@@ -208,7 +222,11 @@ def build_default_registry() -> ObjectRegistry:
         # for a while and is still how it gets referred to out loud.
         aliases=["translucent cup", "cup", "beaker", "white cup",
                  "plastic cup", "clear cup"],
-        position_xyz_m=[-0.2, -0.35, 0.75],
+        # MEASURED on the cell 2026-08-24: the cup stands in the SAME row as
+        # the cubes -- 200 mm out from the rail centreline, not 300 -- and 245
+        # mm NORTH of red_cube_front. The old (-200, -350) put it a full 100 mm
+        # further from the rail than it is.
+        position_xyz_m=[-0.245, -0.25, 0.75],
         optimal_rail_mm=150.0,
         grasp=bin_grasp,
         safety_notes=("Round open-top translucent off-white plastic beaker used as a "
@@ -234,10 +252,12 @@ def build_default_registry() -> ObjectRegistry:
     reg.register(LabObject(
         name="blue_cube",
         aliases=["blue cube", "blue block", "blue"],
-        # 30 x 30 x 60 mm standing, 200 mm SOUTH of red_cube_front (south is
+        # 30 x 30 x 60 mm standing, 220 mm SOUTH of red_cube_front (south is
         # +x, toward the OT-2 -- see the compass block in the scene XML).
         # Parallel to the rail, so both blocks sit 200 mm from its centreline.
-        position_xyz_m=[0.2, -0.25, 0.78],
+        # 220, not the 200 this said for months: MEASURED on the cell
+        # 2026-08-24 by grasping both cubes and reading the controller's pose.
+        position_xyz_m=[0.22, -0.25, 0.78],
         optimal_rail_mm=550.0,
         grasp=cube_grasp,
         safety_notes="Small graspable cube. Approach from above.",

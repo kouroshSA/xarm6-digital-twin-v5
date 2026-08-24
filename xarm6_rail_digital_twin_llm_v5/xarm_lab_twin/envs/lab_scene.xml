@@ -431,7 +431,7 @@
     <!-- Blue block: same stock as the red ones, 30 x 30 x 60 mm standing.
          Placed 200 mm SOUTH of red_cube_front (parallel to the rail, so the
          two blocks are the same distance from it). MEASURED 2026-08-22. -->
-    <body name="blue_cube" pos="0.20 -0.25 0.78">
+    <body name="blue_cube" pos="0.22 -0.25 0.78">
       <geom name="blue_cube_geom" class="cube" material="blue_mat"
             size="0.015 0.015 0.030" mass="0.10"/>
       <joint type="free" name="blue_cube_joint"/>
@@ -475,7 +475,7 @@
          and 900 mm: it does not tip and the cube is graded "in translucent_cup".
          Being light and tall it is likelier than the bins to topple under a
          lateral hit -- not measured, so treat that as a risk, not a fact. -->
-    <body name="translucent_cup" pos="-0.20 -0.35 0.75">
+    <body name="translucent_cup" pos="-0.245 -0.25 0.75">
       <inertial pos="0 0 0.020" mass="0.15" diaginertia="1.4e-4 1.4e-4 1.0e-4"/>
       <joint type="free" name="translucent_cup_joint"/>
       <geom name="translucent_cup_floor" type="cylinder" size="0.0575 0.001"

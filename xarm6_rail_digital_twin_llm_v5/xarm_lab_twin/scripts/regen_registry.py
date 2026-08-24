@@ -25,6 +25,47 @@ REGISTRY = "agent/objects.json"
 TOL_M = 0.001  # 1 mm
 
 
+def check_build_default_registry(scene) -> list:
+    """The THIRD copy of every object position, and the one that reaches the arm.
+
+    `objects.json` is a seed; `build_default_registry()` in
+    agent/object_registry.py hardcodes the same numbers in Python, and that is
+    what run_task actually calls. Nothing compared it to anything.
+
+    It mattered on hardware. `refresh_from_sim()` masks a stale value in the
+    sim by overwriting it from live bodies every episode, but RealXArmAPI has
+    no `get_body_pose` -- object poses on a real cell come from perception --
+    so the real arm is driven straight from these hardcoded numbers. Two of
+    them described a layout the cell has never had: the cup was 100 mm further
+    from the rail than it is, and the cubes 20 mm closer together.
+
+    Reported, not rewritten: these live in Python next to comments explaining
+    where each object sits, and a script that edited them would leave the prose
+    asserting the old value -- swapping a wrong number for a wrong sentence.
+    """
+    try:
+        sys.path.insert(0, os.getcwd())
+        from agent.object_registry import build_default_registry
+        reg = build_default_registry()
+    except Exception as exc:                                   # noqa: BLE001
+        print(f"  build_default_registry() not checked ({type(exc).__name__}: {exc})")
+        return []
+
+    drift = []
+    for name, obj in reg.objects.items():
+        info = scene.get(name)
+        if info is None:
+            continue
+        want = [c / 1000.0 for c in info.pos_mm]
+        have = list(obj.position_xyz_m or [])
+        if len(have) != 3 or any(abs(a - b) > TOL_M for a, b in zip(have, want)):
+            drift.append((name, have, want))
+            print(f"  [code] {name:<18} "
+                  f"({have[0]*1000:.0f},{have[1]*1000:.0f}) -> "
+                  f"({want[0]*1000:.0f},{want[1]*1000:.0f})")
+    return drift
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true",
@@ -34,6 +75,19 @@ def main() -> int:
     args = ap.parse_args()
 
     scene = load(args.scene)
+
+    # agent/objects.json is gitignored -- a derived artifact, absent on a fresh
+    # clone. It used to be created as a side effect of ObjectRegistry.register()
+    # saving on every call; that side effect is gone (it was silently clobbering
+    # this file from stale Python), so seed it here instead of dying on a
+    # checkout that has simply never built one.
+    if not os.path.exists(args.registry):
+        print(f"{args.registry} absent -- seeding it from "
+              f"build_default_registry()")
+        sys.path.insert(0, os.getcwd())
+        from agent.object_registry import build_default_registry
+        build_default_registry().save()
+
     raw = json.load(open(args.registry))
 
     drifted, missing = [], []
@@ -54,9 +108,15 @@ def main() -> int:
     if missing:
         print(f"  NOT IN SCENE (left untouched): {missing}")
 
+    code_drift = check_build_default_registry(scene)
+
     if args.check:
         print(f"\n{len(drifted)} drifted, {len(missing)} absent from scene")
-        return 1 if drifted else 0
+        if code_drift:
+            print(f"{len(code_drift)} drifted in build_default_registry() "
+                  f"-- edit agent/object_registry.py by hand; this script "
+                  f"cannot rewrite Python")
+        return 1 if (drifted or code_drift) else 0
 
     if drifted:
         with open(args.registry, "w") as f:
@@ -65,6 +125,10 @@ def main() -> int:
         print(f"\nrewrote {args.registry}: {len(drifted)} position(s) updated")
     else:
         print("\nno drift; nothing written")
+    if code_drift:
+        print(f"{len(code_drift)} position(s) in build_default_registry() still "
+              f"disagree with the scene -- fix agent/object_registry.py by hand")
+        return 1
     return 0
 
 

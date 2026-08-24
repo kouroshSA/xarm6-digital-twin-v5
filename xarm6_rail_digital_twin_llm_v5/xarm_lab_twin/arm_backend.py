@@ -257,26 +257,70 @@ WORKSPACE_AABB_MM: dict[str, tuple[float, float]] = {
 }
 
 
+#: Yaw of the arm's base frame relative to world, in degrees. MEASURED on the
+#: cell 2026-08-24, and the measurement cost a collision to get.
+#:
+#: The conversion used to be a pure translation, which silently asserted that
+#: the base frame and world frame share their x and y axes. They do not. On
+#: hardware the arm's +x points ALONG THE BENCH (world -y) and its +y runs down
+#: the rail (world +x) -- a quarter turn from what the twin assumed. A plan to
+#: pick a cube 200 mm in front of the base was therefore converted into a reach
+#: 200 mm sideways, the arm swung joint1 to -90 deg, descended over the rail
+#: it travels on, and stopped itself on a collision.
+#:
+#: Measured by grasping known objects and reading the controller's own pose,
+#: at rail 350 mm (base then at world x=0):
+#:
+#:     object      world (twin)      base (measured)
+#:     red cube    (   0, -250)      (200,    0)
+#:     blue cube   ( 220, -250)      (200,  220)
+#:     cup         (-245, -250)      (200, -245)
+#:
+#: All three sit 200 mm out from the rail axis, which is base +x, and differ
+#: only along the rail, which is base +y. That is a -90 deg base yaw and
+#: nothing else: with it, all three land exactly.
+#:
+#: `arm_backend` previously carried "x and y are still nominal and need
+#: measuring" against BASE_AT_RAIL_ZERO_MM. This is that measurement. What was
+#: missing was not an offset -- it was the orientation.
+BASE_YAW_DEG: float = -90.0
+
+
+def _yaw_cos_sin(yaw_deg: float) -> tuple[float, float]:
+    import math
+    r = math.radians(yaw_deg)
+    return math.cos(r), math.sin(r)
+
+
 def world_to_base_mm(xyz_world, rail_mm: float,
-                     base_at_rail_zero=BASE_AT_RAIL_ZERO_MM):
+                     base_at_rail_zero=BASE_AT_RAIL_ZERO_MM,
+                     yaw_deg: float = None):
     """World coordinates -> arm-base coordinates, given the live rail position.
 
     The twin works in world coordinates (benchtop at z=750); the xArm controller
     works relative to its own base. The base slides with the rail, so this is not
-    a constant offset and the rail position must be read, not assumed.
+    a constant offset and the rail position must be read, not assumed -- and it
+    is not a pure translation either, because the base frame is yawed relative
+    to world. See BASE_YAW_DEG.
     """
     bx, by, bz = base_at_rail_zero
-    return (xyz_world[0] - (bx + rail_mm),
-            xyz_world[1] - by,
+    c, s = _yaw_cos_sin(BASE_YAW_DEG if yaw_deg is None else yaw_deg)
+    dx = xyz_world[0] - (bx + rail_mm)
+    dy = xyz_world[1] - by
+    return (dx * c + dy * s,
+            -dx * s + dy * c,
             xyz_world[2] - bz)
 
 
 def base_to_world_mm(xyz_base, rail_mm: float,
-                     base_at_rail_zero=BASE_AT_RAIL_ZERO_MM):
+                     base_at_rail_zero=BASE_AT_RAIL_ZERO_MM,
+                     yaw_deg: float = None):
     """Arm-base coordinates -> world coordinates. Inverse of `world_to_base_mm`."""
     bx, by, bz = base_at_rail_zero
-    return (xyz_base[0] + bx + rail_mm,
-            xyz_base[1] + by,
+    c, s = _yaw_cos_sin(BASE_YAW_DEG if yaw_deg is None else yaw_deg)
+    ax, ay = xyz_base[0], xyz_base[1]
+    return (ax * c - ay * s + bx + rail_mm,
+            ax * s + ay * c + by,
             xyz_base[2] + bz)
 
 
