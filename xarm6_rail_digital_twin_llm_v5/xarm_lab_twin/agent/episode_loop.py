@@ -955,6 +955,16 @@ class EpisodeRetry:
             if _m and episode_outcome is not True:
                 parts.append(f"The required end state ({_m.group(1)}) was NOT "
                              f"present in the final scene.")
+            # What the simulator REFUSED, verbatim. The generic constraint
+            # the failure analyser writes ("gripper_close did not grasp
+            # anything") loses the reason; the reason is what lets Layer 0
+            # restate the goal or push back.
+            _ref = getattr(self.arm, "last_refusal", "")
+            if _ref:
+                parts.append(f"The simulator refused an action: {_ref}.")
+                print(f"[EpisodeLoop] refusal carried into Layer 0 feedback: "
+                      f"{_ref[:120]}")
+
             _disp = [c.strip() for c in str(physical).split(";")
                      if "moved" in c or " on " in c or "fell" in c][:4]
             if _disp:

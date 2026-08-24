@@ -246,6 +246,11 @@ class SimXArmAPI:
         # on the shared data.qpos, and some callers (set_position's retry path,
         # _ik_pos_error) already hold it when they call in. Re-entrancy makes
         # that safe instead of a deadlock.
+        # Why the last motion was refused. Printing a reason and returning a
+        # bare rc=2 means the caller knows THAT something was refused and never
+        # what -- so the loop could only ever synthesise a generic constraint.
+        # Recorded here so the reason can be routed back to Layer 0.
+        self.last_refusal = ""
         self.lock  = threading.RLock()
         self._running = True
         self._viewer = None  # set by _launch_viewer so disconnect() can close it
@@ -1452,6 +1457,7 @@ class SimXArmAPI:
             swept_ok, swept_reason = self._validate_swept_path(
                 cur_rad, cur_rad, start_rail_m=cur_rail, target_rail_m=pos_m)
             if not swept_ok:
+                self.last_refusal = f"rail move refused: path blocked {swept_reason}"
                 print(f"[SimXArm] Rail path blocked {swept_reason}")
                 return 2
 
@@ -1586,6 +1592,7 @@ class SimXArmAPI:
             return 1
 
         if not result.is_valid:
+            self.last_refusal = f"move refused: {result.reason}"
             print(f"[SimXArm] Validation failed: {result.reason}")
             return 2
 
@@ -1597,6 +1604,7 @@ class SimXArmAPI:
                                   for jid in self.joint_ids])
         swept_ok, swept_reason = self._validate_swept_path(start_rad, joint_angles)
         if not swept_ok:
+            self.last_refusal = f"move refused: path blocked {swept_reason}"
             print(f"[SimXArm] Path blocked {swept_reason}")
             return 2
 
@@ -2132,6 +2140,10 @@ class SimXArmAPI:
             if nearest is None or nearest_d > reach:
                 # rc=1, not 0. Closing on empty air is not a successful grasp,
                 # and an agent reading rc=0 would believe it holds something.
+                self.last_refusal = (
+                    f"grasp refused: nothing in reach; nearest was {nearest} "
+                    f"at {nearest_d*1000:.0f} mm with a {reach*1000:.0f} mm "
+                    f"reach -- the tool was too far above the object")
                 print(f"[SimXArm] Gripper close FAILED (nothing in reach; "
                       f"nearest={nearest} at {nearest_d*1000:.1f}mm, "
                       f"mode={self._gripper_mode}, reach={reach*1000:.0f}mm)")
@@ -2139,6 +2151,8 @@ class SimXArmAPI:
 
             rejections = self._grasp_rejections(nearest, ee_pos, reach)
             if rejections:
+                self.last_refusal = (f"grasp of {nearest} refused: "
+                                     + "; ".join(rejections))
                 print(f"[SimXArm] Gripper close FAILED on {nearest} "
                       f"({nearest_d*1000:.1f}mm away): " + "; ".join(rejections))
                 return 1

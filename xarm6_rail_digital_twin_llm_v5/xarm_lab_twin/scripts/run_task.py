@@ -210,7 +210,20 @@ def main():
     if not args.no_intake:
         try:
             from agent.instruction_intake import intake, STATUS_REJECT
-            r0 = intake(args.task)
+            # Layer 1 runs FIRST, purely to collect what it already knows is
+            # wrong -- an object with no reachable grasp pose, an ambiguous
+            # referent. Those warnings were computed, printed and delivered
+            # nowhere, so Layer 0 could not push back on a task naming an
+            # object the arm cannot pick up. Deterministic and cheap, so
+            # running it twice costs nothing.
+            _pre = []
+            if not args.no_task_check:
+                try:
+                    from agent.task_validator import validate_task as _vt
+                    _pre = _vt(args.task, registry, arm).warnings
+                except Exception:  # noqa: BLE001
+                    _pre = []
+            r0 = intake(args.task, feedback=_pre or None)
             rendered = r0.render()
             if rendered:
                 print(rendered)
@@ -333,7 +346,17 @@ def main():
             if not args.no_intake:
                 try:
                     from agent.instruction_intake import intake
-                    r0 = intake(t, feedback=feedback, allow_questions=False)
+                    # Layer 1's standing warnings ride alongside the episode
+                    # feedback: what the scene says is impossible, plus what
+                    # actually happened when it was tried.
+                    fb = list(feedback or [])
+                    if not args.no_task_check:
+                        try:
+                            from agent.task_validator import validate_task as _vt
+                            fb = _vt(raw_task, registry, arm).warnings + fb
+                        except Exception:  # noqa: BLE001
+                            pass
+                    r0 = intake(t, feedback=fb, allow_questions=False)
                     if r0.used and not r0.blocked:
                         t = r0.to_task_prompt()
                     else:
