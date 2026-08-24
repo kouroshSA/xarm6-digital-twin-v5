@@ -127,6 +127,13 @@ GRASP_MAX_PENETRATION_M = 0.004  # deepest contact tolerated at the grasp pose
 #
 # 12 samples is a compromise. Enough to catch a 30 mm object on a 200 mm
 # descent; cheap enough that a move stays sub-millisecond in validation.
+#: Wave posture. joint1 = -90 faces WEST (-y, the open operator side); the
+#: shoulder/elbow/wrist values reach the tool 441 mm out and 1056 mm up.
+#: Verified collision-free across the full swing before being written here.
+WAVE_BASE_DEG = (-90.0, -10.0, -40.0, 0.0, 50.0, 0.0)
+WAVE_SWING_DEG = 25.0
+WAVE_SPEED_DEG_S = 60.0     # visible, not a whip
+
 SWEPT_PATH_SAMPLES = 12
 
 #: Contact tolerance for a CARRIED object. Zero, deliberately: an object the
@@ -1377,36 +1384,46 @@ class SimXArmAPI:
 
     # ---- gestures ----
     def wave_goodbye(self, n_waves: int = 3, **kwargs) -> int:
-        """Move to mid-rail, then sweep the whole arm left/right N times.
+        """Face WEST, extend, and sweep the arm side to side N times.
 
-        Visualization-friendly motion: shoulder is bent forward 30 deg so
-        the gripper hangs out-and-up, then joint1 (base rotation) sweeps
-        +/-25 deg, making the gripper trace a clearly visible side-to-side
-        arc. Returns to home pose afterward.
+        Posture: the old pose put joint1 at 0, which faces SOUTH (+x, toward
+        the OT-2) with the shoulder hunched -- the tool sat only 107 mm out
+        from the base. It now faces west (-y, the open operator side, joint1 =
+        -90) and reaches 441 mm out and up, so the sweep is a wave rather than
+        a shrug.
+
+        PACED, like every other motion. This used to drive _execute_joint_angles
+        directly, so all six poses -- including 50 deg of base rotation per
+        swing -- snapped across at whatever the PD gains allowed, and
+        --speed-tier had no effect on any of it.
         """
         n_waves = max(1, int(n_waves))
+
+        def _go(target_rad, speed_deg_s=WAVE_SPEED_DEG_S):
+            with self.lock:
+                cur = np.array([float(self.data.qpos[jid])
+                                for jid in self.joint_ids], dtype=float)
+            max_deg = float(np.max(np.abs(np.rad2deg(target_rad - cur))))
+            self._execute_paced_arm(target_rad, max_deg / speed_deg_s)
+            self._wait_arm_settled(target_rad, tol_rad=0.10, timeout=3.0)
 
         # 1) Mid-rail
         self.set_rail_position(position_mm=350, wait=True)
 
-        # 2) Wave-base pose: shoulder bent 30 deg forward so motion is visible
-        wave_base = np.deg2rad([0.0, 30.0, 0.0, 0.0, 0.0, 0.0])
-        self._execute_joint_angles(wave_base)
-        self._wait_arm_settled(wave_base, tol_rad=0.05, timeout=3.0)
+        # 2) Wave-base pose: west-facing and extended.
+        wave_base = np.deg2rad(WAVE_BASE_DEG)
+        _go(wave_base)
 
-        # 3) Sweep joint1 +/-25 deg, n_waves cycles
-        swing = np.deg2rad(25.0)
+        # 3) Sweep joint1 about that heading.
+        swing = np.deg2rad(WAVE_SWING_DEG)
         for _ in range(n_waves):
-            right = wave_base.copy(); right[0] = +swing
-            self._execute_joint_angles(right)
-            self._wait_arm_settled(right, tol_rad=0.10, timeout=1.5)
-            left = wave_base.copy(); left[0] = -swing
-            self._execute_joint_angles(left)
-            self._wait_arm_settled(left, tol_rad=0.10, timeout=1.5)
+            right = wave_base.copy(); right[0] += swing
+            _go(right)
+            left = wave_base.copy(); left[0] -= swing
+            _go(left)
 
-        # 4) Center the wave-base then go home
-        self._execute_joint_angles(wave_base)
-        self._wait_arm_settled(wave_base, tol_rad=0.05, timeout=2.0)
+        # 4) Centre, then home.
+        _go(wave_base)
         self.go_home()
         print(f"[SimXArm] wave_goodbye ({n_waves} waves) complete")
         return 0

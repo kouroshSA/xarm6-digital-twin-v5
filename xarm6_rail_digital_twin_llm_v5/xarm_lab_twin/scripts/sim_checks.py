@@ -434,6 +434,57 @@ def check_layers_measure_after_reset(scene=None) -> list[CheckResult]:
                         "the per-episode layer re-run measures a freshly reset scene")]
 
 
+#: Private helpers that are ALLOWED to write joint targets straight to ctrl:
+#: the pacing layer itself, and the zero-duration fallback it delegates to.
+_UNPACED_OK = {"_execute_paced_arm", "_execute_joint_angles", "reset_scene"}
+
+
+def check_motion_primitives_paced(scene=None) -> list[CheckResult]:
+    """No public motion primitive may drive joints straight to ctrl.
+
+    MuJoCo position actuators have no velocity limit, so a primitive that
+    calls _execute_joint_angles directly moves at whatever the PD gains allow
+    and --speed-tier has no effect on it. That is not a cosmetic difference:
+    the operator flagged the return-home as a motion nobody would command on
+    hardware, and rehearsing it in the twin makes it look normal.
+
+    Found by inspection three times now -- set_position/set_rail_position,
+    then go_home, then wave_goodbye -- because each behavioural pacing check
+    only looks at the primitive it names. This one looks at all of them, so
+    the next unpaced primitive fails a check instead of waiting to be noticed.
+    """
+    import re
+    src = pathlib.Path("sim/mujoco_env.py").read_text()
+    lines = src.split("\n")
+
+    # Per public method, does it ever PACE, and does it ever write ctrl直接?
+    # A primitive that paces and falls back to a direct write for zero-length
+    # moves is fine -- set_position does exactly that. One that ONLY ever
+    # writes ctrl has no speed control at all, which is the defect.
+    fn, seen = "?", {}
+    for l in lines:
+        m = re.match(r"    def (\w+)", l)
+        if m:
+            fn = m.group(1)
+            seen.setdefault(fn, {"paced": False, "raw": False})
+        if fn == "?":
+            continue
+        if "self._execute_paced_arm(" in l or "self._execute_paced_rail(" in l:
+            seen[fn]["paced"] = True
+        if "self._execute_joint_angles(" in l:
+            seen[fn]["raw"] = True
+
+    bad = [f"{fn}()" for fn, v in seen.items()
+           if v["raw"] and not v["paced"]
+           and not fn.startswith("_") and fn not in _UNPACED_OK]
+    if bad:
+        return [CheckResult("sim.motion_primitives_paced", FAIL,
+                            f"never paced: {'; '.join(sorted(bad))} -- writes joint "
+                            f"targets straight to ctrl, so speed caps do not apply")]
+    return [CheckResult("sim.motion_primitives_paced", PASS,
+                        "no public motion primitive writes joint targets unpaced")]
+
+
 def check_shared_state_locked(scene=None) -> list[CheckResult]:
     """Every touch of the shared mjData in sim/ must hold the lock.
 
@@ -744,6 +795,7 @@ STATIC_CHECKS = [
     check_ab_harness,
     check_home_pose_is_clear,
     check_shared_state_locked,
+    check_motion_primitives_paced,
     check_layers_measure_after_reset,
     check_motion_error_audit,
 ]

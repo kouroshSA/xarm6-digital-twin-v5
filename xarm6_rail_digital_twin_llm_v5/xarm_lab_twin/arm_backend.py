@@ -39,6 +39,7 @@ ARM_BACKEND_METHODS: dict[str, str] = {
     "get_servo_angle":    "(code, [j1..j6]) in degrees",
     "get_rail_position":  "(code, position_mm)",
     "go_home":            "drive to the canonical home pose",
+    "wave_goodbye":       "sweep the arm side to side N times (demo / attract motion)",
     "rail_home":          "return the rail to its origin",
 
     # -- end effector ------------------------------------------------------
