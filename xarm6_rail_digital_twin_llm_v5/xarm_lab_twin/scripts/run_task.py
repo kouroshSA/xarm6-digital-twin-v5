@@ -178,7 +178,19 @@ def main():
     # believes a check happened. --no-preflight is the explicit opt-out.
     if args.mode == "real" and not args.no_preflight:
         from scripts.validate_plan import make_gate
-        gate = make_gate(args.validator_ip)
+        # The gate converts the plan's world poses into the controller's base
+        # frame, and that conversion slides with the rail -- so it has to start
+        # from where the arm actually is, not from an assumed zero. The
+        # container cannot supply this: it has no rail and always reports 0.
+        _rail0 = 0.0
+        try:
+            _rc, _rail0 = arm.get_rail_position()
+            if _rc != 0:
+                _rail0 = 0.0
+        except Exception as exc:  # noqa: BLE001
+            print(f"[System] rail read for the gate failed ({exc}); assuming 0 mm")
+            _rail0 = 0.0
+        gate = make_gate(args.validator_ip, initial_rail_mm=float(_rail0))
         if gate is None:
             print(f"[System] ABORT: pre-action validator unreachable at "
                   f"{args.validator_ip}. Start it with:\n"
