@@ -155,6 +155,13 @@ Categorical events (exclusive per object -- only one per object per call):
                                     slot (tubes still in their home rack
                                     are NOT reported)
   - `<object> off bench`         -- xy is past the bench edge, still elevated
+  - `<object> still in the gripper`
+                                 -- the arm halted while holding it. This is
+                                    almost always a FAILURE, including for a
+                                    task whose goal is where the object was
+                                    already sitting: the object has not been
+                                    set down, so nothing is finished. Never
+                                    put this in expected_substrings.
   - `<a> on <b>`                 -- `a` is RESTING ON TOP OF `b`: centres
                                     within a body-width laterally, and `a`
                                     sitting 20-70 mm above `b`. Fixtures

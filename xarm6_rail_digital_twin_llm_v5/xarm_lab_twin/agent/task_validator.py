@@ -182,12 +182,72 @@ def check_placement(arm, mover, target) -> list:
     # the first height that cleared. CARRY_CLEARANCE_MM keeps a real margin
     # rather than sitting on the measured edge.
     carry_mm = release_mm + CARRY_CLEARANCE_MM
+    # The re-grasp height is the SAME number, and it has to be said, because
+    # the grasp height Layer 1 reports for the mover is measured where the
+    # mover is standing NOW -- on the bench. A task with a later leg that
+    # picks it back off the target is asking about a position that will not
+    # exist until the first leg runs, so the planner guesses. It guessed 885
+    # against a correct 867, and 18 mm too high matters more than it looks:
+    # gripper_close welds whatever tool-to-object pose exists at that instant,
+    # so a high grasp is frozen as a LOW hold. Measured on this scene --
+    # re-grasp at 867 holds the cube 25 mm below the tool and the next descent
+    # is accepted; at 885 it holds it 43 mm below and the descent is refused
+    # for driving the cargo into the benchtop.
     return [f"to place {mover.name} on top of {target.name}: carry it at "
             f"z>={carry_mm:.0f} mm until it is over {target.name}, then release "
             f"with the tool at z={release_mm:.0f} mm "
             f"({target.name}'s top surface is at z={target_top_m*1000:.0f} mm; "
             f"travelling at the release height drags the carried object "
-            f"through the target instead of over it)"]
+            f"through the target instead of over it)",
+            f"to pick {mover.name} back off {target.name} afterwards: grasp it "
+            f"with the tool at z={release_mm:.0f} mm, the same height it was "
+            f"released at -- the grasp height reported for {mover.name} above "
+            f"is where it stands now, not where it will be once stacked. "
+            f"Grasping higher still catches it, but freezes a lower hold, and "
+            f"the carried object then collides on the next descent"]
+
+
+def _bench_top_mm(arm) -> float:
+    """World z of the benchtop surface, read from the scene.
+
+    Not a constant here. The bench height already lives in the scene XML, and
+    a second copy in this file is the repo's oldest failure mode -- it starts
+    equal and drifts.
+    """
+    gid = arm.model.geom("bench_top").id
+    half_z = float(arm.model.geom_size[gid][2])
+    return (float(arm.data.geom_xpos[gid][2]) + half_z) * 1000.0
+
+
+def check_bench_placement(arm, mover) -> list:
+    """Measured fact: where to release `mover` so it lands on open benchtop.
+
+    Every placement fact this module produced was "on top of object X". A task
+    whose leg is "put it back where it started" is a placement onto the bench
+    itself, and for that there was no fact at all -- so the planner invented
+    the number, and invented a different one each run. Across five runs of one
+    task it chose 830 three times (works) and 807 twice, and 807 is exactly
+    the height at which a cargo held at the nominal offset grazes the bench.
+
+    Verified against the sim: with a nominal grasp, releases from 800 to 840
+    all leave the cube resting at z=780 -- so this is a wide target, and the
+    planner was missing it only because nobody handed it the range.
+    """
+    try:
+        lo_m, hi_m = arm.object_z_extent_m(mover.name)
+        bench_mm = _bench_top_mm(arm)
+    except Exception:                                    # noqa: BLE001
+        return []
+    half_mover_mm = (hi_m - lo_m) * 1000.0 / 2.0
+    release_mm = bench_mm + half_mover_mm + _held_centre_below_tool_mm()
+    carry_mm = release_mm + CARRY_CLEARANCE_MM
+    return [f"to set {mover.name} back down on the open benchtop: carry it at "
+            f"z>={carry_mm:.0f} mm, then release with the tool at "
+            f"z={release_mm:.0f} mm or a little above; it falls the last short "
+            f"distance (the benchtop surface is at z={bench_mm:.0f} mm). Do "
+            f"not descend below that release height while still holding it -- "
+            f"the carried object reaches lower than the tool does, and the "
+            f"move is refused for driving it into the bench"]
 
 
 
@@ -198,6 +258,37 @@ def check_placement(arm, mover, target) -> list:
 #: red cube, invented a fact about it, and then made Layer 2's contract reject
 #: a perfectly good rewrite for "dropping" a referent that was never real.
 NGRAM_ALIAS_COVERAGE = 0.5
+
+
+#: The one place the Layer 1 fact block's opening marker is spelled. Both the
+#: producer (run_task's single-shot and --loop task builders) and the consumer
+#: (LLMBrain.prepare_for_task, which must strip it back off) import this rather
+#: than repeating the literal -- two copies of a separator drift the same way
+#: two copies of a joint limit do, and here a drifted copy silently disables
+#: the stripping rather than raising.
+SCENE_FACTS_MARKER = " Measured from the scene: "
+
+
+def append_scene_facts(task: str, facts) -> str:
+    """Ride Layer 1's measurements along with the task, for the planner."""
+    if not facts:
+        return task
+    return f"{task}{SCENE_FACTS_MARKER}" + "; ".join(facts) + "."
+
+
+def strip_scene_facts(task: str) -> str:
+    """Recover the task as the operator wrote it.
+
+    Layer 1's facts name every object it resolved, so anything that keyword-
+    scans the task string reads those names as if the operator had typed
+    them. That is how "put it back down at its original position on the
+    bench" equipped the bio-gripper: 'on the bench' resolved to well_plate_B,
+    whose measurements were appended to the task, and the gripper scan saw
+    'plate'. The facts are for the planner; every other consumer wants the
+    original.
+    """
+    return task.split(SCENE_FACTS_MARKER, 1)[0] if task else task
+
 
 
 def _ngram_matches(registry, phrase: str) -> list:
@@ -464,6 +555,26 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
         for o in r.matches:
             if o not in candidates:
                 candidates.append(o)
+
+    # Rank by how explicitly the task names each object, because everything
+    # downstream is CAPPED -- two objects get bench-placement facts, four
+    # ordered pairs get stacking facts -- and a cap over an unranked list
+    # spends its budget on whatever resolved first. On "put the blue cube on
+    # red_cube_front, then put it back on the bench", an incidental phrase
+    # resolved a well plate, and the plate and red cube consumed every slot:
+    # six placement facts, not one of them about blue_cube, which is the only
+    # object the task moves. The facts existed, were correct, and described
+    # the wrong things.
+    _low_task = task.lower()
+
+    def _explicitness(o):
+        if o.name.lower() in _low_task:
+            return 0                      # named outright
+        if any(a.lower() in _low_task for a in o.aliases):
+            return 1                      # named by an alias
+        return 2                          # pulled in by something incidental
+
+    candidates.sort(key=_explicitness)    # stable: ties keep resolution order
     movables = [o for o in candidates
                 if not (o.is_container or o.object_type in ("bin", "rack", "instrument"))]
     for c in containers:
@@ -483,9 +594,21 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
         for mvr in movables:
             v.facts += check_container_placement(arm, mvr, c, candidates)
 
+    low = task.lower()
+
+    # Bench placement, on the same terms as the stacking facts: only when the
+    # instruction implies setting something down on the bench rather than into
+    # or onto a named thing. "Put it back" is the common form and it names no
+    # target at all, which is precisely why it went unmeasured.
+    if any(k in low for k in ("back down", "back on", "put it back",
+                              "original position", "where it started",
+                              "back where", "on the bench", "on the benchtop",
+                              "return it", "returned to its")):
+        for mvr in movables[:2]:
+            v.facts += check_bench_placement(arm, mvr)
+
     # Stacking facts only when the instruction actually implies stacking.
     # Otherwise they are noise, and noise measurably costs accuracy here.
-    low = task.lower()
     if any(k in low for k in ("on top", "stack", "onto", " atop")):
         placements = 0
         for mover in movables:

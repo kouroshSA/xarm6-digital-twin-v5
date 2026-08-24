@@ -733,6 +733,14 @@ class EpisodeRetry:
 
             # 1. Reset the scene and (re-)attach a fresh recorder.
             self.arm.reset_scene()
+            # reset_scene restores the DEFAULT effector, so re-assert the one
+            # this task calls for. prepare_for_task sets the gripper before
+            # its speed-tier cache check, so this costs nothing on a repeat
+            # call -- and without it a plate task would run episode 1 with the
+            # bio attachment and every episode after it with the standard one.
+            if hasattr(self.brain, "prepare_for_task"):
+                self.brain.prepare_for_task(
+                    task, override_tier=self.speed_tier_override)
             time.sleep(0.5)
 
             # 2. NOW re-run the prompt layers. This has to happen AFTER the

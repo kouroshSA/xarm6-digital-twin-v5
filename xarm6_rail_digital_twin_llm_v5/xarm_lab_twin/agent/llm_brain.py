@@ -338,6 +338,16 @@ class LLMBrain:
         the brain keeps the default medium cap regardless of what the
         prompt says.
         """
+        # Callers are supposed to hand us the ORIGINAL task (see the cache
+        # note below), but run_task rebinds args.task with Layer 1's fact
+        # block before it gets here, so there is no original left to pass.
+        # Strip it at the consumer instead: that covers every entry point
+        # (single-shot, --loop, auto_play, augmented) in one place, and both
+        # readers below want the operator's words rather than the names of
+        # every object Layer 1 happened to resolve.
+        from agent.task_validator import strip_scene_facts
+        task = strip_scene_facts(task)
+
         # Auto-equip the bio-gripper for SBS-footprint manipulation
         # tasks (plates, tip racks). Cheap keyword scan; idempotent on
         # the sim side. Runs first so the gripper is correctly set even

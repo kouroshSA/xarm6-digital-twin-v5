@@ -271,7 +271,8 @@ def main():
     # blockers stop the run, because no plan can fix them.
     if not args.no_task_check:
         try:
-            from agent.task_validator import validate_task
+            from agent.task_validator import (validate_task,
+                                              append_scene_facts)
             verdict = validate_task(args.task, registry, arm)
             if verdict.facts or verdict.warnings or verdict.blockers:
                 print(verdict.render())
@@ -283,8 +284,7 @@ def main():
             # chose 795 and drove the gripper into a block whose top is 810.
             # They ride with the task, the same way Layer 0's constraints do.
             if verdict.facts:
-                args.task = (f"{args.task} Measured from the scene: "
-                             + "; ".join(verdict.facts) + ".")
+                args.task = append_scene_facts(args.task, verdict.facts)
             if not verdict.feasible:
                 print("[System] Task REFUSED before planning -- the blockers "
                       "above are geometric, so no action sequence can succeed. "
@@ -366,11 +366,10 @@ def main():
                     print(f"[Layer0] revision skipped ({type(exc).__name__}: {exc})")
             if not args.no_task_check:
                 try:
-                    from agent.task_validator import validate_task
+                    from agent.task_validator import (validate_task,
+                                                      append_scene_facts)
                     v = validate_task(t, registry, arm)
-                    if v.facts:
-                        t += (" Measured from the scene: "
-                              + "; ".join(v.facts) + ".")
+                    t = append_scene_facts(t, v.facts)
                 except Exception as exc:  # noqa: BLE001
                     print(f"[Layer1] refresh skipped ({type(exc).__name__}: {exc})")
             return t

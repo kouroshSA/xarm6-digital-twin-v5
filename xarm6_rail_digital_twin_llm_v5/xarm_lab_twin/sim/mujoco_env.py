@@ -71,6 +71,12 @@ IK_POS_TOL_M = 0.005
 GRIPPER_REACH_M = 0.07  # 70mm from EE site to body center (Claude's move_to targets
                         # the EE site, and the EE site is ~30mm below the gripper
                         # body in world frame when the arm points down)
+#: The effector fitted unless a task explicitly calls for another one. It is
+#: what the cell is built around and what every geometry constant below is
+#: measured against, so it is also what `reset_scene` restores: the bio
+#: attachment is a per-task deviation, never a state the session drifts into.
+DEFAULT_GRIPPER_MODE = "standard"
+
 # The bio-gripper attachment (auto-equipped for 96-well-plate / tip-rack
 # tasks) has wider pads with rubber lining, giving it a more forgiving
 # grasp envelope on SBS-footprint objects.
@@ -353,7 +359,7 @@ class SimXArmAPI:
         # bio-gripper attachment (purely visual swap, the magnetic
         # weld still does the actual grasping). Auto-equipped by
         # LLMBrain.prepare_for_task based on task keywords.
-        self._gripper_mode = "standard"
+        self._gripper_mode = DEFAULT_GRIPPER_MODE
         self._bio_mat_ids = []
         for n in ("bio_gripper_body_mat", "bio_gripper_pad_mat",
                   "bio_gripper_rubber_mat"):
@@ -1380,6 +1386,14 @@ class SimXArmAPI:
                 self.data.qvel[dof_adr]  = 0.0
             self._set_finger_ctrl(GRIPPER_OPEN_CTRL_M)
             mujoco.mj_forward(self.model, self.data)
+        # Restore the fitted effector too. set_gripper writes model materials
+        # and an instance attribute, neither of which a state reset touches,
+        # so a single plate episode used to leave the bio attachment on for
+        # the rest of the session -- and check_graspable kept measuring with
+        # bio aperture and reach for tasks that were back to handling cubes.
+        # Callers that want a non-default effector re-assert it after the
+        # reset; prepare_for_task is idempotent precisely so it can.
+        self.set_gripper(DEFAULT_GRIPPER_MODE)
         self.go_home()
         # Re-snapshot baseline positions so per-episode displacement /
         # proximity facts in physical_outcome() are measured from this
@@ -2284,6 +2298,13 @@ class SimXArmAPI:
                 name: self.data.xmat[bid].reshape(3, 3).copy()
                 for name, bid in self.cube_bids.items()
             }
+            # Snapshot the welds with everything else. Reading eq_active
+            # later, outside this block, would sample grasp state at a
+            # different instant from the positions it is reported alongside.
+            weld_states = {
+                name: int(self.data.eq_active[eqid])
+                for name, eqid in self.weld_eqids.items()
+            }
             bin_positions = {
                 name: self.data.xpos[self.model.body(name).id].copy()
                 for name in BIN_BODIES
@@ -2393,6 +2414,22 @@ class SimXArmAPI:
             if off_bench_now and not still_at_init:
                 notes.append(f"{obj_name} off bench")
                 categorical.add(obj_name)
+
+        # --- Still in the gripper -----------------------------------------
+        # EVALUATION ONLY, and the most load-bearing line in this function.
+        # An object clamped in the jaws has not moved relative to where the
+        # grader last looked, so with no word for it the summary fell through
+        # to "no objects displaced" -- character-for-character what a clean
+        # round trip reports. Measured on one task: five runs, three completed
+        # and two halted mid-air still holding the cube, and physical_outcome
+        # returned the same string for all five. A failure that grades as a
+        # success is worse than no grader, because the episode loop stops
+        # retrying and the lesson written down is wrong.
+        for obj_name, active in weld_states.items():
+            if obj_name in categorical or not active:
+                continue
+            notes.append(f"{obj_name} still in the gripper")
+            categorical.add(obj_name)
 
         # --- Resting on another object ------------------------------------
         # EVALUATION ONLY. This exists so a stacking task can be GRADED; it is

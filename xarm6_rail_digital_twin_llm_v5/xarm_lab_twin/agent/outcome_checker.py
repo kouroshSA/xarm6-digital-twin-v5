@@ -29,6 +29,10 @@ expected_outcome() returns (mode, substrings):
 import re
 from typing import Optional, List, Tuple
 
+#: physical_outcome()'s word for "the arm stopped while still holding this".
+#: Spelled once, here, and imported by anything that needs to recognise it.
+HELD_MARKER = "still in the gripper"
+
 COLORS = ("red", "green", "blue")
 
 ALL_TUBES   = ("tube_L1", "tube_L2", "tube_L3",
@@ -275,6 +279,21 @@ def check_outcome(task: str, physical: str,
     mode, expected = spec
     phys = physical or ""
     src = " [LLM-grader]" if used_fallback else ""
+
+    # An object still clamped in the jaws vetoes success, whatever the
+    # expected substrings say. This is a veto rather than another substring
+    # to match because the failure it catches is one where the expected
+    # substrings are LEGITIMATELY absent-and-fine: on "put it back where it
+    # started" the correct end state is the starting state, so the grader has
+    # nothing to look for and falls through to success. The run that halted
+    # mid-air still holding the cube graded identically to the three that
+    # completed. Adding the word to the vocabulary is not enough on its own --
+    # it has to reach something that changes the verdict.
+    if HELD_MARKER in phys:
+        held = [seg.strip().split(" still in the gripper")[0]
+                for seg in phys.split(";") if HELD_MARKER in seg]
+        return (False, f"Arm halted still holding {', '.join(held) or 'an object'}"
+                       f"{src}; nothing was set down. Physical: {phys}")
 
     if mode == "any":
         if any(_matches_with_swap(phys, e) for e in expected):
