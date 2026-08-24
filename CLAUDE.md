@@ -195,6 +195,58 @@ file's "Recording format" section so consumers can find them.
   `sim/ik_solver.py` is what actually runs. The one-time warning at startup
   is expected; don't silence it.
 
+## The two standing defect classes
+
+Nearly every real bug found in this repo has been one of two shapes. Neither
+is a mistake in arithmetic, and neither shows up as a wrong-looking log line
+-- which is exactly why they survive.
+
+### 1. One fact, several copies, and the copies drift
+
+The same measurement stored in more than one place. The copies start equal and
+diverge silently, because nothing compares them.
+
+Found so far: the joint limits in **four** places with three different values
+(`arm_backend`, `build_mesh_scene.py`, both scene XMLs); the cup's dimensions
+in three; the home pose in two, with the twin homing into the PCR module while
+the cell homed somewhere safe; the SDK rail-API claim contradicted in
+`real_arm.py`'s docstring after `docs/` had already corrected it.
+
+**Rule:** when you add anything to the scene, add a sweep check that ties the
+code's view of it back to the scene XML. Prefer deriving one copy from the
+other -- `build_mesh_scene.py` now imports `XARM6_JOINT_LIMITS_DEG` rather
+than repeating it, which removes the copy instead of re-synchronising it.
+
+### 2. A value computed correctly and delivered to nobody
+
+The component does the right maths, produces the right answer, and hands it to
+something that is not the consumer -- a `print()`, a discarded variable, a
+return value nobody reads. Every unit passes its own test. The system fails.
+
+Found so far, all in one week:
+
+| The value | Where it went instead |
+|---|---|
+| `grasp at z=807` | `print()`; the planner never saw it and guessed 795 |
+| IK error, measured correctly | written into live `qpos` and never restored, so every move became instant |
+| "nothing in reach" | printed, then `return 0` (success) |
+| `return 2` for a refusal | discarded by a hardcoded `os._exit(0)` |
+| `X on Y` outcome vocabulary | never added to the grader's list, so a toppled block scored as success |
+| placement height 867 | computed, but only emitted for unambiguously-resolved referents |
+| "no reachable grasp pose" | assigned to `_w` and thrown away |
+| *why* a move was refused | printed; the caller received a bare `rc=2` |
+
+**The trap is that the logs make it look right.** The console prints the
+correct number, so reading the output you conclude the system knows it. It
+does know. It never told anyone.
+
+**Rule:** test the CONSUMER's behaviour, not the producer's output. "Does the
+placement fact exist" passes for any number, including a wrong one. "Does
+releasing at the reported height produce a stack, and does 20 mm lower fail"
+exercises producer, delivery and consumer together -- and would have caught
+six of the eight above. When you add a value for another component, trace it
+to that component and assert it arrives; a `print()` is not delivery.
+
 ## Things that often go wrong
 
 - **Bin/tube push** uses a "fly-over + weld" pattern (see
@@ -225,3 +277,48 @@ file's "Recording format" section so consumers can find them.
   returns None. If you add a regex pattern, make sure the existing
   Haiku call wouldn't have produced the same answer -- otherwise
   you're paying tokens for nothing.
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **xarm6-digital-twin-v5** (1555 symbols, 2710 relationships, 117 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/xarm6-digital-twin-v5/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/xarm6-digital-twin-v5/clusters` | All functional areas |
+| `gitnexus://repo/xarm6-digital-twin-v5/processes` | All execution flows |
+| `gitnexus://repo/xarm6-digital-twin-v5/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->
