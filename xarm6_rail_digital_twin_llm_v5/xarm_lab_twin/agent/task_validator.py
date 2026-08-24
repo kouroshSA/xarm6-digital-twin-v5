@@ -101,6 +101,59 @@ def _held_centre_below_tool_mm() -> float:
     return GRASP_MAX_AXIAL_M * 1000.0 * 0.6
 
 
+def _underside_below_tool_mm(arm, obj) -> float:
+    """How far below the tool a held object's UNDERSIDE sits.
+
+    Measured, not assumed: with the tool at 862 a grasped red cube spanned
+    806..868, so its underside was 56 mm down -- the tool-to-centre offset
+    plus half the object's height. Modelling it as offset + half of a
+    NOMINAL 30 mm cube gave 42 mm, and that 14 mm error is exactly why a
+    carry at 870 grazed a bin top at 810 while the arithmetic said it cleared
+    by 18 mm. Clearance is about the underside, so compute it from the
+    object's real extent.
+    """
+    lo_m, hi_m = arm.object_z_extent_m(obj.name)
+    half_mm = (hi_m - lo_m) * 1000.0 / 2.0
+    return _held_centre_below_tool_mm() + half_mm
+
+
+def check_container_placement(arm, mover, container, obstacles) -> list:
+    """Measured facts for putting `mover` INTO `container`.
+
+    Two numbers, and the binding one is not the obvious one. Dropping into a
+    115 mm cup is forgiving -- releases from 845 mm upward all landed the cube
+    inside. Getting there is not: the traverse crosses other bench furniture,
+    and a carry height chosen by the planner (870) was refused for grazing a
+    bin, halting the task before the cup was ever reached.
+    """
+    try:
+        under = _underside_below_tool_mm(arm, mover)
+        _, rim_m = arm.object_z_extent_m(container.name)
+    except Exception:                                    # noqa: BLE001
+        return []
+    rim_mm = rim_m * 1000.0
+    release_mm = rim_mm + under
+
+    tallest, tallest_name = rim_mm, container.name
+    for o in obstacles:
+        if o.name in (mover.name, container.name):
+            continue
+        try:
+            _, top_m = arm.object_z_extent_m(o.name)
+        except Exception:                                # noqa: BLE001
+            continue
+        if top_m * 1000.0 > tallest:
+            tallest, tallest_name = top_m * 1000.0, o.name
+    carry_mm = tallest + under + CARRY_CLEARANCE_MM
+
+    return [f"to put {mover.name} in {container.name}: carry it at "
+            f"z>={carry_mm:.0f} mm across the bench, then release at "
+            f"z>={release_mm:.0f} mm once over the container "
+            f"({container.name}'s rim is at z={rim_mm:.0f} mm and the tallest "
+            f"thing on the route is {tallest_name} at z={tallest:.0f} mm; a "
+            f"held {mover.name}'s underside hangs {under:.0f} mm below the tool)"]
+
+
 def check_placement(arm, mover, target) -> list:
     """Measured fact: where to release `mover` so it lands on top of `target`.
 
@@ -380,8 +433,17 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
             # Facts only. A blocker found on one candidate must not refuse the
             # task, because the operator may well have meant the other one.
             for cand in r.matches:
-                _b, _w, f = check_graspable(arm, cand)
+                _b, w, f = check_graspable(arm, cand)
                 v.facts += f
+                # Keep the WARNINGS too. Dropping them meant Layer 1 reported
+                # "tube_L2: grasp at z=844" while silently discarding its own
+                # finding that no reachable grasp pose exists there -- the
+                # descent is blocked at 870 by the gripper hitting the tube
+                # cap. The planner was handed a height it could not achieve
+                # and no hint that it could not, so it guessed 920 and failed.
+                # Blockers stay suppressed: one candidate being unreachable
+                # must not refuse a task that meant the other.
+                v.warnings += w
             continue
         b, w, f = check_graspable(arm, r.matches[0])
         v.blockers += b; v.warnings += w; v.facts += f
@@ -411,13 +473,27 @@ def validate_task(task: str, registry, arm) -> TaskVerdict:
     # Placement heights for stacking one named object on another. Capped:
     # every ordered pair would be O(n^2) facts, and the planner only needs the
     # ones it was actually asked about.
-    placements = 0
-    for mover in movables:
-        for target in movables:
-            if mover.name == target.name or placements >= 4:
-                continue
-            v.facts += check_placement(arm, mover, target)
-            placements += 1
+    # Facts must cover what the task NAMES, and not much else. Capping the
+    # container facts at the first three movables meant that on "put the red
+    # cube in the cup, then put the blue tube in the cup" the tube -- one of
+    # the two objects actually named -- got no placement guidance, while four
+    # stacking facts were emitted for a task that never mentions stacking. The
+    # planner had 21 facts, none of them the one it needed, and guessed.
+    for c in containers:
+        for mvr in movables:
+            v.facts += check_container_placement(arm, mvr, c, candidates)
+
+    # Stacking facts only when the instruction actually implies stacking.
+    # Otherwise they are noise, and noise measurably costs accuracy here.
+    low = task.lower()
+    if any(k in low for k in ("on top", "stack", "onto", " atop")):
+        placements = 0
+        for mover in movables:
+            for target in movables:
+                if mover.name == target.name or placements >= 4:
+                    continue
+                v.facts += check_placement(arm, mover, target)
+                placements += 1
 
     # The two matchers can both find the same object, so the same measured
     # fact appears twice. Dedupe while preserving order -- a report that
