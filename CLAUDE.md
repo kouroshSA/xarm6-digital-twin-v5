@@ -444,7 +444,7 @@ to that component and assert it arrives; a `print()` is not delivery.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **xarm6-digital-twin-v5** (1555 symbols, 2710 relationships, 117 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **xarm6-digital-twin-v5_dev** (2848 symbols, 5154 relationships, 231 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -468,10 +468,10 @@ This project is indexed by GitNexus as **xarm6-digital-twin-v5** (1555 symbols, 
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/xarm6-digital-twin-v5/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/xarm6-digital-twin-v5/clusters` | All functional areas |
-| `gitnexus://repo/xarm6-digital-twin-v5/processes` | All execution flows |
-| `gitnexus://repo/xarm6-digital-twin-v5/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/clusters` | All functional areas |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/processes` | All execution flows |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 
