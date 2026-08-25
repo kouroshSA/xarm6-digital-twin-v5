@@ -71,7 +71,17 @@ class SimWristCamera:
         deliberate simplification, not a calibration.
     """
 
-    def __init__(self, arm, noise_std_m: float = 0.0, seed: Optional[int] = None):
+    def __init__(self, arm, noise_std_m: float = 0.0, seed: Optional[int] = None,
+                 backdrop: bool = True):
+        # The lab backdrop is in geom group 2 (see sim/render_options.py), so
+        # the wrist camera can be pointed at the furnished room or at the bare
+        # bench without swapping scenes. It matters for perception, not just
+        # looks: grounding against clutter is a different problem from grounding
+        # against a void, and being able to flip between them is how you find
+        # out which one your routine was relying on.
+        from sim.render_options import scene_option
+        self._scene_option = scene_option(backdrop=backdrop)
+        self.backdrop = backdrop
         self.model = arm.model
         self.data = arm.data
         self.lock = getattr(arm, "lock", None) or threading.RLock()
@@ -163,8 +173,10 @@ class SimWristCamera:
         depth_cam = self._color_cam_id if align else self._depth_cam_id
 
         with self.lock:
-            self._rgb_renderer.update_scene(self.data, camera=self._color_cam_id)
-            self._depth_renderer.update_scene(self.data, camera=depth_cam)
+            self._rgb_renderer.update_scene(self.data, camera=self._color_cam_id,
+                                            scene_option=self._scene_option)
+            self._depth_renderer.update_scene(self.data, camera=depth_cam,
+                                              scene_option=self._scene_option)
             t_sim = float(self.data.time)
         color = self._rgb_renderer.render().astype(np.uint8)
         depth = self._depth_renderer.render().astype(np.float32)

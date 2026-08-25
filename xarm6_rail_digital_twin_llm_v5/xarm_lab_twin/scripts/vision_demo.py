@@ -47,8 +47,9 @@ OVERLAY_HOLD_S = 4.5
 class Recorder(threading.Thread):
     """Owns the GL contexts: scene camera, wrist camera, and the targeter."""
 
-    def __init__(self, arm, out_dir: str, device: str):
+    def __init__(self, arm, out_dir: str, device: str, backdrop: bool = True):
         super().__init__(daemon=True)
+        self.backdrop = backdrop
         self.arm = arm
         self.out_dir = out_dir
         self.device = device
@@ -97,6 +98,8 @@ class Recorder(threading.Thread):
         from perception.language import LanguageTargeter
         from perception.sim_camera import SimWristCamera
 
+        from sim.render_options import scene_option
+        self._opt = scene_option(backdrop=self.backdrop)
         scene_r = mujoco.Renderer(self.arm.model, height=SCENE_H, width=SCENE_W)
         cam = mujoco.MjvCamera()
         mujoco.mjv_defaultFreeCamera(self.arm.model, cam)
@@ -107,7 +110,7 @@ class Recorder(threading.Thread):
         cam.lookat[:] = (0.10, -0.08, 1.02)
         cam.distance, cam.azimuth, cam.elevation = 2.60, 118, -11
 
-        wrist = SimWristCamera(self.arm)
+        wrist = SimWristCamera(self.arm, backdrop=self.backdrop)
         targeter = LanguageTargeter(device=self.device)
         _ = targeter.grounder            # pay the ~3 s model load before recording
         self.ready.set()
@@ -132,7 +135,8 @@ class Recorder(threading.Thread):
                 self.result_ready.set()
 
             with self.arm.lock:
-                scene_r.update_scene(self.arm.data, camera=cam)
+                scene_r.update_scene(self.arm.data, camera=cam,
+                                     scene_option=self._opt)
             scene_rgb = scene_r.render()
 
             if self._overlay is not None and time.time() < self._overlay_until:
@@ -244,6 +248,8 @@ def main() -> int:
                                          "the green cube:green_bin")
     ap.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
     ap.add_argument("--keep-frames", action="store_true")
+    ap.add_argument("--no-backdrop", action="store_true",
+                    help="hide the lab room and render against the bare\n                         bench, as the scene looked before it existed")
     args = ap.parse_args()
 
     targets = [tuple(t.split(":")) for t in args.targets.split(",") if t]
@@ -256,7 +262,7 @@ def main() -> int:
     from sim.mujoco_env import SimXArmAPI
 
     arm = SimXArmAPI(SCENE, render=False)
-    rec = Recorder(arm, frames_dir, args.device)
+    rec = Recorder(arm, frames_dir, args.device, backdrop=not args.no_backdrop)
     rec.start()
     print("[demo] loading the grounding model...")
     rec.ready.wait()
