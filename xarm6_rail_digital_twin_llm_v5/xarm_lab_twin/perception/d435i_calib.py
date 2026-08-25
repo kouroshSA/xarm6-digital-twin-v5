@@ -408,6 +408,24 @@ def emit_scene_xml(indent: str = " " * 24) -> str:
         f'{indent}        rgba="0.10 0.10 0.12 1" mass="{HOUSING_MASS_KG}"',
         f'{indent}        contype="0" conaffinity="0"/>',
     ]
+
+    # The stand that holds the camera off the flange. Cosmetic (mass 0,
+    # non-colliding) but not decoration: without it the housing hangs in space
+    # beside the wrist in every render, which reads as a bug in the model.
+    #
+    # Its pose is DERIVED from the same hand-eye constants as the camera rather
+    # than typed next to them -- a bracket carrying its own copy of the offset
+    # would keep pointing at where the camera used to be after a re-calibration.
+    b_pos, b_quat, b_half = _bracket_in_camera_frame()
+    lines += [
+        f'{indent}  <geom name="d435i_bracket" type="box"',
+        f'{indent}        size="{b_half:.5f} 0.006 0.004"',
+        f'{indent}        pos="{b_pos[0]:.6f} {b_pos[1]:.6f} {b_pos[2]:.6f}"',
+        f'{indent}        quat="{b_quat[0]:.6f} {b_quat[1]:.6f} '
+        f'{b_quat[2]:.6f} {b_quat[3]:.6f}"',
+        f'{indent}        rgba="0.30 0.30 0.33 1" mass="0"',
+        f'{indent}        contype="0" conaffinity="0"/>',
+    ]
     r_parent = _quat_to_mat(cq)
     for name in (COLOR_CAM_NAME, DEPTH_CAM_NAME):
         entry = poses[name]
@@ -441,6 +459,37 @@ def _quat_to_mat(q: np.ndarray) -> np.ndarray:
         [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
         [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
     ], dtype=np.float64)
+
+
+def _bracket_in_camera_frame() -> tuple[np.ndarray, np.ndarray, float]:
+    """Pose and half-length of the camera stand, in the camera's own frame.
+
+    The stand runs from the camera back to the flange axis at the camera's own
+    height. Returns ``(pos, quat, half_length)`` for a box whose local +x lies
+    along that run, so the geom follows automatically if the hand-eye
+    calibration changes.
+    """
+    rot, trans = flange_to_color_optical()
+    # A point on the flange axis, level with the camera: same z, no offset.
+    to_axis_flange = np.array([-trans[0], -trans[1], 0.0], dtype=np.float64)
+    r_mj = rot @ _OPTICAL_TO_MUJOCO
+    v = r_mj.T @ to_axis_flange          # same vector, camera frame
+    length = float(np.linalg.norm(v))
+
+    # Rotation taking local +x onto v.
+    x_axis = v / length
+    helper = np.array([0.0, 0.0, 1.0])
+    if abs(float(x_axis @ helper)) > 0.9:
+        helper = np.array([0.0, 1.0, 0.0])
+    y_axis = np.cross(helper, x_axis)
+    y_axis /= np.linalg.norm(y_axis)
+    z_axis = np.cross(x_axis, y_axis)
+    quat = _mat_to_quat(np.column_stack([x_axis, y_axis, z_axis]))
+
+    # Centred halfway along the run, and set back behind the lens plane so the
+    # stand does not intrude into the camera's own view.
+    pos = v / 2.0 + np.array([0.0, 0.0, HOUSING_Z_OFFSET_M + 0.004])
+    return pos, quat, length / 2.0
 
 
 def summary() -> str:

@@ -241,6 +241,169 @@
     <geom name="floor" type="plane" size="3 3 0.1"
           rgba="0.7 0.7 0.65 1" contype="1" conaffinity="1"/>
 
+    <!-- ===================== LAB ENVIRONMENT (VISUAL ONLY) =====================
+         The room behind the bench, modelled from a photograph of the real cell
+         (docs/real-lab_20260821_181304.jpg): the fume hood the arm works in
+         front of, the reagent shelving to the north, and the window to the
+         south that lights the whole bay.
+
+         EVERY geom here is contype="0" conaffinity="0" mass="0". This is a
+         backdrop, not furniture. Making the wall solid would be more honest
+         about the room and would start refusing arm poses that reach past
+         y = +0.45 today -- a silent behaviour change dressed up as scenery. If
+         the wall should ever become a real obstacle, that is a deliberate
+         change with its own re-validation, not a side effect of adding decor.
+
+         It is not purely cosmetic either: the WRIST CAMERA sees it. A camera
+         that used to look at objects against an empty void now sees them
+         against clutter, which is much closer to what the real D435i will get
+         and a fairer test of the grounding stack.
+
+         Axes follow the scene compass above: +y is the wall, +x is south
+         (toward the OT-2 and the window), -x is north (toward the shelving). -->
+    <body name="lab_environment" pos="0 0 0">
+
+      <!-- Back wall and ceiling. -->
+      <geom name="wall_back" type="box" size="2.60 0.02 1.45"
+            pos="0.30 0.640 1.45" rgba="0.88 0.88 0.85 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="wall_north" type="box" size="0.02 0.65 1.45"
+            pos="-2.28 0.00 1.45" rgba="0.86 0.86 0.83 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="ceiling" type="box" size="2.60 1.30 0.02"
+            pos="0.30 -0.30 2.88" rgba="0.93 0.93 0.92 1"
+            contype="0" conaffinity="0" mass="0"/>
+
+      <!-- ---------------- Fume hood, directly behind the arm ----------------
+           Working aperture roughly x in [-0.95, +0.45], sash closed to about
+           mid-height, upper cabinet above it. -->
+      <geom name="hood_interior" type="box" size="0.72 0.01 0.80"
+            pos="-0.25 0.620 1.55" rgba="0.30 0.31 0.33 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_deck" type="box" size="0.72 0.10 0.02"
+            pos="-0.25 0.520 0.760" rgba="0.62 0.63 0.63 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_post_north" type="box" size="0.025 0.10 0.83"
+            pos="-0.995 0.520 1.58" rgba="0.55 0.56 0.58 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_post_south" type="box" size="0.025 0.10 0.83"
+            pos="0.495 0.520 1.58" rgba="0.55 0.56 0.58 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_lintel" type="box" size="0.77 0.10 0.06"
+            pos="-0.25 0.520 2.47" rgba="0.45 0.46 0.48 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Sash glass. Alpha low enough to read the clutter behind it. -->
+      <geom name="hood_sash" type="box" size="0.72 0.006 0.42"
+            pos="-0.25 0.430 1.62" rgba="0.70 0.78 0.80 0.22"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_sash_rail" type="box" size="0.72 0.012 0.014"
+            pos="-0.25 0.425 2.05" rgba="0.60 0.61 0.63 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_mullion" type="box" size="0.012 0.010 0.42"
+            pos="-0.25 0.428 1.62" rgba="0.58 0.59 0.61 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Foil-wrapped trays on the hood's upper shelf, as in the photo. -->
+      <geom name="hood_upper_shelf" type="box" size="0.72 0.09 0.012"
+            pos="-0.25 0.520 2.14" rgba="0.50 0.51 0.53 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_foil_a" type="box" size="0.26 0.07 0.055"
+            pos="-0.52 0.520 2.20" rgba="0.80 0.81 0.83 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_foil_b" type="box" size="0.20 0.07 0.045"
+            pos="0.05 0.520 2.19" rgba="0.76 0.77 0.79 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Instruments visible inside the hood, kept blocky on purpose. -->
+      <geom name="hood_kit_dark" type="box" size="0.18 0.07 0.11"
+            pos="-0.62 0.560 0.890" rgba="0.20 0.21 0.23 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_kit_red" type="box" size="0.11 0.06 0.07"
+            pos="-0.10 0.560 0.850" rgba="0.62 0.14 0.13 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="hood_scope" type="cylinder" size="0.045 0.13"
+            pos="0.25 0.560 0.910" rgba="0.85 0.86 0.87 1"
+            contype="0" conaffinity="0" mass="0"/>
+
+      <!-- ---------------- Reagent shelving, north end ---------------- -->
+      <geom name="shelf_upright_a" type="box" size="0.02 0.16 0.90"
+            pos="-1.16 0.470 1.62" rgba="0.72 0.72 0.70 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="shelf_upright_b" type="box" size="0.02 0.16 0.90"
+            pos="-2.10 0.470 1.62" rgba="0.72 0.72 0.70 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="shelf_board_1" type="box" size="0.47 0.16 0.014"
+            pos="-1.63 0.470 1.10" rgba="0.80 0.80 0.78 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="shelf_board_2" type="box" size="0.47 0.16 0.014"
+            pos="-1.63 0.470 1.56" rgba="0.80 0.80 0.78 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="shelf_board_3" type="box" size="0.47 0.16 0.014"
+            pos="-1.63 0.470 2.02" rgba="0.80 0.80 0.78 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Reagent bottles: body + coloured cap, the lab's usual palette. -->
+      <geom name="bottle_a" type="cylinder" size="0.038 0.075"
+            pos="-1.94 0.470 1.19" rgba="0.92 0.92 0.88 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="bottle_a_cap" type="cylinder" size="0.026 0.014"
+            pos="-1.94 0.470 1.28" rgba="0.90 0.55 0.10 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="bottle_b" type="cylinder" size="0.038 0.075"
+            pos="-1.82 0.470 1.19" rgba="0.92 0.92 0.88 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="bottle_b_cap" type="cylinder" size="0.026 0.014"
+            pos="-1.82 0.470 1.28" rgba="0.15 0.35 0.80 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="bottle_c" type="cylinder" size="0.038 0.075"
+            pos="-1.70 0.470 1.19" rgba="0.92 0.92 0.88 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="bottle_c_cap" type="cylinder" size="0.026 0.014"
+            pos="-1.70 0.470 1.28" rgba="0.85 0.75 0.10 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="bottle_d" type="cylinder" size="0.045 0.090"
+            pos="-1.34 0.470 1.66" rgba="0.90 0.91 0.86 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="bottle_d_cap" type="cylinder" size="0.030 0.014"
+            pos="-1.34 0.470 1.77" rgba="0.80 0.20 0.15 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <!-- Blue tube racks, the most recognisable thing on those shelves. -->
+      <geom name="wall_rack_1" type="box" size="0.10 0.075 0.035"
+            pos="-1.90 0.470 1.61" rgba="0.15 0.42 0.85 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="wall_rack_2" type="box" size="0.10 0.075 0.035"
+            pos="-1.66 0.470 2.07" rgba="0.15 0.42 0.85 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="shelf_box" type="box" size="0.13 0.10 0.075"
+            pos="-1.32 0.470 2.11" rgba="0.72 0.60 0.42 1"
+            contype="0" conaffinity="0" mass="0"/>
+
+      <!-- ---------------- Window, south end ----------------
+           The bright wall in the photo. Rendered pale rather than emissive --
+           MuJoCo geoms do not emit -- with a matching light below so the bay
+           actually brightens from this side instead of merely looking like it. -->
+      <geom name="window_glass" type="box" size="0.80 0.008 0.62"
+            pos="1.55 0.615 1.68" rgba="0.93 0.96 0.99 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="window_frame_top" type="box" size="0.83 0.025 0.030"
+            pos="1.55 0.600 2.33" rgba="0.42 0.43 0.45 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="window_frame_bottom" type="box" size="0.83 0.025 0.030"
+            pos="1.55 0.600 1.03" rgba="0.42 0.43 0.45 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="window_frame_north" type="box" size="0.025 0.025 0.68"
+            pos="0.75 0.600 1.68" rgba="0.42 0.43 0.45 1"
+            contype="0" conaffinity="0" mass="0"/>
+      <geom name="window_mullion" type="box" size="0.016 0.020 0.62"
+            pos="1.55 0.598 1.68" rgba="0.45 0.46 0.48 1"
+            contype="0" conaffinity="0" mass="0"/>
+    </body>
+
+    <!-- Daylight from the window, and a cool fill from the hood's strip light.
+         Positioned to match the geometry above rather than chosen by eye, so
+         the render's shadows fall the way the photograph's do. -->
+    <light name="window_daylight" pos="1.45 0.45 1.95" dir="-0.55 -0.72 -0.42"
+           diffuse="0.45 0.46 0.48" specular="0.08 0.08 0.08"/>
+    <light name="hood_striplight" pos="-0.25 0.42 2.06" dir="0 -0.35 -0.94"
+           diffuse="0.22 0.23 0.25" specular="0.05 0.05 0.05"/>
+
     <!-- L-shaped benchtop matched to the real lab (Robot_workspace plan).
          Main section: 139.7 cm deep (y). The working strip (cubes/bins) sits
          near the +y back edge; the large open benchtop is toward -y (operator
@@ -323,6 +486,23 @@
                       <site name="end_effector" pos="0 0 0.09"
                             size="0.005" rgba="1 0.3 0.3 0.5" type="sphere"/>
                                 <body name="gripper" pos="0 0 0.06">
+                                  <!-- Tool coupling: fills the 60 mm gap between the
+                                       link6 flange and the palm. On the real arm that
+                                       space is the gripper adapter (and the FT sensor
+                                       where one is fitted); in the model it was simply
+                                       empty, so the hand appeared to float off the wrist.
+                                       This is the missing SHAPE, not extra hardware --
+                                       the assembly's mass is already carried by
+                                       gripper_geom below, so adding any here would
+                                       double-count it.
+                                       Non-colliding on purpose: the volume is currently
+                                       free space, and making it solid would start
+                                       refusing poses that pass through it today. Same
+                                       reasoning as the cosmetic fingers. -->
+                                  <geom name="tool_coupling" type="cylinder"
+                                        size="0.031 0.0225" pos="0 0 -0.0375"
+                                        rgba="0.55 0.55 0.58 1" mass="0"
+                                        contype="0" conaffinity="0"/>
                                   <!-- Palm: the static wrist plate. Geom name preserved
                                        for FK validator (ARM_GEOM_NAMES) + weld targets. -->
                                   <geom name="gripper_geom" type="box"
@@ -398,6 +578,12 @@
                                           size="0.0450 0.0125 0.0125"
                                           pos="0 0 0.0135"
                                           rgba="0.10 0.10 0.12 1" mass="0.072"
+                                          contype="0" conaffinity="0"/>
+                                    <geom name="d435i_bracket" type="box"
+                                          size="0.03696 0.006 0.004"
+                                          pos="0.016206 -0.033223 0.017498"
+                                          quat="0.848058 0.000015 0.000024 -0.529903"
+                                          rgba="0.30 0.30 0.33 1" mass="0"
                                           contype="0" conaffinity="0"/>
                                     <camera name="cam_wrist_color"
                                             pos="0.000000000 0.000000000 0.000000000"
