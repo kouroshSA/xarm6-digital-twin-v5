@@ -770,6 +770,294 @@ def check_real_arm_contract(scene=None) -> list[CheckResult]:
                         f"{len(tail)} hardware-free contract tests pass")]
 
 
+def check_wrist_camera_matches_calib(scene=None) -> list[CheckResult]:
+    """The scene's wrist camera must still be the one perception/ describes.
+
+    Two failure modes, both of which end with the twin quietly modelling a
+    camera the code thinks it has calibrated:
+
+    1. someone hand-edits the camera block in ``lab_scene_primitive.xml``
+       instead of editing ``perception/d435i_calib.py`` and re-syncing;
+    2. someone re-syncs the primitive scene but forgets
+       ``envs/build_mesh_scene.py``, so the *generated* scene every entry point
+       actually loads keeps the old pose.
+
+    Neither would show up in a render -- a camera 30 mm off still produces a
+    perfectly plausible picture. Cheap to check, invisible otherwise.
+    """
+    import mujoco as mj
+    import numpy as np
+
+    from perception import d435i_calib as calib
+    from perception.sync_scene import PRIMITIVE, sync
+
+    results: list[CheckResult] = []
+
+    if sync(check_only=True) != 0:
+        results.append(CheckResult(
+            "perception.scene_in_sync", FAIL,
+            f"{PRIMITIVE.name} does not match perception/d435i_calib.py; "
+            "run `python -m perception.sync_scene`"))
+    else:
+        results.append(CheckResult("perception.scene_in_sync", PASS,
+                                   "primitive scene matches the calibration"))
+
+    # Check the model MuJoCo actually loads, not the XML text. The scene's
+    # comments contain "--", which MuJoCo accepts and a strict XML parser does
+    # not, and going through MuJoCo also resolves the camera's world pose through
+    # the whole kinematic chain rather than trusting a local pos attribute.
+    model = getattr(scene, "_model", None)
+    if model is None:
+        model = mj.MjModel.from_xml_path(scene_geometry.DEFAULT_SCENE)
+    data = mj.MjData(model)
+    mj.mj_forward(model, data)
+
+    l6 = mj.mj_name2id(model, mj.mjtObj.mjOBJ_BODY, "link6")
+    if l6 < 0:
+        return results + [CheckResult("perception.generated_scene", FAIL,
+                                      "scene has no link6 to measure against")]
+    r_flange = data.xmat[l6].reshape(3, 3)
+
+    # The invariant that matters: where does the camera sit relative to the
+    # flange? That is what the hand-eye calibration states, and it survives any
+    # change to the arm's pose or to the rail.
+    for cam_name, (r_want, t_want) in (
+        (calib.COLOR_CAM_NAME, calib.flange_to_color_optical()),
+        (calib.DEPTH_CAM_NAME, calib.flange_to_depth_optical()),
+    ):
+        cid = mj.mj_name2id(model, mj.mjtObj.mjOBJ_CAMERA, cam_name)
+        if cid < 0:
+            results.append(CheckResult(
+                "perception.generated_scene", FAIL,
+                f"{scene_geometry.DEFAULT_SCENE} has no camera {cam_name!r}; "
+                "run `python -m perception.sync_scene`"))
+            continue
+
+        t_got = r_flange.T @ (data.cam_xpos[cid] - data.xpos[l6])
+        off_mm = float(np.max(np.abs(t_got - t_want))) * 1000.0
+
+        r_got = (r_flange.T @ data.cam_xmat[cid].reshape(3, 3)) @ np.diag([1.0, -1.0, -1.0])
+        ang_deg = float(np.degrees(np.arccos(np.clip(
+            (np.trace(r_got.T @ r_want) - 1.0) / 2.0, -1.0, 1.0))))
+
+        # Sub-micrometre and sub-millidegree: these are the same numbers passed
+        # through a float formatter, so anything larger means a real edit.
+        if off_mm > 1e-3 or ang_deg > 1e-3:
+            results.append(CheckResult(
+                "perception.generated_scene", FAIL,
+                f"{cam_name} is {off_mm:.4f} mm / {ang_deg:.4f} deg off the "
+                f"hand-eye calibration in {scene_geometry.DEFAULT_SCENE}; "
+                f"rerun `python -m perception.sync_scene`"))
+            continue
+
+        # Intrinsics too -- a camera in the right place with the wrong focal
+        # length is just as wrong, and just as invisible in a render.
+        res, ss = model.cam_resolution[cid], model.cam_sensorsize[cid]
+        intr = calib.COLOR_INTRINSICS if cam_name == calib.COLOR_CAM_NAME \
+            else calib.DEPTH_INTRINSICS
+        fx_len, fy_len, cx_len, cy_len = model.cam_intrinsic[cid]
+        got = (fx_len / ss[0] * res[0], fy_len / ss[1] * res[1],
+               (res[0] - 1) / 2.0 - cx_len / ss[0] * res[0],
+               (res[1] - 1) / 2.0 - cy_len / ss[1] * res[1])
+        want_intr = (intr.fx, intr.fy, intr.cx, intr.cy)
+        worst = max(abs(a - b) for a, b in zip(got, want_intr))
+        if worst > 0.01:
+            results.append(CheckResult(
+                "perception.generated_scene", FAIL,
+                f"{cam_name} intrinsics differ from the device's by up to "
+                f"{worst:.3f} px (scene fx={got[0]:.3f} cx={got[2]:.3f}, "
+                f"device fx={intr.fx:.3f} cx={intr.cx:.3f})"))
+        else:
+            results.append(CheckResult(
+                "perception.generated_scene", PASS,
+                f"{cam_name} matches the hand-eye pose and the device's "
+                f"{intr.width}x{intr.height} intrinsics"))
+
+    return results
+
+
+def check_ggcnn_weights_load(scene=None) -> list[CheckResult]:
+    """The vendored GG-CNN weights must still fit the vendored architecture.
+
+    Fast on purpose: constructs the detector and runs one synthetic frame. It
+    does *not* pose the arm or check that grasps land on objects -- that is
+    `python -m perception.grasp.test_ggcnn`, which needs physics and takes far
+    too long for a gate meant to run in seconds.
+
+    What this catches is drift between `weights/*.pt` and `_ggcnn*_net.py`:
+    edit the network definition and `load_state_dict` fails loudly here rather
+    than at the first grasp attempt. SKIPs rather than fails when torch is
+    absent, since the sim itself does not require it.
+    """
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        return [CheckResult("perception.ggcnn_weights", SKIP,
+                            "torch not installed; grasp detection unavailable")]
+
+    import numpy as np
+
+    from perception.d435i_calib import COLOR_INTRINSICS
+    from perception.grasp import GGCNNDetector
+    from perception.rgbd import RGBDFrame
+
+    results = []
+    for model in ("ggcnn", "ggcnn2"):
+        try:
+            det = GGCNNDetector(model=model)
+        except Exception as exc:  # noqa: BLE001
+            results.append(CheckResult(
+                f"perception.ggcnn_weights[{model}]", FAIL,
+                f"{type(exc).__name__}: {exc}"))
+            continue
+
+        # A flat plane with a raised block: enough for the network to find
+        # something, without depending on the scene or on physics.
+        depth = np.full((480, 640), 0.40, dtype=np.float32)
+        depth[200:280, 280:360] = 0.33
+        frame = RGBDFrame(
+            color=np.zeros((480, 640, 3), dtype=np.uint8),
+            depth=depth, intrinsics=COLOR_INTRINSICS, cam_to_world=None)
+        try:
+            grasps = det.detect(frame, top_k=1)
+        except Exception as exc:  # noqa: BLE001
+            results.append(CheckResult(
+                f"perception.ggcnn_weights[{model}]", FAIL,
+                f"inference raised {type(exc).__name__}: {exc}"))
+            continue
+
+        if not grasps:
+            results.append(CheckResult(
+                f"perception.ggcnn_weights[{model}]", FAIL,
+                "no grasp on a synthetic block; the weights load but the "
+                "network is not producing usable output"))
+        elif grasps[0].position_world is not None:
+            # Guards the specific silent failure: a pose-less frame must not
+            # yield world coordinates, or the arm gets camera coordinates.
+            results.append(CheckResult(
+                f"perception.ggcnn_weights[{model}]", FAIL,
+                "a frame with no cam_to_world produced a world position"))
+        else:
+            results.append(CheckResult(
+                f"perception.ggcnn_weights[{model}]", PASS,
+                f"weights load into the vendored net; synthetic block gives "
+                f"q={grasps[0].quality:.2f}, width={grasps[0].width_m * 1000:.0f} mm"))
+    return results
+
+
+def check_grounding_model_available(scene=None) -> list[CheckResult]:
+    """Is the Grounding DINO checkpoint on disk, and does the package import?
+
+    Checks the HuggingFace cache rather than loading the model: the weights are
+    ~700 MB and 232 M parameters, so a real load has no place in a suite that
+    gates an edit-verify loop. `python -m perception.language.test_targeting`
+    does the actual work.
+
+    The failure this catches is the annoying one -- everything imports, the code
+    is correct, and the first `target()` call stalls trying to reach the network
+    or dies offline because nobody noticed the checkpoint was never fetched.
+    SKIPs rather than fails when the optional deps are absent.
+    """
+    try:
+        import transformers  # noqa: F401
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return [CheckResult("perception.grounding_model", SKIP,
+                            "transformers not installed; language targeting "
+                            "unavailable")]
+
+    from perception.language.grounding import MODEL_ID
+
+    missing = [f for f in ("config.json", "preprocessor_config.json")
+               if not isinstance(try_to_load_from_cache(MODEL_ID, f), str)]
+    weights = any(isinstance(try_to_load_from_cache(MODEL_ID, f), str)
+                  for f in ("model.safetensors", "pytorch_model.bin"))
+    if missing or not weights:
+        return [CheckResult(
+            "perception.grounding_model", SKIP,
+            f"{MODEL_ID} is not in the HuggingFace cache "
+            f"(missing {missing or ['weights']}); the first target() call will "
+            f"try to download ~700 MB")]
+    return [CheckResult("perception.grounding_model", PASS,
+                        f"{MODEL_ID} is cached locally")]
+
+
+def check_vision_actions_wired(scene=None) -> list[CheckResult]:
+    """The vision actions must be dispatchable, documented, and gate-aware.
+
+    Three lists have to agree about the same set of actions, and nothing else
+    compares them:
+
+    * ``LLMBrain._dispatch`` -- can the action run at all;
+    * the prompt's command vocabulary -- will the planner ever emit it;
+    * ``validate_plan.DEFERRED`` -- does the pre-action gate know its pose is
+      camera-resolved, or does it report an unrecognised action and reject the
+      whole plan on real hardware.
+
+    Dropping one is silent in every direction. An action missing from the prompt
+    is simply never used; one missing from DEFERRED breaks only in ``--mode
+    real``, which is the worst place to find out. Cheap to check here.
+
+    No model loading and no arm: this asks whether the wiring exists, not
+    whether vision works. ``agent/test_vision_dispatch.py`` does that.
+    """
+    from scripts.validate_plan import DEFERRED, IGNORED
+
+    results: list[CheckResult] = []
+    try:
+        from agent.llm_brain import SYSTEM_PROMPT_TEMPLATE
+        from agent.vision_targeting import VisionTargeting  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        return [CheckResult("agent.vision_actions", FAIL,
+                            f"cannot import the vision layer: "
+                            f"{type(exc).__name__}: {exc}")]
+
+    # Probe _dispatch without an arm: an unknown action returns -1, and every
+    # vision action refuses a missing description long before touching hardware.
+    class _NullArm:
+        last_refusal = ""
+        scene_xml = scene_geometry.DEFAULT_SCENE
+
+    brain = object.__new__(__import__("agent.llm_brain",
+                                      fromlist=["x"]).LLMBrain)
+    brain.arm = _NullArm()
+    brain._vision = None
+    brain.registry = None
+
+    missing_dispatch = [a for a in sorted(DEFERRED)
+                        if brain._dispatch(a, {}) == -1]
+    if missing_dispatch:
+        results.append(CheckResult(
+            "agent.vision_actions", FAIL,
+            f"in validate_plan.DEFERRED but not dispatchable: "
+            f"{missing_dispatch}"))
+    else:
+        results.append(CheckResult(
+            "agent.vision_actions", PASS,
+            f"all {len(DEFERRED)} vision action(s) dispatch and are known to "
+            f"the pre-action gate"))
+
+    undocumented = [a for a in sorted(DEFERRED)
+                    if f"- {a}" not in SYSTEM_PROMPT_TEMPLATE]
+    if undocumented:
+        results.append(CheckResult(
+            "agent.vision_prompt", FAIL,
+            f"dispatchable but absent from the prompt's command vocabulary, so "
+            f"the planner will never emit them: {undocumented}"))
+    else:
+        results.append(CheckResult(
+            "agent.vision_prompt", PASS,
+            "every vision action appears in the prompt vocabulary"))
+
+    overlap = DEFERRED & IGNORED
+    if overlap:
+        results.append(CheckResult(
+            "agent.vision_actions", FAIL,
+            f"{sorted(overlap)} are in both DEFERRED and IGNORED; IGNORED "
+            f"claims they are not controller motion, which is false"))
+    return results
+
+
 STATIC_CHECKS = [
     check_prompt_renders,
     check_prompt_objects_exist,
@@ -798,6 +1086,10 @@ STATIC_CHECKS = [
     check_motion_primitives_paced,
     check_layers_measure_after_reset,
     check_motion_error_audit,
+    check_wrist_camera_matches_calib,
+    check_ggcnn_weights_load,
+    check_grounding_model_available,
+    check_vision_actions_wired,
 ]
 
 

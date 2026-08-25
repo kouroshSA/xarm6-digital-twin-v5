@@ -61,6 +61,23 @@ RAIL = {"set_rail"}
 IGNORED = {"gripper_open", "gripper_close", "done", "wait", "get_pose",
            "get_body_pose", "search_workspace", "pcr_open", "pcr_close"}
 
+# Vision actions. These DO move the arm, so they are not IGNORED -- calling them
+# "not a controller motion" would be false. But their target pose does not exist
+# until the wrist camera has looked, so this gate cannot pre-check it.
+#
+# They are allowed through rather than rejected because the property this gate
+# actually protects still holds: nothing moves before the pose is known. Each
+# vision action resolves its pose, checks it (via set_position, which refuses an
+# unreachable one), and only then commands motion, so there is no prefix already
+# executed by the time a bad pose is discovered.
+#
+# What is NOT true of them is the gate's headline promise -- "every pose in this
+# plan has been checked against the controller". So they are reported out loud
+# even when the plan passes. A gate that quietly accepts poses it never saw is
+# the failure mode this module's docstring warns about, and silence here would
+# be exactly that.
+DEFERRED = {"locate_object", "move_to_object", "grasp_object"}
+
 
 def scene_limits(scene_xml: str = "envs/lab_scene.xml"):
     """Joint ranges (deg) and rail range (mm), read from the scene.
@@ -138,6 +155,16 @@ class PlanValidator:
 
             if action in IGNORED:
                 rec["detail"] = "not a controller motion; nothing to validate"
+
+            elif action in DEFERRED:
+                # ok stays True; see the DEFERRED comment above. The rail is not
+                # touched by these actions, so self.rail_mm remains correct for
+                # the frame conversion of any later move_to.
+                rec["deferred"] = True
+                rec["detail"] = (
+                    f"pose comes from the wrist camera at execution time and "
+                    f"CANNOT be pre-checked here; the action resolves it and "
+                    f"verifies reachability itself before moving")
 
             elif action in CARTESIAN:
                 # Plans speak WORLD; the controller speaks its own base frame,
@@ -249,6 +276,20 @@ def make_gate(ip: str = DEFAULT_IP, scene_xml: str = "envs/lab_scene.xml",
         results = validator.validate(commands)
         bad = [r for r in results if not r["ok"]]
         report = [f"#{r['index']} {r['action']}: {r['detail']}" for r in bad]
+
+        # Say out loud which poses this gate did not see. The caller only prints
+        # the report when the plan is REJECTED, so an accepted plan containing
+        # camera-resolved poses would otherwise print "plan accepted by
+        # pre-action validation" with no hint that part of it was unchecked.
+        deferred = [r for r in results if r.get("deferred")]
+        if deferred:
+            print(f"[validator] {len(deferred)} action(s) carry poses this gate "
+                  f"could not pre-check (resolved from the wrist camera at "
+                  f"execution time, and verified there before any motion):")
+            for r in deferred:
+                print(f"    #{r['index']} {r['action']}")
+        report += [f"#{r['index']} {r['action']}: NOT pre-checked (camera-resolved)"
+                   for r in deferred]
         return (not bad), report
 
     gate.validator = validator

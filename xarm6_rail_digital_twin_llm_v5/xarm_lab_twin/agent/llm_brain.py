@@ -79,6 +79,23 @@ in a benchmark pick-and-place environment.
 - get_pose        params: {{}}  — print current end-effector + rail pose to the operator log. Useful for self-checks / debugging; the LLM does not see the printed value in this turn.
 - get_body_pose   params: {{"name": "<body_name>"}}  — print the live xyz + RPY of any named body (cube, plate, tube, rack, bin, instrument) to the operator log. Reflects mouse-perturbation adjustments the operator made between episodes. Live poses for all registered bodies are already injected into your system prompt registry each episode -- use this command only to confirm/dump a specific body for the human log.
 - search_workspace  params: object_name
+- locate_object   params: {{"description": "the blue cube"}}  — point the WRIST CAMERA at whatever the phrase describes and measure where it is. Prints the world xyz, the measured physical size and a grasp pose to the operator log, and records the sighting so it appears in your registry context NEXT turn. Like get_pose, you do not see the value in THIS turn -- so do not follow it with a move_to that needs the coordinates. Use grasp_object or move_to_object instead, which consume the sighting themselves. Returns non-zero if the phrase is not found in the current view.
+- move_to_object  params: {{"description": "the blue cube", "dz_mm": 100}}  — locate the described object and move the gripper to hover `dz_mm` above it (default 100). Use this to inspect or to stage an approach without grasping.
+- grasp_object    params: {{"description": "the blue cube"}}  — locate the described object, approach from above, descend onto the grasp point the vision system computed, and close the gripper. This is ONE action: it finds the object and picks it up. Optional: `approach_dz_mm` (default 100), `grasp_dz_mm` (default 0), `speed_mm_s`.
+
+### When to use vision instead of registry coordinates
+The registry in your context already gives exact coordinates for every KNOWN
+body, and those are ground truth in simulation. Prefer them. Reach for the three
+vision actions when:
+  - the task names something by appearance rather than by body name ("the small
+    red one", "the blue cube nearest me") and you cannot map it to a registry entry;
+  - the task explicitly asks you to look, find, or use the camera;
+  - you are running against real hardware, where the registry is a prior and the
+    camera is the only ground truth.
+The camera is on the wrist and looks where the gripper points, so it only sees
+what the arm is currently facing. If a locate/grasp returns "not found", move the
+arm above the area first (e.g. move_to a bench-height pose over the region, z ~
+1100-1200 mm looking down) and retry. Vision costs ~0.4 s per call.
 - wait            params: seconds
 - done            params: message
 
@@ -291,7 +308,19 @@ class LLMBrain:
         # controller firmware before any of it reaches the arm. None means no gate,
         # which is the right default in sim where a bad plan costs nothing.
         self.plan_validator = None
+        # Wrist-camera targeting, built on first use. Grounding DINO costs ~3 s
+        # and ~700 MB of GPU to construct, so a session that never asks to look
+        # at anything must not pay for it. See agent/vision_targeting.py.
+        self._vision = None
         print(f"[LLMBrain] Using model: {self.model_short} ({self.model_full})")
+
+    @property
+    def vision(self):
+        """Lazy :class:`VisionTargeting` bound to this arm and registry."""
+        if self._vision is None:
+            from agent.vision_targeting import VisionTargeting
+            self._vision = VisionTargeting(self.arm, registry=self.registry)
+        return self._vision
 
     def set_speed_cap(self, tier: str, cap_mm_s: Optional[float]) -> None:
         """Set the dispatch-time speed clamp. `tier` is the human-readable
@@ -701,6 +730,130 @@ class LLMBrain:
               f"rpy=({r:+.1f}, {pi:+.1f}, {ya:+.1f}) deg")
         return 0
 
+    # -- wrist-camera vision ---------------------------------------------
+    #
+    # These three actions are self-contained on purpose: each resolves the
+    # target pose from the camera, checks it, and only then moves. The
+    # alternative -- a locate_object that binds a name and a move_to that
+    # takes {"ref": "..."} -- would be more flexible and would quietly break
+    # the pre-action gate in scripts/validate_plan.py, which checks every pose
+    # for reachability BEFORE anything is dispatched precisely because on real
+    # hardware a per-command check comes too late. A pose that does not exist
+    # until dispatch cannot be pre-checked. Keeping the resolve-check-move
+    # sequence inside one action preserves the property the gate protects:
+    # nothing moves before the pose is known and validated.
+
+    def _vision_locate(self, p, verb: str):
+        """Shared front half of the vision actions: find it, or explain why not."""
+        description = p.get("description") or p.get("object") or p.get("name")
+        if not description:
+            print(f"[Vision] {verb} requires a 'description' param")
+            self.arm.last_refusal = f"{verb}: no description given"
+            return None
+
+        vision = self.vision
+        if not vision.available():
+            msg = (f"vision unavailable ({vision.unavailable_reason}); "
+                   f"install torch + transformers, or plan from the registry "
+                   f"coordinates in the prompt instead")
+            print(f"[Vision] {msg}")
+            self.arm.last_refusal = msg
+            return None
+
+        sighting = vision.locate(
+            description,
+            max_size_m=p.get("max_size_m"),
+            min_size_m=p.get("min_size_m"),
+            want_grasp=(verb != "locate_object"),
+        )
+        if sighting is None:
+            # Not an exception and not a crash: the camera looked and the thing
+            # was not there. The distinction matters to the planner, which can
+            # reposition and try again, so say which it was.
+            msg = (f"'{description}' not found in the wrist camera view. "
+                   f"Move the arm so the camera looks at it, then retry.")
+            print(f"[Vision] {msg}")
+            self.arm.last_refusal = msg
+            return None
+
+        print(f"[Vision] {sighting.summary()}")
+        return sighting
+
+    def _locate_object(self, p):
+        """Report where a described object is. Does not move the arm."""
+        sighting = self._vision_locate(p, "locate_object")
+        if sighting is None:
+            return 1
+        # The sighting is already written into the registry by VisionTargeting,
+        # so it reaches the NEXT turn's prompt. Within this turn the planner
+        # only learns that it succeeded -- same limitation get_pose documents.
+        return 0
+
+    def _move_to_object(self, p):
+        """Move above a described object without grasping it."""
+        sighting = self._vision_locate(p, "move_to_object")
+        if sighting is None:
+            return 1
+        x, y, z = sighting.position_mm
+        dz = float(p.get("dz_mm", 100.0))
+        speed = self._clamp_speed(p.get("speed_mm_s", 80.0),
+                                  per_cmd_tier=p.get("speed_tier"))
+        yaw = 0.0
+        if p.get("use_grasp_yaw", True) and sighting.grasp_pose is not None:
+            yaw = sighting.grasp_pose[5]
+        return self.arm.set_position(
+            x=x + float(p.get("dx_mm", 0.0)),
+            y=y + float(p.get("dy_mm", 0.0)),
+            z=z + dz,
+            roll=180.0, pitch=0.0, yaw=yaw,
+            speed=speed, wait=True,
+        )
+
+    def _grasp_object(self, p):
+        """Locate a described object, approach from above, descend, and close.
+
+        Refuses when GG-CNN proposed no grasp on the object it found. The object
+        was seen, so a position exists -- but a position is not a grasp: it has
+        no jaw angle and nothing has verified the gripper can close there.
+        Descending onto it anyway would be acting on a value nothing checked.
+        The planner is told to use locate_object + move_to if it wants to try.
+        """
+        sighting = self._vision_locate(p, "grasp_object")
+        if sighting is None:
+            return 1
+        if sighting.grasp_pose is None:
+            msg = (f"saw '{sighting.description}' but no grasp was proposed on "
+                   f"it; use locate_object + move_to to approach it manually")
+            print(f"[Vision] {msg}")
+            self.arm.last_refusal = msg
+            return 1
+
+        gx, gy, gz, roll, pitch, yaw = sighting.grasp_pose
+        approach_dz = float(p.get("approach_dz_mm", 100.0))
+        grasp_dz = float(p.get("grasp_dz_mm", 0.0))
+        approach_speed = self._clamp_speed(p.get("approach_speed_mm_s", 80.0),
+                                           per_cmd_tier=p.get("speed_tier"))
+        grasp_speed = self._clamp_speed(p.get("speed_mm_s", 50.0),
+                                        per_cmd_tier=p.get("speed_tier"))
+
+        rc = self.arm.set_position(x=gx, y=gy, z=gz + approach_dz,
+                                   roll=roll, pitch=pitch, yaw=yaw,
+                                   speed=approach_speed, wait=True)
+        if rc != 0:
+            print(f"[Vision] approach above '{sighting.description}' refused "
+                  f"(rc={rc}): {getattr(self.arm, 'last_refusal', '')}")
+            return rc
+
+        rc = self.arm.set_position(x=gx, y=gy, z=gz + grasp_dz,
+                                   roll=roll, pitch=pitch, yaw=yaw,
+                                   speed=grasp_speed, wait=True)
+        if rc != 0:
+            print(f"[Vision] descent onto '{sighting.description}' refused "
+                  f"(rc={rc}): {getattr(self.arm, 'last_refusal', '')}")
+            return rc
+
+        return self.arm.close_lite6_gripper()
+
     def _search(self, name):
         obj = self.registry.find(name)
         if obj is None:
@@ -734,6 +887,9 @@ class LLMBrain:
             "wait":             lambda p: time.sleep(p.get("seconds", 1)) or 0,
             "done":             lambda p: print(f"[Done] {p.get('message','')}") or 0,
             "search_workspace": lambda p: self._search(p["object_name"]),
+            "locate_object":    self._locate_object,
+            "move_to_object":   self._move_to_object,
+            "grasp_object":     self._grasp_object,
         }
         h = d.get(action)
         if h is None:
