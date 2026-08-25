@@ -100,8 +100,12 @@ class Recorder(threading.Thread):
         scene_r = mujoco.Renderer(self.arm.model, height=SCENE_H, width=SCENE_W)
         cam = mujoco.MjvCamera()
         mujoco.mjv_defaultFreeCamera(self.arm.model, cam)
-        cam.lookat[:] = (0.05, -0.15, 0.85)
-        cam.distance, cam.azimuth, cam.elevation = 1.9, 128, -20
+        # Framed to take in the lab_environment backdrop -- the fume hood the
+        # arm works in front of, the reagent shelving north, the window south --
+        # rather than cropping to the bench as it did when there was nothing
+        # behind it but void.
+        cam.lookat[:] = (0.10, -0.08, 1.02)
+        cam.distance, cam.azimuth, cam.elevation = 2.60, 118, -11
 
         wrist = SimWristCamera(self.arm)
         targeter = LanguageTargeter(device=self.device)
