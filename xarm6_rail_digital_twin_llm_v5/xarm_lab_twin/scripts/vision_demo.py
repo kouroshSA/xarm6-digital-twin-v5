@@ -47,7 +47,7 @@ OVERLAY_HOLD_S = 4.5
 class Recorder(threading.Thread):
     """Owns the GL contexts: scene camera, wrist camera, and the targeter."""
 
-    def __init__(self, arm, out_dir: str, device: str, backdrop: bool = True):
+    def __init__(self, arm, out_dir: str, device: str, backdrop: bool = False):
         super().__init__(daemon=True)
         self.backdrop = backdrop
         self.arm = arm
@@ -248,8 +248,10 @@ def main() -> int:
                                          "the green cube:green_bin")
     ap.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
     ap.add_argument("--keep-frames", action="store_true")
-    ap.add_argument("--no-backdrop", action="store_true",
-                    help="hide the lab room and render against the bare\n                         bench, as the scene looked before it existed")
+    ap.add_argument("--backdrop", action="store_true",
+                    help="render the lab room behind the bench (fume hood, "
+                         "shelving, window). Off by default, matching the rest "
+                         "of the sim.")
     args = ap.parse_args()
 
     targets = [tuple(t.split(":")) for t in args.targets.split(",") if t]
@@ -262,7 +264,7 @@ def main() -> int:
     from sim.mujoco_env import SimXArmAPI
 
     arm = SimXArmAPI(SCENE, render=False)
-    rec = Recorder(arm, frames_dir, args.device, backdrop=not args.no_backdrop)
+    rec = Recorder(arm, frames_dir, args.device, backdrop=args.backdrop)
     rec.start()
     print("[demo] loading the grounding model...")
     rec.ready.wait()

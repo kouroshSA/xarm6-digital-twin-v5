@@ -384,13 +384,11 @@
             contype="0" conaffinity="0" mass="0"/>
     </body>
 
-    <!-- Daylight from the window, and a cool fill from the hood's strip light.
-         Positioned to match the geometry above rather than chosen by eye, so
-         the render's shadows fall the way the photograph's do. -->
-    <light name="window_daylight" pos="1.45 0.45 1.95" dir="-0.55 -0.72 -0.42"
-           diffuse="0.26 0.28 0.33" specular="0.05 0.05 0.06"/>
-    <light name="hood_striplight" pos="-0.25 0.42 2.06" dir="0 -0.35 -0.94"
-           diffuse="0.22 0.23 0.25" specular="0.05 0.05 0.05"/>
+    <!-- No extra lights for the backdrop, deliberately. A MuJoCo light has no
+         geom group, so a light added with the room would keep shining when the
+         room is hidden -- and "backdrop off" would then not be the scene as it
+         was, only the scene as it looked minus some walls. The room is lit by
+         the two lights that were already here. -->
 
     <!-- L-shaped benchtop matched to the real lab (Robot_workspace plan).
          Main section: 139.7 cm deep (y). The working strip (cubes/bins) sits

@@ -41,6 +41,7 @@ import mujoco  # noqa: E402  (must follow the MUJOCO_GL default)
 
 from . import d435i_calib as calib  # noqa: E402
 from .sim_camera import SimWristCamera  # noqa: E402
+from sim.render_options import ray_geomgroup  # noqa: E402
 
 SCENE = os.path.join(os.path.dirname(__file__), "..", "envs", "lab_scene.xml")
 
@@ -133,7 +134,12 @@ def check_render_matches_raycast(model, data, cam) -> list[str]:
     us = np.linspace(40, k.width - 40, 9)
     vs = np.linspace(40, k.height - 40, 7)
 
-    geomgroup = np.array([1, 1, 1, 1, 1, 1], dtype=np.uint8)
+    # The ray mask must match what the renderer actually drew. The backdrop is
+    # in its own geom group and is off by default, so an all-ones mask would let
+    # rays hit a wall that is absent from the depth image -- the exact
+    # render/raycast disagreement this test exists to detect, introduced by the
+    # test itself.
+    geomgroup = ray_geomgroup(backdrop=cam.backdrop)
     geomid = np.zeros(1, dtype=np.int32)
 
     errors = []
@@ -195,7 +201,7 @@ def check_principal_sign_is_detectable(model, data, cam) -> list[str]:
     frame.intrinsics = flipped
     c2w = frame.cam_to_world
     origin, rot = c2w[:3, 3], c2w[:3, :3]
-    geomgroup = np.array([1, 1, 1, 1, 1, 1], dtype=np.uint8)
+    geomgroup = ray_geomgroup(backdrop=cam.backdrop)
     geomid = np.zeros(1, dtype=np.int32)
 
     errors = []

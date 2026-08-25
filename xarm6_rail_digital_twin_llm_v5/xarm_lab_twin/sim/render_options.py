@@ -7,7 +7,7 @@ visibility switch:
 
     from sim.render_options import scene_option
 
-    renderer.update_scene(data, camera=cam, scene_option=scene_option(backdrop=False))
+    renderer.update_scene(data, camera=cam, scene_option=scene_option(backdrop=True))
 
 Why a geom group rather than two scene files, or an alpha flag
 --------------------------------------------------------------
@@ -20,12 +20,15 @@ A geom group is the one mechanism MuJoCo already applies consistently: the
 renderer, the interactive viewer and ``mj_ray`` all take the same
 ``geomgroup`` mask, so "hidden" means hidden to all of them at once.
 
-It also comes with a free control in the live viewer: **press ``2``** to toggle
-the backdrop while the sim runs. No flag, no restart.
+**The backdrop is OFF by default.** The scene renders as it always did -- the
+bench against an empty void -- and the room is opt-in. That keeps every existing
+script, recording and expectation unchanged by its arrival, and means nobody
+inherits a heavier render they did not ask for.
 
-Turning it off restores exactly what the scene looked like before the backdrop
-existed -- the bench against an empty void -- which is what makes it a fair
-before/after rather than an approximation of one.
+To turn it on: pass ``backdrop=True`` here, ``--backdrop`` to the demo, or, in
+the live viewer, **press ``2``**. The viewer starts with group 2 off (set in
+``SimXArmAPI._launch_viewer``), so the key reveals the room rather than hiding
+it. No flag, no restart.
 """
 from __future__ import annotations
 
@@ -36,7 +39,7 @@ import mujoco
 BACKDROP_GROUP = 2
 
 
-def scene_option(backdrop: bool = True,
+def scene_option(backdrop: bool = False,
                  base: mujoco.MjvOption | None = None) -> mujoco.MjvOption:
     """An ``MjvOption`` with the backdrop shown or hidden.
 
@@ -48,7 +51,7 @@ def scene_option(backdrop: bool = True,
     return opt
 
 
-def ray_geomgroup(backdrop: bool = True):
+def ray_geomgroup(backdrop: bool = False):
     """The matching mask for ``mujoco.mj_ray``.
 
     Ray casting takes its own group mask, and it is easy to hide the backdrop

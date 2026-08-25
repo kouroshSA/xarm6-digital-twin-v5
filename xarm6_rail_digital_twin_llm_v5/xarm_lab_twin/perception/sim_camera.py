@@ -72,13 +72,14 @@ class SimWristCamera:
     """
 
     def __init__(self, arm, noise_std_m: float = 0.0, seed: Optional[int] = None,
-                 backdrop: bool = True):
-        # The lab backdrop is in geom group 2 (see sim/render_options.py), so
-        # the wrist camera can be pointed at the furnished room or at the bare
-        # bench without swapping scenes. It matters for perception, not just
-        # looks: grounding against clutter is a different problem from grounding
+                 backdrop: bool = False):
+        # The lab backdrop is in geom group 2 (see sim/render_options.py) and
+        # is OFF by default, so the wrist camera sees the bare bench exactly as
+        # it did before the room existed. Pass backdrop=True to look at the
+        # furnished lab instead. It matters for perception, not just looks:
+        # grounding against clutter is a different problem from grounding
         # against a void, and being able to flip between them is how you find
-        # out which one your routine was relying on.
+        # out which one a routine was relying on.
         from sim.render_options import scene_option
         self._scene_option = scene_option(backdrop=backdrop)
         self.backdrop = backdrop

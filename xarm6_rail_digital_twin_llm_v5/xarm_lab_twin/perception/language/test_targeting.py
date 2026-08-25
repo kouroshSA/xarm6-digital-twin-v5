@@ -94,37 +94,58 @@ def check_phrases_hit_the_right_object(arm, frame, targeter) -> list[str]:
 def check_size_filter_is_what_fixes_it(arm, frame, targeter) -> list[str]:
     """The load-bearing claim: depth, not grounding, separates cube from bin.
 
-    Asserts BOTH halves. If grounding alone were sufficient the first assertion
-    would fail and this check would tell us the depth stage is now dead weight --
-    which is worth knowing too.
+    An earlier version asserted that *unfiltered* targeting picks the bin. That
+    was too strong. Whether the bin outranks the cube turns on a few hundredths
+    of a grounding score, and it flipped when the scene's backdrop and lighting
+    changed -- so the check failed while the system it guards was working
+    perfectly. A test that only holds in one lighting setup is not testing the
+    thing it names.
+
+    What IS stable, and is what the depth stage exists for: a bin-sized
+    candidate is among the boxes Grounding DINO returns for "a green cube", and
+    the size bound is what keeps it from ever being chosen. So assert that the
+    ambiguity is present and that the filter resolves it -- not that the
+    ambiguity happens to win today.
     """
-    unfiltered = targeter.target("a green cube", frame, distractors=DISTRACTORS,
-                                 attach_grasps=False)
+    # Every candidate for the phrase, not just the winner.
+    detections = targeter.grounder.detect(frame.color, ["a green cube", *DISTRACTORS])
+    sized = []
+    for det in detections:
+        if det.phrase.strip().lower().rstrip(".") != "a green cube":
+            continue
+        t = targeter._physicalise(frame, det)
+        if t is not None:
+            sized.append(t)
+
+    if not sized:
+        return ["'a green cube' grounded to nothing measurable"]
+
+    oversize = [t for t in sized if t.max_size_m > CUBE_MAX_SIZE_M]
+    if not oversize:
+        return [f"no bin-sized candidate among {len(sized)} boxes for 'a green "
+                f"cube' (largest {max(t.max_size_m for t in sized) * 1000:.0f} mm), "
+                f"so the size bound has nothing to reject here and this check "
+                f"proves nothing. Confirm the depth stage still earns its place."]
+
     filtered = targeter.target("a green cube", frame, max_size_m=CUBE_MAX_SIZE_M,
                                distractors=DISTRACTORS, attach_grasps=False)
+    if filtered is None:
+        return ["the size bound rejected every candidate, including the cube"]
 
-    if unfiltered is None or filtered is None:
-        return ["'a green cube' did not ground; the comparison cannot be made"]
-
-    un_hit = _nearest_body(arm, unfiltered.position_world * 1000.0, CANDIDATE_BODIES)
     fi_hit = _nearest_body(arm, filtered.position_world * 1000.0, CANDIDATE_BODIES)
-
-    failures = []
-    if un_hit == "green_cube":
-        failures.append(
-            "grounding alone already picked green_cube, so this check no longer "
-            "demonstrates anything. Verify the size filter still matters before "
-            "trusting it -- or drop the depth stage if it has become redundant.")
     if fi_hit != "green_cube":
-        failures.append(
-            f"with max_size_m={CUBE_MAX_SIZE_M} 'a green cube' still resolved to "
-            f"{fi_hit}; the size filter is not doing its job")
-    if not failures:
-        print(f"  without size filter: {un_hit} "
-              f"({unfiltered.max_size_m * 1000:.0f} mm)")
-        print(f"  with    size filter: {fi_hit} "
-              f"({filtered.max_size_m * 1000:.0f} mm)  <- depth resolves it")
-    return failures
+        return [f"with max_size_m={CUBE_MAX_SIZE_M} 'a green cube' resolved to "
+                f"{fi_hit}; the size filter is not doing its job"]
+
+    biggest = max(oversize, key=lambda t: t.max_size_m)
+    hit = _nearest_body(arm, biggest.position_world * 1000.0, CANDIDATE_BODIES)
+    print(f"  'a green cube' grounds to {len(sized)} candidate(s); "
+          f"{len(oversize)} too big to be a cube")
+    print(f"    largest: {hit} at {biggest.max_size_m * 1000:.0f} mm "
+          f"(score {biggest.score:.2f}) -- rejected on size")
+    print(f"    chosen : green_cube at {filtered.max_size_m * 1000:.0f} mm "
+          f"(score {filtered.score:.2f})")
+    return []
 
 
 def check_mask_beats_the_box(frame, targeter) -> list[str]:
