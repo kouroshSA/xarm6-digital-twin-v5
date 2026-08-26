@@ -70,6 +70,10 @@ def _render_prompt(scene) -> str:
     from agent.llm_brain import SYSTEM_PROMPT_TEMPLATE
     from agent.scene_geometry import render_geometry_section, worked_example_coords
     return SYSTEM_PROMPT_TEMPLATE.format(
+        # Rendered for real, not stubbed: this is the switch run_vision_task.py
+        # flips, and a check that stubbed it could not tell whether it still works.
+        vision_policy_section=__import__(
+            "agent.llm_brain", fromlist=["x"]).render_vision_policy(),
         registry_context="(omitted)",
         speed_cap_section="(omitted)",
         world_model_section="(omitted)",
@@ -1058,6 +1062,67 @@ def check_vision_actions_wired(scene=None) -> list[CheckResult]:
     return results
 
 
+def check_vision_first_entry_point(scene=None) -> list[CheckResult]:
+    """run_vision_task.py must actually change the prompt, and only it.
+
+    The whole entry point is one environment variable, which is exactly the kind
+    of wiring that breaks silently: rename the variable, drop the placeholder, or
+    stub it in one of the two format() call sites, and run_vision_task.py keeps
+    running, keeps printing its banner, and quietly plans from registry
+    coordinates like run_task.py. Nothing else would notice.
+
+    So assert both directions -- the policy appears when the flag is set, and is
+    absent when it is not, because a policy that is always on would silently
+    change run_task.py too.
+    """
+    import os
+
+    from agent.llm_brain import VISION_FIRST_ENV, render_vision_policy
+
+    results: list[CheckResult] = []
+    had = os.environ.get(VISION_FIRST_ENV)
+    try:
+        os.environ.pop(VISION_FIRST_ENV, None)
+        off = _render_prompt(scene)
+        os.environ[VISION_FIRST_ENV] = "1"
+        on = _render_prompt(scene)
+    except Exception as exc:  # noqa: BLE001
+        return [CheckResult("agent.vision_first", FAIL,
+                            f"prompt did not render: {type(exc).__name__}: {exc}")]
+    finally:
+        os.environ.pop(VISION_FIRST_ENV, None)
+        if had is not None:
+            os.environ[VISION_FIRST_ENV] = had
+
+    marker = "THIS SESSION IS VISION-FIRST"
+    if marker in off:
+        results.append(CheckResult(
+            "agent.vision_first", FAIL,
+            "the vision-first policy renders with the flag UNSET, so plain "
+            "run_task.py sessions are being told to use the camera too"))
+    elif marker not in on:
+        results.append(CheckResult(
+            "agent.vision_first", FAIL,
+            f"setting {VISION_FIRST_ENV} does not change the prompt; "
+            f"run_vision_task.py is a no-op"))
+    else:
+        results.append(CheckResult(
+            "agent.vision_first", PASS,
+            f"{VISION_FIRST_ENV} adds {len(on) - len(off)} chars of policy; "
+            f"unset leaves the prompt unchanged"))
+
+    entry = pathlib.Path("scripts/run_vision_task.py")
+    if not entry.exists():
+        results.append(CheckResult("agent.vision_first", FAIL,
+                                   "scripts/run_vision_task.py is missing"))
+    elif "run_task" not in entry.read_text():
+        results.append(CheckResult(
+            "agent.vision_first", FAIL,
+            "run_vision_task.py no longer delegates to run_task.main(); if it "
+            "has been forked into its own copy, the two will drift"))
+    return results
+
+
 STATIC_CHECKS = [
     check_prompt_renders,
     check_prompt_objects_exist,
@@ -1090,6 +1155,7 @@ STATIC_CHECKS = [
     check_ggcnn_weights_load,
     check_grounding_model_available,
     check_vision_actions_wired,
+    check_vision_first_entry_point,
 ]
 
 

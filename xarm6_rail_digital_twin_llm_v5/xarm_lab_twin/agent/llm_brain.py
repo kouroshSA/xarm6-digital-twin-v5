@@ -23,6 +23,48 @@ MODELS = {
 DEFAULT_MODEL = "haiku"
 
 
+# Set by scripts/run_vision_task.py. The planner cannot otherwise tell whether it
+# is driving the sim (where the registry is ground truth, refreshed from MuJoCo
+# every episode) or real hardware (where RealXArmAPI.get_body_pose is a stub, so
+# refresh_from_sim silently no-ops and the registry keeps its static seeds).
+# Saying "use vision on real hardware" in the prompt was unactionable advice
+# until something told the model which it was.
+VISION_FIRST_ENV = "XARM_VISION_FIRST"
+
+VISION_POLICY = """
+### THIS SESSION IS VISION-FIRST
+The wrist camera is the ground truth for WHERE THINGS ARE. Registry coordinates
+are a prior -- on real hardware they are static seeds that no longer track the
+bench, because nothing refreshes them there.
+
+This is a REQUIREMENT for this session, not a preference:
+
+  - To pick anything up you MUST emit `grasp_object` with a description.
+    Do NOT emit move_to + gripper_close onto a registry coordinate -- that
+    grasps where the object was recorded, not where it is, and this session
+    exists because those are not the same.
+  - To place ONTO something whose position could have moved, `locate_object`
+    it first.
+  - A plan for this session that contains no grasp_object is almost certainly
+    wrong. Re-read the task and find the objects you were asked to handle.
+
+Still take from the registry, because the camera cannot supply them:
+  - the xy PRIOR that tells you where to aim the camera before each look;
+  - fixed geometry -- bench and deck heights, OT-2 slot positions, rack slots,
+    rail limits, safe transit heights.
+
+If a locate or grasp fails, reposition and look again. Do NOT fall back to the
+registry coordinate for the grasp itself: that is the number this session exists
+to stop trusting.
+"""
+
+
+def render_vision_policy() -> str:
+    """The vision-first block, or nothing. Driven by the environment so the
+    entry point chooses the policy and run_task.py stays untouched."""
+    return VISION_POLICY if os.environ.get(VISION_FIRST_ENV) else ""
+
+
 def resolve_model(short_or_full: str) -> str:
     return MODELS.get(short_or_full, short_or_full)
 
@@ -102,11 +144,16 @@ name appears in the task (`red_cube_front`), do not pass it as the description
 share an appearance, prefer their registry coordinates over trying to word the
 difference.
 
-**Aim the camera before you look.** It is on the wrist and sees only what the
-gripper faces, so a locate/grasp is answered from wherever the arm happens to be
-pointing. Before each one, move_to directly ABOVE where you expect the object --
-use the registry xy as the prior, z ~ 1100-1200 mm, roll 180 -- so the target is
-near the centre of frame. Looking from across the bench finds the wrong thing or
+**Aim the camera before you look, and keep your distance.** It is on the wrist
+and sees only what the gripper faces, so a locate/grasp is answered from wherever
+the arm happens to be pointing. Before each one, move_to directly ABOVE where you
+expect the object -- use the registry xy as the prior, z ~ 1100-1200 mm, roll 180
+-- so the target is near the centre of frame.
+
+That height is not cosmetic. The camera needs at least ~250 mm of standoff to
+measure well: closer than ~150 mm it still returns a depth, but a wrong one, and
+the grasp lands inside the object. grasp_object refuses below that and tells you
+to back off, so looking from just above the bench (z ~ 900) wastes a turn. Looking from across the bench finds the wrong thing or
 nothing: the object lands at the edge of a 55-degree field where it is small,
 oblique, and easily beaten by whatever is nearer the middle.
 
@@ -116,6 +163,7 @@ looking again after repositioning is cheap.
 
 If a locate/grasp still returns "not found", the object is not in view -- move
 and retry rather than falling back to a guessed coordinate.
+{vision_policy_section}
 - wait            params: seconds
 - done            params: message
 
@@ -600,6 +648,7 @@ class LLMBrain:
             print(f"[LLMBrain] registry refresh skipped: {e}")
         skills = [] if os.environ.get("XARM_NO_SKILLS") else load_skills()
         system = SYSTEM_PROMPT_TEMPLATE.format(
+            vision_policy_section=render_vision_policy(),
             skills_section=render_skills_section(skills),
             registry_context=self.registry.to_llm_context(),
             speed_cap_section=self._render_speed_cap_section(),
@@ -841,6 +890,20 @@ class LLMBrain:
         sighting = self._vision_locate(p, "grasp_object")
         if sighting is None:
             return 1
+        from agent.vision_targeting import MIN_RELIABLE_RANGE_MM
+
+        if 0.0 < sighting.range_mm < MIN_RELIABLE_RANGE_MM:
+            # Refusing a measurement rather than a motion. Depth this close is
+            # returned but wrong, so the grasp pose looks plausible and is not.
+            msg = (f"'{sighting.description}' was measured from only "
+                   f"{sighting.range_mm:.0f} mm; below {MIN_RELIABLE_RANGE_MM:.0f} mm "
+                   f"the depth is unreliable and the grasp would land inside the "
+                   f"object. Move the flange up to ~250-350 mm above it and "
+                   f"grasp_object again.")
+            print(f"[Vision] {msg}")
+            self.arm.last_refusal = msg
+            return 1
+
         if sighting.grasp_pose is None:
             msg = (f"saw '{sighting.description}' but no grasp was proposed on "
                    f"it; use locate_object + move_to to approach it manually")
