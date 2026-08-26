@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import math
 import time
+import time
 from typing import Optional
 
 import numpy as np
@@ -38,6 +39,21 @@ except ImportError:  # pragma: no cover - optional until real hardware is used
 # we complain. Intel's factory calibration is stable to well under a pixel
 # across power cycles, so a whole pixel already means something changed.
 _INTRINSICS_TOL_PX = 1.0
+
+# Cold-start recovery. Measured on serial 033422072806 (firmware 5.11.1.100) on
+# 2026-08-26: after the device sits idle a few minutes it drops into a state
+# where the colour stream starts and delivers frames normally but the stereo
+# module never produces a single depth frame, at any resolution or frame rate,
+# and it stays there -- 0 successes in 3 cold attempts, then 5 in 5 immediately
+# after a hardware_reset(). Both IR imagers stream clean images throughout, so
+# the stereo hardware is healthy; it is depth generation on the ASIC that hangs.
+#
+# Resetting on the way in costs this long, and only when the first frame fails
+# to arrive. That beats handing the caller a camera whose every capture() dies
+# on a 5 s timeout. The real fix is a firmware update -- 5.11.1.100 is far below
+# what librealsense 2.58 expects -- after which this should be re-measured and
+# probably deleted.
+_RESET_SETTLE_S = 10.0
 
 
 class RealSenseWristCamera:
@@ -73,22 +89,62 @@ class RealSenseWristCamera:
         self.arm = arm
         self.width, self.height, self.fps = width, height, fps
 
+        self._serial = serial
+
         self.pipeline = rs.pipeline()
-        config = rs.config()
-        if serial:
-            config.enable_device(serial)
-        config.enable_stream(rs.stream.depth, width, height, rs.format.z16, fps)
-        config.enable_stream(rs.stream.color, width, height, rs.format.bgr8, fps)
-        self.profile = self.pipeline.start(config)
+        self.profile = self.pipeline.start(self._stream_config())
         self.align = rs.align(rs.stream.color)
+
+        try:
+            self._color_intr, self._depth_intr = self._read_intrinsics()
+        except RuntimeError as exc:
+            # Only the depth-never-starts stall is recoverable this way; a
+            # genuinely absent or busy device must still surface as itself.
+            if "didn't arrive" not in str(exc):
+                raise
+            self._reset_and_restart(exc)
 
         # The device's own depth scale, rather than assuming the 1 mm default.
         depth_sensor = self.profile.get_device().first_depth_sensor()
         self.depth_scale = float(depth_sensor.get_depth_scale())
 
-        self._color_intr, self._depth_intr = self._read_intrinsics()
         if verify_intrinsics:
             self._verify_intrinsics()
+
+    # -- connection -------------------------------------------------------
+
+    def _stream_config(self):
+        config = rs.config()
+        if self._serial:
+            config.enable_device(self._serial)
+        config.enable_stream(rs.stream.depth, self.width, self.height,
+                             rs.format.z16, self.fps)
+        config.enable_stream(rs.stream.color, self.width, self.height,
+                             rs.format.bgr8, self.fps)
+        return config
+
+    def _reset_and_restart(self, exc: Exception) -> None:
+        """Power-cycle the device once and rebuild the pipeline. See _RESET_SETTLE_S.
+
+        Raises the *second* failure untouched if the reset does not help, so a
+        real fault is never dressed up as a transient one.
+        """
+        print(f"[RealSenseWristCamera] the device started but produced no depth "
+              f"frame ({exc}). Resetting it and retrying once; this takes about "
+              f"{_RESET_SETTLE_S:.0f} s.")
+        device = self.profile.get_device()
+        try:
+            self.pipeline.stop()
+        except Exception:
+            pass
+        device.hardware_reset()
+        time.sleep(_RESET_SETTLE_S)
+
+        self.pipeline = rs.pipeline()
+        self.profile = self.pipeline.start(self._stream_config())
+        self.align = rs.align(rs.stream.color)
+        self._color_intr, self._depth_intr = self._read_intrinsics()
+        print("[RealSenseWristCamera] depth recovered after reset.")
 
     # -- intrinsics -------------------------------------------------------
 
@@ -156,11 +212,47 @@ class RealSenseWristCamera:
         x_mm, y_mm, z_mm, roll_d, pitch_d, yaw_d = pose[:6]
         r_base_flange = calib._euler_to_mat(
             math.radians(roll_d), math.radians(pitch_d), math.radians(yaw_d))
-        t_base_flange = np.array([x_mm, y_mm, z_mm], dtype=np.float64) / 1000.0
+        # get_position() reports whatever the TCP points at, NOT the flange. This
+        # cell runs a 217 mm offset, so it reports the gripper fingertip, while
+        # the hand-eye calibration is measured from the flange -- composing one
+        # onto the other puts the camera a whole tool-length away. Measured on
+        # hardware 2026-08-26: left uncorrected the benchtop deprojected to base
+        # z = -267 mm against a true -72, and the camera-to-surface range was
+        # 200 mm short. Backing the offset out first gave -53 mm and +13 mm.
+        #
+        # The offset is read from the arm rather than assumed, so it cannot drift
+        # from what the controller is actually using; anything that does not
+        # report one (the sim) contributes zero and is unaffected.
+        t_base_flange = ((np.array([x_mm, y_mm, z_mm], dtype=np.float64)
+                          - r_base_flange @ self._tcp_offset_mm()) / 1000.0)
 
         r_fc, t_fc = calib.flange_to_color_optical()
         return pose_matrix(r_base_flange @ r_fc,
                            t_base_flange + r_base_flange @ t_fc)
+
+    def _tcp_offset_mm(self) -> np.ndarray:
+        """The tool offset to back out of ``get_position()``, in tool coordinates.
+
+        Returns zeros when the arm reports no offset, which keeps the sim path
+        byte-identical to what ``test_projection`` validates.
+
+        A TCP offset carrying a ROTATION is not handled -- it would need to be
+        composed into the hand-eye chain rather than subtracted -- so it warns
+        rather than quietly applying only half of the correction.
+        """
+        arm = self.arm
+        offset = getattr(arm, "tcp_offset", None)          # raw SDK XArmAPI
+        if offset is None and hasattr(arm, "tcp_offset_z_mm"):
+            return np.array([0.0, 0.0, float(arm.tcp_offset_z_mm)])  # RealXArmAPI
+        if offset is None:
+            return np.zeros(3)
+        offset = list(offset)
+        if len(offset) >= 6 and any(abs(float(v)) > 1e-6 for v in offset[3:6]):
+            print(f"[RealSenseWristCamera] the TCP offset carries a rotation "
+                  f"({offset[3:6]}); only its translation is being backed out, "
+                  f"so the camera pose will be wrong. Compose it into the "
+                  f"hand-eye chain instead.")
+        return np.array([float(v) for v in offset[:3]])
 
     # -- capture ----------------------------------------------------------
 

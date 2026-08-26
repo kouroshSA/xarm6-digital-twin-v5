@@ -440,8 +440,8 @@
               xyaxes="1.000000 0.000000 -0.000000 0.000000 0.966235 0.257663"
               resolution="1280 720"
               sensorsize="0.003840000 0.002160000"
-              focalpixel="915.784607 916.453064"
-              principalpixel="2.305725 -10.020905"/>
+              focalpixel="915.244873 916.319824"
+              principalpixel="20.033508 -2.447205"/>
       <!-- cam_tripod: complement: object height, into-the-cup views, occlusion backup
            63 deg off vertical -> 89% of depth error lands in X-Y -->
       <geom name="cam_tripod_housing" type="box"
@@ -454,8 +454,8 @@
               xyaxes="0.729537 0.683941 -0.000000 -0.306629 0.327071 0.893870"
               resolution="1280 720"
               sensorsize="0.003840000 0.002160000"
-              focalpixel="915.784607 916.453064"
-              principalpixel="2.305725 -10.020905"/>
+              focalpixel="915.244873 916.319824"
+              principalpixel="20.033508 -2.447205"/>
     </body>
 
     <!-- Rail assembly height CORRECTED 2026-08-21 from a lab measurement: the
@@ -604,7 +604,7 @@
                                        do not retype these numbers, regenerate them. Pose is the
                                        UFACTORY camera-stand hand-eye calibration, rebased from the
                                        flange into this gripper body. Intrinsics are the physical
-                                       device's factory values (serial 027422071693) at
+                                       device's factory values (serial 033422072806) at
                                        640x480. The housing geom is contype/conaffinity 0,
                                        so the camera is visible but physically inert. -->
                                   <body name="wrist_camera"
@@ -626,15 +626,15 @@
                                             quat="1.000000000 0.000000000 0.000000000 0.000000000"
                                             resolution="640 480"
                                             sensorsize="0.001920000 0.001440000"
-                                            focalpixel="610.523071 610.968689"
-                                            principalpixel="1.370483 -6.847260"/>
+                                            focalpixel="610.163269 610.879883"
+                                            principalpixel="13.189026 -1.798126"/>
                                     <camera name="cam_wrist_depth"
-                                            pos="-0.014736447 0.000083361 0.000281270"
-                                            quat="0.999994204 -0.000482597 0.002502230 -0.002258076"
+                                            pos="-0.014915820 0.000356515 0.000118665"
+                                            quat="0.999959400 0.000508270 0.003389387 0.008333837"
                                             resolution="640 480"
                                             sensorsize="0.001920000 0.001440000"
-                                            focalpixel="380.666199 380.666199"
-                                            principalpixel="-5.283020 -1.328156"/>
+                                            focalpixel="383.829987 383.829987"
+                                            principalpixel="-1.451294 0.914062"/>
                                   </body>
                                 </body>
                     </body>

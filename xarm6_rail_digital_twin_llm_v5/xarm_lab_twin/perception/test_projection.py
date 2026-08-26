@@ -185,18 +185,37 @@ def check_principal_sign_is_detectable(model, data, cam) -> list[str]:
     """Prove the previous check would actually catch a flipped principal point.
 
     A test that passes for the right reason and also for the wrong one is not a
-    test. This deliberately corrupts cy by twice the real offset -- the exact
-    error a sign flip produces -- and requires the comparison to fail.
+    test. This deliberately corrupts the principal point by twice its real
+    offset -- the exact error a sign flip produces -- and requires the
+    comparison to fail.
+
+    Both axes are mirrored, because ``principal_pixel`` negates both, so that is
+    what a sign error actually corrupts. Mirroring only cy (as this did until
+    2026-08-26) made the control's strength an accident of the particular camera
+    body: on serial 027422071693 cy sat 6.8 px off centre and cx only 1.4, so
+    flipping cy was a strong perturbation; on 033422072806 it is the other way
+    round, and flipping cy alone displaces a ray by ~2.3 mm against a 2.0 mm
+    tolerance -- close enough to the line that the control reported the real
+    check had no teeth when in fact it passes at 0.3 mm median.
     """
     frame = cam.capture(align=True)
     good = frame.intrinsics
     flipped = calib.Intrinsics(
         good.width, good.height, good.fx, good.fy,
-        good.cx, good.height - good.cy,      # mirror cy about the centre
+        good.width - good.cx, good.height - good.cy,   # mirror both about centre
     )
-    if abs(flipped.cy - good.cy) < 1.0:
-        return ["principal point is too close to centred for this check to "
-                "mean anything; skip rather than trust it"]
+    # A flip is only detectable if it displaces a ray by more than the tolerance
+    # the real check uses. Predict that displacement at the nearest depth in
+    # this very frame rather than guessing a pixel threshold -- a principal
+    # point sitting near-centred on BOTH axes would make this control
+    # meaningless, and skipping honestly beats passing for the wrong reason.
+    near_m = frame.depth_stats()["min_m"]
+    worst_m = max(near_m * abs(flipped.cx - good.cx) / good.fx,
+                  near_m * abs(flipped.cy - good.cy) / good.fy)
+    if worst_m < 2.0 * POINT_TOL_M:
+        return [f"principal point is too close to centred on both axes "
+                f"({worst_m * 1000:.2f} mm displacement at {near_m:.3f} m) for "
+                f"this check to mean anything; skip rather than trust it"]
 
     frame.intrinsics = flipped
     c2w = frame.cam_to_world
@@ -222,7 +241,7 @@ def check_principal_sign_is_detectable(model, data, cam) -> list[str]:
     if not errors or float(np.percentile(errors, 95)) <= POINT_TOL_M:
         return ["a deliberately flipped principal point still passed the "
                 "render-vs-raycast check, so that check proves nothing"]
-    print(f"  negative control: flipped cy gives p95 "
+    print(f"  negative control: flipped principal point gives p95 "
           f"{np.percentile(errors, 95) * 1000:.1f} mm — the check has teeth")
     return []
 

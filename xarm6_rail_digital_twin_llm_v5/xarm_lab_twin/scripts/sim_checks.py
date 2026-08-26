@@ -1123,6 +1123,83 @@ def check_vision_first_entry_point(scene=None) -> list[CheckResult]:
     return results
 
 
+def check_camera_pose_backs_out_tcp_offset(scene=None) -> list[CheckResult]:
+    """The wrist camera's pose must be built from the FLANGE, not the TCP.
+
+    ``get_position()`` reports whatever the TCP points at. This cell runs a
+    217 mm tool offset, so it reports the gripper FINGERTIP, while the hand-eye
+    calibration is measured from the FLANGE. Composing one onto the other puts
+    the camera a whole tool-length away.
+
+    Measured on hardware 2026-08-26: uncorrected, a benchtop 296 mm from the
+    lens deprojected to base z = -266 mm against a true -72, and the
+    camera-to-surface range came out 200 mm short. Every log line looked
+    healthy throughout -- the frames were fine, the intrinsics were fine, the
+    detector would have been fine. Only the answer was wrong, which is defect
+    class #2 exactly.
+
+    This asks what ``cam_to_world`` ACTUALLY RETURNS for an arm that reports an
+    offset, not whether some helper can compute one. It also pins the other
+    half: an arm reporting no offset must be left alone, or the sim path that
+    ``perception/test_projection.py`` validates would silently shift.
+    """
+    import numpy as np
+
+    name = "perception.camera_pose_tcp"
+    try:
+        from perception.realsense_camera import RealSenseWristCamera
+    except ImportError as exc:
+        return [CheckResult(name, SKIP, f"pyrealsense2 unavailable: {exc}")]
+
+    pose = [300.0, -20.0, 250.0, 180.0, 0.0, 0.0]
+
+    class _Arm:
+        def __init__(self, off=None):
+            if off is not None:
+                self.tcp_offset_z_mm = off
+        def get_position(self):
+            return (0, list(pose))
+
+    cam = object.__new__(RealSenseWristCamera)      # no device required
+    cam.arm = _Arm()                                # reports no offset
+    bare = cam.cam_to_world()
+    cam.arm = _Arm(0.0)
+    zero = cam.cam_to_world()
+    cam.arm = _Arm(217.0)
+    offset = cam.cam_to_world()
+
+    if bare is None or offset is None:
+        return [CheckResult(name, FAIL, "cam_to_world() returned None for a posed arm")]
+
+    if not np.allclose(bare, zero, atol=1e-9):
+        return [CheckResult(name, FAIL,
+                            "an arm reporting a ZERO offset moved the camera; the "
+                            "sim path would shift under test_projection")]
+
+    moved = float(np.linalg.norm(offset[:3, 3] - bare[:3, 3]) * 1000.0)
+    if abs(moved - 217.0) > 1e-3:
+        return [CheckResult(name, FAIL,
+                            f"a 217 mm TCP offset moved the camera {moved:.3f} mm; "
+                            f"the flange pose is not being recovered")]
+
+    if not np.allclose(offset[:3, :3], bare[:3, :3], atol=1e-12):
+        return [CheckResult(name, FAIL,
+                            "backing out the TCP offset rotated the camera; it is a "
+                            "pure translation along the tool axis")]
+
+    # Direction matters as much as magnitude: with roll=180 the tool +z points
+    # down, so the flange is 217 mm ABOVE the fingertip. A sign error would pass
+    # a magnitude-only check and put every grasp 434 mm out.
+    if offset[2, 3] - bare[2, 3] < 0:
+        return [CheckResult(name, FAIL,
+                            "the correction moved the camera DOWN from a tool "
+                            "pointing down; the offset is being added, not removed")]
+
+    return [CheckResult(name, PASS,
+                        "cam_to_world backs a 217 mm TCP offset out to the flange "
+                        "(217.000 mm, up, rotation untouched); zero offset is a no-op")]
+
+
 STATIC_CHECKS = [
     check_prompt_renders,
     check_prompt_objects_exist,
@@ -1152,6 +1229,7 @@ STATIC_CHECKS = [
     check_layers_measure_after_reset,
     check_motion_error_audit,
     check_wrist_camera_matches_calib,
+    check_camera_pose_backs_out_tcp_offset,
     check_ggcnn_weights_load,
     check_grounding_model_available,
     check_vision_actions_wired,
