@@ -119,6 +119,23 @@ COLOR_INTRINSICS = Intrinsics(
     cx=318.129516601562, cy=246.347259521484,
 )
 
+# The same device at 1280x720. Read off it on the same day, from the same
+# `rs-enumerate-devices -c`. Note the FOV is 69.9 x 42.9 rather than 55.3 x 42.9:
+# 720p is a WIDER crop of the sensor, not the 4:3 frame with more pixels, so fx
+# is not simply double. Assuming it scaled would put every horizontal coordinate
+# out by a quarter.
+#
+# Used by the fixed observer cameras, which watch from ~0.8-1.2 m rather than the
+# wrist's ~0.3 m. At 640x480 a 30 mm cube is about 23 px from overhead, which is
+# too few for the grounding model to tell one colour of cube from another; at
+# 720p it is roughly double that. The wrist camera stays at 640x480, where it is
+# close enough not to need them and the frame rate matters more.
+COLOR_INTRINSICS_720P = Intrinsics(
+    width=1280, height=720,
+    fx=915.784606933594, fy=916.453063964844,
+    cx=637.194274902344, cy=369.520904541016,
+)
+
 # The depth (stereo) imager is much wider-angle than the colour one: 80.1 x 64.5
 # degrees against 55.3 x 42.9. So an unaligned depth frame sees well beyond the
 # colour frame's edges, and the sim models the two as separate cameras rather
