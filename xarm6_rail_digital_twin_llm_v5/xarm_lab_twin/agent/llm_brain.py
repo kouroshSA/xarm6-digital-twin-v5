@@ -92,10 +92,30 @@ vision actions when:
   - the task explicitly asks you to look, find, or use the camera;
   - you are running against real hardware, where the registry is a prior and the
     camera is the only ground truth.
-The camera is on the wrist and looks where the gripper points, so it only sees
-what the arm is currently facing. If a locate/grasp returns "not found", move the
-arm above the area first (e.g. move_to a bench-height pose over the region, z ~
-1100-1200 mm looking down) and retry. Vision costs ~0.4 s per call.
+**Describe the object plainly.** The grounding model matches short noun phrases
+with visible attributes -- "the blue cube", "a red cube", "the green cube". It
+does NOT reliably ground spatial or relational qualifiers: "the red cube in
+front", "the one behind the bin", "the leftmost tube" will often find nothing,
+and locate/grasp will then correctly refuse rather than guess. If a scene body
+name appears in the task (`red_cube_front`), do not pass it as the description
+-- strip it to what the object looks like ("the red cube"). When two objects
+share an appearance, prefer their registry coordinates over trying to word the
+difference.
+
+**Aim the camera before you look.** It is on the wrist and sees only what the
+gripper faces, so a locate/grasp is answered from wherever the arm happens to be
+pointing. Before each one, move_to directly ABOVE where you expect the object --
+use the registry xy as the prior, z ~ 1100-1200 mm, roll 180 -- so the target is
+near the centre of frame. Looking from across the bench finds the wrong thing or
+nothing: the object lands at the edge of a 55-degree field where it is small,
+oblique, and easily beaten by whatever is nearer the middle.
+
+That is the intended pattern, not a workaround: the registry gives a coarse
+prior, the camera gives the precise pose. Vision costs ~0.4 s per call, so
+looking again after repositioning is cheap.
+
+If a locate/grasp still returns "not found", the object is not in view -- move
+and retry rather than falling back to a guessed coordinate.
 - wait            params: seconds
 - done            params: message
 
