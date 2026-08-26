@@ -75,6 +75,21 @@ DEFAULT_DISTRACTORS = ("a bin", "a cup", "a test tube", "a rack", "the bench")
 # direction (a backdrop match that happens to measure small).
 DEFAULT_MAX_SIZE_M = 0.25
 
+# Below this range a sighting is not trustworthy enough to grasp from.
+#
+# The D435i's datasheet minimum is 105 mm (d435i_calib.DEPTH_MIN_M) -- below it
+# there is no reading at all. The interesting failure is just ABOVE that floor:
+# depth is returned, the object is measured, and everything looks fine, but the
+# error is large enough to put the grasp inside the object. Observed exactly
+# that: a planner that looked from ~90 mm of standoff got a grasp 3 mm low and
+# drove the gripper into the cube, which the collision check caught only at the
+# descent.
+#
+# 150 mm is a deliberately conservative floor -- a wrist camera has no reason to
+# be that close to something it has not grasped yet, so refusing costs nothing
+# and the planner is told to back off and look again.
+MIN_RELIABLE_RANGE_MM = 150.0
+
 
 @dataclass
 class Sighting:
@@ -97,6 +112,10 @@ class Sighting:
 
     grasp_quality: float = 0.0
     jaw_width_mm: float = 0.0
+    range_mm: float = 0.0
+    """How far the object was from the camera when measured. Depth accuracy
+    degrades badly below the sensor's minimum range, so this is the number that
+    says whether the rest of the sighting can be believed."""
     n_pixels: int = 0
     t_wall: float = 0.0
 
@@ -243,6 +262,7 @@ class VisionTargeting:
             grasp_quality=quality,
             jaw_width_mm=width_mm,
             n_pixels=target.n_pixels,
+            range_mm=float(target.position_cam[2]) * 1000.0,
             t_wall=time.time(),
         )
         self.last[description.strip().lower()] = sighting
