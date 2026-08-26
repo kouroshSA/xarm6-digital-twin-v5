@@ -113,6 +113,169 @@ When extending any of these:
   fallback keeps grading them, the regex stays out of the LLM call
   path. Faster *and* deterministic.
 
+## Wrist camera (Intel RealSense D435i)
+
+An eye-in-hand D435i lives in `xarm_lab_twin/perception/` — MuJoCo cameras in
+the scene and the physical device behind one API, both returning the same
+`RGBDFrame`. Full detail in
+[`perception/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/perception/README.md).
+
+```python
+from perception import SimWristCamera        # or RealSenseWristCamera
+frame = SimWristCamera(arm).capture()
+xyz   = frame.pixel_to_world(320, 240)       # metres, base frame
+```
+
+- **`perception/d435i_calib.py` is the single source of truth** for every camera
+  number. The scene XML is a build product: edit the calibration, then run
+  `python -m perception.sync_scene` (rewrites the block in
+  `lab_scene_primitive.xml` and reruns `build_mesh_scene.py`). Never hand-edit
+  the camera block — this is defect class #1 waiting to happen, and
+  `check_wrist_camera_matches_calib` in the sweep fails if either scene drifts.
+- The camera block sits inside `<body name="gripper">` **on purpose**:
+  `build_mesh_scene.py` copies that subtree verbatim, so one edit reaches both
+  the primitive and the mesh scene with no second copy.
+- Intrinsics are the physical device's factory values (serial `027422071693`);
+  the hand-eye transform is UFACTORY's camera-stand calibration, lifted from
+  `~/Models/ufactory_vision`. **If the real rig uses a non-UFACTORY bracket,
+  that one constant needs re-measuring** — everything else stays valid.
+- Two MuJoCo conversions in `d435i_calib.principal_pixel` were *measured*, not
+  derived: `principalpixel="0 0"` centres on `((W-1)/2, (H-1)/2)`, and both axes
+  are negated relative to image u/v. A wrong value here translates the image a
+  few pixels while every self-consistent round-trip still closes — so
+  `perception/test_projection.py` checks the renderer against MuJoCo's **ray
+  caster**, with a negative control proving the check has teeth. Run it after
+  touching anything optical: `MUJOCO_GL=egl python -m perception.test_projection`.
+- `capture(align=True)` carries the **colour** intrinsics, because aligned depth
+  has been reprojected into the colour frame. `RGBDFrame.intrinsics` always
+  holds the right matrix so callers never pick.
+- Sim depth is exact and 100% valid; the real device runs ~71% valid with
+  dropouts on transparent and specular surfaces. Validate perception on the
+  device, not only on the twin.
+
+## Grasp detection (GG-CNN)
+
+`xarm_lab_twin/perception/grasp/` turns wrist-camera depth into ranked grasp
+poses in base coordinates. Vendored from `~/Models/ufactory_vision` (BSD-3).
+Detail in [`perception/grasp/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/perception/grasp/README.md).
+
+```python
+from perception.grasp import GGCNNDetector
+grasps = GGCNNDetector().detect(SimWristCamera(arm).capture())
+arm.set_position(*grasps[0].to_arm_pose())      # mm + degrees
+```
+
+- **Detection only — no servo loop.** Upstream's `RobotGrasp` streams poses in
+  xArm servo mode and owns its own pick/place state machine; none of that
+  transfers, because the twin drives the arm through its own validated
+  primitives. This module stops at candidates.
+- **Do not re-derive the camera transform.** Grasp points go through
+  `RGBDFrame.pixel_to_world`, the path `perception/test_projection.py` already
+  validates against MuJoCo's ray caster. A second euler chain would be defect
+  class #1.
+- Weights are `state_dict`s converted from upstream's pickles (which need
+  `weights_only=False`, i.e. code execution, and an importable `models` package).
+  `python -m perception.grasp.convert_weights --verify-only` proves they still
+  match upstream bit-for-bit. `check_ggcnn_weights_load` in the sweep catches
+  drift between `weights/*.pt` and the vendored `_ggcnn*_net.py`.
+- **`MUJOCO_GL=egl python -m perception.grasp.test_ggcnn` is the test that
+  matters** — it points the camera at cubes whose positions MuJoCo knows and
+  requires the returned world coordinate to be that cube (currently 3.6–4.9 mm).
+  "A grasp was produced" would pass for any pose, including a wrong one. Too
+  slow for the sweep, so run it after touching anything optical or geometric.
+- Trained on Cornell, depth-only, and it ranks *graspability*, not task
+  relevance — with several objects in view the top candidate is often not the
+  one you meant. Pair it with the object registry, or frame the target.
+- Needs torch/opencv/scipy/scikit-image (installed in `xarm6sim`); imports are
+  deferred so the sim runs without them.
+
+## Language-conditioned targeting
+
+`xarm_lab_twin/perception/language/` resolves a phrase to a grasp on the object
+it names. Grounding DINO proposes regions, depth turns each into a measured
+object, GG-CNN supplies the grasp. Detail in
+[`perception/language/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/perception/language/README.md).
+
+```python
+from perception.language import LanguageTargeter
+grasp = LanguageTargeter().grasp_for("the blue cube", frame, max_size_m=0.08)
+```
+
+- **The depth stage is load-bearing — do not remove it.** Asked for "a green
+  cube", Grounding DINO returns the green **bin** as confidently as the cube,
+  often scoring higher: a bin is a green box, and an image carries no scale.
+  `max_size_m` resolves it by physical measurement. `check_size_filter_is_what_
+  fixes_it` asserts both halves (unfiltered picks the bin, filtered picks the
+  cube), so deleting the depth stage fails the suite rather than silently
+  degrading targeting.
+- The depth band centres on the region's **lower quartile** depth, not its
+  median. For a small object the median is the bench, and a band around it would
+  mask the bench instead of the object.
+- `grasp_for` returns `None` rather than falling back to the region centroid
+  when GG-CNN finds no grasp there. A centroid is a position, not a grasp — no
+  jaw angle, no evidence the gripper can close. Use `target().position_world` if
+  the position is what you want.
+- **`MUJOCO_GL=egl python -m perception.language.test_targeting`** is the test
+  that matters: phrases are checked against the scene's own body positions
+  (currently 2.7–4.9 mm), and "a rubber duck" must return `None`. Too slow for
+  the sweep, which only confirms the checkpoint is cached.
+- `xarm6sim` runs `torch 2.13.0+cu126`, so `device="auto"` uses the RTX 3080:
+  **0.37 s/call** against 4.90 s on CPU. Same detections either way (boxes agree
+  to 3e-4 px, scores to 8e-4 — close but not bitwise, so do not assert exact
+  equality across devices). CUDA costs ~3 s more to initialise, so build the
+  targeter once rather than per call.
+- No spatial language ("the cube behind the bin") — Grounding DINO grounds
+  spatial relations poorly and nothing here adds any. `position_world` is in base
+  coordinates, so relational filtering belongs above this layer.
+
+## Vision in the planner's dispatch
+
+Three actions in `LLMBrain._dispatch` let a plan name things by appearance
+instead of by body name. `agent/vision_targeting.py` is the adapter; see its
+docstring for the design constraint below.
+
+| action | does |
+|---|---|
+| `locate_object` | measure where a described object is; prints it, registers the sighting |
+| `move_to_object` | locate it, hover `dz_mm` above it |
+| `grasp_object` | locate it, approach, descend on the GG-CNN grasp, close |
+
+```json
+{"action": "grasp_object", "params": {"description": "the blue cube"}}
+```
+
+- **They are self-contained on purpose — do not add late-bound refs.** The
+  tempting design is `locate_object` binding a name and `move_to` taking
+  `{"ref": "target"}`. It would break the pre-action gate in
+  `scripts/validate_plan.py`, which checks *every* pose for reachability before
+  *anything* is dispatched, precisely because a per-command check on real
+  hardware comes after the prefix has already run. A pose that does not exist
+  until dispatch cannot be pre-checked. Resolve-check-move inside one action
+  keeps the property the gate protects: nothing moves before the pose is known.
+- The gate knows these actions via `validate_plan.DEFERRED` and **says so out
+  loud even when the plan passes** — an accepted plan containing unchecked poses
+  must not print a clean bill of health. Adding a vision action means adding it
+  to `DEFERRED` too; `check_vision_actions_wired` fails the sweep otherwise
+  (without it the gate reports an unrecognised action and rejects the whole plan
+  in `--mode real` only, which is the worst place to find out).
+- **The planner does not see a sighting in the turn that produced it** — same
+  single-shot limitation `get_pose` documents. Delivery happens through the
+  registry: `VisionTargeting` writes each sighting back as a `seen:*` object, so
+  it lands in the *next* turn's prompt. Break that write-back and
+  `locate_object` becomes a `print()`, which is defect class #2 exactly.
+- **Grounding DINO never returns nothing.** Ask for an object that is not
+  present and it grounds to the backdrop — "a rubber duck" over this bench
+  matched a 226 mm region of benchtop at score 0.44 and the arm grasped a cube
+  anyway. Two guards catch it: `DEFAULT_MAX_AREA_FRAC` in the targeter (a
+  graspable object is a small part of a wrist view; the bench is 30% of it) and
+  `DEFAULT_MAX_SIZE_M` for phrases with no size word. Do not remove either
+  because absent objects "obviously" return None — they do not.
+- `grasp_object` refuses when the object was seen but GG-CNN proposed no grasp
+  on it, rather than descending on the centroid. Seen is not graspable.
+- **`MUJOCO_GL=egl python -m agent.test_vision_dispatch`** grades physically:
+  which body the weld actually holds and how far it rose, not the return code.
+  A confident grasp of the wrong cube returns 0 and looks fine in the log.
+
 ## VR teleop
 
 Meta Quest 3 teleoperation of the digital twin lives in
@@ -281,7 +444,7 @@ to that component and assert it arrives; a `print()` is not delivery.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **xarm6-digital-twin-v5** (1555 symbols, 2710 relationships, 117 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **xarm6-digital-twin-v5_dev** (2848 symbols, 5154 relationships, 231 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -305,10 +468,10 @@ This project is indexed by GitNexus as **xarm6-digital-twin-v5** (1555 symbols, 
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/xarm6-digital-twin-v5/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/xarm6-digital-twin-v5/clusters` | All functional areas |
-| `gitnexus://repo/xarm6-digital-twin-v5/processes` | All execution flows |
-| `gitnexus://repo/xarm6-digital-twin-v5/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/clusters` | All functional areas |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/processes` | All execution flows |
+| `gitnexus://repo/xarm6-digital-twin-v5_dev/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

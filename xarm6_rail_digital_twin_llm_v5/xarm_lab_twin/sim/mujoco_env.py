@@ -843,6 +843,13 @@ class SimXArmAPI:
             v.cam.distance  = 2.8                # ~2.8 m back
             v.cam.azimuth   = 135.0              # front-right
             v.cam.elevation = -20.0              # slight downward tilt
+            # The lab backdrop (geom group 2) starts HIDDEN, so the viewer opens
+            # on the bare bench exactly as it always did. MuJoCo's viewer binds
+            # the number keys to geom groups, so pressing 2 reveals the room --
+            # the key turns it ON rather than off, which is only true because
+            # this line clears it first. See sim/render_options.py.
+            from sim.render_options import BACKDROP_GROUP
+            v.opt.geomgroup[BACKDROP_GROUP] = 0
             # MUST hold the lock, like every other sync. _launch_viewer waits
             # only 0.4s, but launch_passive has to create a window, so this
             # first sync can land well after __init__ has returned and the
@@ -926,6 +933,7 @@ class SimXArmAPI:
         print("[viewer]   Y / H    roll  +/- 15 deg")
         print("[viewer]   arrows   translate xy (10 mm)")
         print("[viewer]   PgUp/Dn  translate z  (10 mm)")
+        print("[viewer] Press 2 to show/hide the lab room behind the bench.")
 
     def motion_enable(self, enable: bool = True) -> int:  return 0
     def set_mode(self, mode: int) -> int:                 return 0
