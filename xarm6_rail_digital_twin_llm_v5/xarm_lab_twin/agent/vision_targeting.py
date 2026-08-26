@@ -171,6 +171,8 @@ class VisionTargeting:
         self.device = device
         self._camera = None
         self._targeter = None
+        self._observer = None
+        self._observer_unavailable = False
         self.last: dict[str, Sighting] = {}
         self.unavailable_reason: Optional[str] = None
 
@@ -186,6 +188,25 @@ class VisionTargeting:
                 from perception.realsense_camera import RealSenseWristCamera
                 self._camera = RealSenseWristCamera(arm=self.arm)
         return self._camera
+
+    @property
+    def observer(self):
+        """The overhead observer, in sim. ``None`` on real hardware.
+
+        A fixed camera needs a fixed camera: in the twin that is a MuJoCo camera
+        with a known pose, on the bench it is a physical D435 whose extrinsic to
+        the robot base has to be solved first. That calibration does not exist
+        yet, so this returns None there rather than inventing a pose -- a survey
+        from an uncalibrated observer produces confident coordinates in no
+        particular frame.
+        """
+        if self._observer is None and not self._observer_unavailable:
+            if hasattr(self.arm, "model") and hasattr(self.arm, "data"):
+                from perception.scene_camera import SceneCamera
+                self._observer = SceneCamera(self.arm, "cam_overhead")
+            else:
+                self._observer_unavailable = True
+        return self._observer
 
     @property
     def targeter(self):
@@ -269,6 +290,48 @@ class VisionTargeting:
         self._write_back(sighting)
         return sighting
 
+    def survey(self, descriptions: list[str]) -> dict[str, Sighting]:
+        """Locate several objects in ONE overhead look, without moving the arm.
+
+        This is what a fixed camera buys. The wrist camera answers "where is the
+        blue cube" only after the arm has gone and pointed at it, one object at a
+        time; the observer answers it for everything at once, from a pose that
+        does not depend on what the arm is doing.
+
+        The coordinates are a PRIOR, not a grasp. Measured at ~8 mm in X-Y
+        against the wrist camera's ~3 mm, from a metre away and across the frame
+        -- good enough to aim with and to verify with, not good enough to close a
+        gripper on. Every sighting is written into the registry, so the next
+        turn's prompt carries what the observer saw.
+        """
+        cam = self.observer
+        if cam is None or not self.available():
+            return {}
+
+        frame = cam.capture()
+        out: dict[str, Sighting] = {}
+        for description in descriptions:
+            lo, hi = size_bounds_for(description)
+            target = self.targeter.target(
+                description, frame, min_size_m=lo, max_size_m=hi,
+                distractors=DEFAULT_DISTRACTORS, attach_grasps=False)
+            if target is None or target.position_world is None:
+                continue
+            s = Sighting(
+                description=description,
+                position_mm=tuple(float(v) for v in target.position_world * 1000.0),
+                size_mm=target.max_size_m * 1000.0,
+                score=target.score,
+                grasp_pose=None,          # an observer does not propose grasps
+                n_pixels=target.n_pixels,
+                range_mm=float(target.position_cam[2]) * 1000.0,
+                t_wall=time.time(),
+            )
+            out[description] = s
+            self.last[description.strip().lower()] = s
+            self._write_back(s)
+        return out
+
     def _write_back(self, sighting: Sighting) -> None:
         """Record the sighting in the registry so the next turn's prompt has it.
 
@@ -300,9 +363,11 @@ class VisionTargeting:
             print(f"[Vision] registry write-back skipped: {exc}")
 
     def close(self) -> None:
-        if self._camera is not None:
-            try:
-                self._camera.close()
-            except Exception:
-                pass
-            self._camera = None
+        for attr in ("_camera", "_observer"):
+            cam = getattr(self, attr)
+            if cam is not None:
+                try:
+                    cam.close()
+                except Exception:
+                    pass
+                setattr(self, attr, None)

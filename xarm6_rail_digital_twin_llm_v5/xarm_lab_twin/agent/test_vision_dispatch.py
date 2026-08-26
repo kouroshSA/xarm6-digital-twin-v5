@@ -166,6 +166,57 @@ def check_validator_flags_deferred_poses(brain) -> list[str]:
     return []
 
 
+def check_survey_uses_the_fixed_camera(brain, arm) -> list[str]:
+    """survey_scene must find several objects at once, and NOT move the arm.
+
+    Both halves matter. Finding them is the point; not moving is what separates
+    a fixed camera from the wrist one, and a survey that quietly repositioned
+    the arm would be the wrist camera wearing a different name.
+    """
+    arm.reset_scene()
+    before = np.array(arm.get_position()[1][:3])
+
+    results = brain._run([
+        {"action": "survey_scene",
+         "params": {"descriptions": ["the red cube", "the blue cube",
+                                     "the green cube"]}},
+    ])
+    if results[-1]["result"] != 0:
+        return [f"survey_scene failed: {getattr(arm, 'last_refusal', '')}"]
+
+    after = np.array(arm.get_position()[1][:3])
+    moved = float(np.linalg.norm(after - before))
+    if moved > 1.0:
+        return [f"survey_scene moved the arm {moved:.1f} mm; a fixed-camera "
+                f"survey must not need the arm to go and look"]
+
+    seen = brain.vision.last
+    found = [d for d in ("the red cube", "the blue cube", "the green cube")
+             if d in seen]
+    if len(found) < 2:
+        return [f"survey located only {found} of three cubes in one look"]
+
+    # Accurate enough to aim with. Deliberately looser than the wrist camera's
+    # tolerance: this is the prior, not the grasp.
+    worst = 0.0
+    for desc, body in (("the red cube", "red_cube_front"),
+                       ("the blue cube", "blue_cube"),
+                       ("the green cube", "green_cube")):
+        if desc not in seen:
+            continue
+        bid = mujoco.mj_name2id(arm.model, mujoco.mjtObj.mjOBJ_BODY, body)
+        with arm.lock:
+            truth = np.array(arm.data.xpos[bid]) * 1000.0
+        got = np.array(seen[desc].position_mm)
+        worst = max(worst, float(np.linalg.norm((got - truth)[:2])))
+    if worst > 40.0:
+        return [f"survey X-Y error up to {worst:.0f} mm; too coarse even to aim"]
+
+    print(f"  survey found {len(found)}/3 cubes in one look, arm moved "
+          f"{moved:.1f} mm, X-Y within {worst:.0f} mm")
+    return []
+
+
 def check_gate_classifies_and_announces_deferred() -> list[str]:
     """The gate's DEFERRED branch, exercised without a controller.
 
@@ -231,6 +282,8 @@ def main() -> int:
          lambda: check_locate_object_reaches_the_next_prompt(brain, arm)),
         ("validator flags deferred poses",
          lambda: check_validator_flags_deferred_poses(brain)),
+        ("survey uses the fixed camera, without moving",
+         lambda: check_survey_uses_the_fixed_camera(brain, arm)),
         ("gate classifies and announces deferred",
          check_gate_classifies_and_announces_deferred),
     ):

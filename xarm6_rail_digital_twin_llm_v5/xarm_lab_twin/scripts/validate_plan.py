@@ -76,7 +76,8 @@ IGNORED = {"gripper_open", "gripper_close", "done", "wait", "get_pose",
 # even when the plan passes. A gate that quietly accepts poses it never saw is
 # the failure mode this module's docstring warns about, and silence here would
 # be exactly that.
-DEFERRED = {"locate_object", "move_to_object", "grasp_object"}
+DEFERRED = {"locate_object", "move_to_object", "grasp_object",
+            "survey_scene"}
 
 
 def scene_limits(scene_xml: str = "envs/lab_scene.xml"):
