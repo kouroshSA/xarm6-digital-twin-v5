@@ -121,6 +121,7 @@ in a benchmark pick-and-place environment.
 - get_pose        params: {{}}  — print current end-effector + rail pose to the operator log. Useful for self-checks / debugging; the LLM does not see the printed value in this turn.
 - get_body_pose   params: {{"name": "<body_name>"}}  — print the live xyz + RPY of any named body (cube, plate, tube, rack, bin, instrument) to the operator log. Reflects mouse-perturbation adjustments the operator made between episodes. Live poses for all registered bodies are already injected into your system prompt registry each episode -- use this command only to confirm/dump a specific body for the human log.
 - search_workspace  params: object_name
+- survey_scene    params: {{"descriptions": ["the red cube", "the blue cube"]}}  — look at the whole bench from the FIXED OVERHEAD CAMERA and locate every listed object in one shot, WITHOUT moving the arm. Use this to find out what is where before planning, especially when objects may have moved. Coordinates land within ~10 mm, which is enough to plan and aim with but NOT enough to grasp on: follow it with grasp_object, which re-measures up close from the wrist. Results appear in your registry context next turn. Sim only for now.
 - locate_object   params: {{"description": "the blue cube"}}  — point the WRIST CAMERA at whatever the phrase describes and measure where it is. Prints the world xyz, the measured physical size and a grasp pose to the operator log, and records the sighting so it appears in your registry context NEXT turn. Like get_pose, you do not see the value in THIS turn -- so do not follow it with a move_to that needs the coordinates. Use grasp_object or move_to_object instead, which consume the sighting themselves. Returns non-zero if the phrase is not found in the current view.
 - move_to_object  params: {{"description": "the blue cube", "dz_mm": 100}}  — locate the described object and move the gripper to hover `dz_mm` above it (default 100). Use this to inspect or to stage an approach without grasping.
 - grasp_object    params: {{"description": "the blue cube"}}  — locate the described object, approach from above, descend onto the grasp point the vision system computed, and close the gripper. This is ONE action: it finds the object and picks it up. Optional: `approach_dz_mm` (default 100), `grasp_dz_mm` (default 0), `speed_mm_s`.
@@ -848,6 +849,43 @@ class LLMBrain:
         print(f"[Vision] {sighting.summary()}")
         return sighting
 
+    def _survey_scene(self, p):
+        """Locate several described objects in one look from the fixed camera."""
+        descriptions = p.get("descriptions") or p.get("objects")
+        if not descriptions or not isinstance(descriptions, list):
+            print("[Vision] survey_scene requires a 'descriptions' list")
+            self.arm.last_refusal = "survey_scene: no descriptions given"
+            return 1
+
+        vision = self.vision
+        if not vision.available():
+            msg = f"vision unavailable ({vision.unavailable_reason})"
+            print(f"[Vision] {msg}")
+            self.arm.last_refusal = msg
+            return 1
+        if vision.observer is None:
+            msg = ("no fixed observer on this backend; the overhead camera "
+                   "exists in the twin but needs an extrinsic calibration on "
+                   "hardware. Use locate_object with the wrist camera instead.")
+            print(f"[Vision] {msg}")
+            self.arm.last_refusal = msg
+            return 1
+
+        found = vision.survey(list(descriptions))
+        for desc, s in found.items():
+            print(f"[Vision] survey: {s.summary()}")
+        missing = [d for d in descriptions if d not in found]
+        if missing:
+            print(f"[Vision] survey did not find: {missing}")
+        if not found:
+            self.arm.last_refusal = (
+                f"survey found none of {list(descriptions)} from the overhead "
+                f"camera")
+            return 1
+        # Partial success is success: the planner learns what IS there, and the
+        # sightings are in the registry for the next turn either way.
+        return 0
+
     def _locate_object(self, p):
         """Report where a described object is. Does not move the arm."""
         sighting = self._vision_locate(p, "locate_object")
@@ -970,6 +1008,7 @@ class LLMBrain:
             "wait":             lambda p: time.sleep(p.get("seconds", 1)) or 0,
             "done":             lambda p: print(f"[Done] {p.get('message','')}") or 0,
             "search_workspace": lambda p: self._search(p["object_name"]),
+            "survey_scene":     self._survey_scene,
             "locate_object":    self._locate_object,
             "move_to_object":   self._move_to_object,
             "grasp_object":     self._grasp_object,
