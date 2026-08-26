@@ -17,7 +17,7 @@ mechanically instead of by hand.
 Provenance
 ----------
 * **Intrinsics / extrinsics** — read off the physical device on 2026-08-25 via
-  ``rs-enumerate-devices -c``. Serial ``027422071693``, firmware 5.11.1.100.
+  ``rs-enumerate-devices -c``. Serial ``033422072806``, firmware 5.11.1.100.
   These are Intel's factory calibration, not a re-calibration of ours.
 * **Hand-eye (``EULER_FLANGE_TO_COLOR_OPT``)** — UFACTORY's published figure for
   their xArm camera stand, lifted verbatim from
@@ -53,9 +53,9 @@ import numpy as np
 
 # --- Device ---------------------------------------------------------------
 DEVICE_NAME = "Intel RealSense D435I"
-DEVICE_SERIAL = "027422071693"
+DEVICE_SERIAL = "033422072806"
 DEVICE_FIRMWARE = "5.11.1.100"
-CALIB_READ_DATE = "2026-08-25"
+CALIB_READ_DATE = "2026-08-26"
 
 # --- Stream configuration -------------------------------------------------
 # 640x480 @ 30 Hz on both streams. Chosen because it is the only resolution the
@@ -115,8 +115,8 @@ class Intrinsics:
 # twin and the real frames need undistorting before they are comparable.
 COLOR_INTRINSICS = Intrinsics(
     width=WIDTH, height=HEIGHT,
-    fx=610.523071289062, fy=610.968688964844,
-    cx=318.129516601562, cy=246.347259521484,
+    fx=610.163269042969, fy=610.879882812500,
+    cx=306.310974121094, cy=241.298126220703,
 )
 
 # The same device at 1280x720. Read off it on the same day, from the same
@@ -132,23 +132,25 @@ COLOR_INTRINSICS = Intrinsics(
 # close enough not to need them and the frame rate matters more.
 COLOR_INTRINSICS_720P = Intrinsics(
     width=1280, height=720,
-    fx=915.784606933594, fy=916.453063964844,
-    cx=637.194274902344, cy=369.520904541016,
+    fx=915.244873046875, fy=916.319824218750,
+    cx=619.466491699219, cy=361.947204589844,
 )
 
-# The depth (stereo) imager is much wider-angle than the colour one: 80.1 x 64.5
-# degrees against 55.3 x 42.9. So an unaligned depth frame sees well beyond the
+# The depth (stereo) imager is much wider-angle than the colour one: 79.6 x 64.0
+# degrees against 55.4 x 42.9. So an unaligned depth frame sees well beyond the
 # colour frame's edges, and the sim models the two as separate cameras rather
 # than one shared frustum.
 DEPTH_INTRINSICS = Intrinsics(
     width=WIDTH, height=HEIGHT,
-    fx=380.666198730469, fy=380.666198730469,
-    cx=324.783020019531, cy=240.828155517578,
+    fx=383.829986572266, fy=383.829986572266,
+    cx=320.951293945312, cy=238.585937500000,
 )
 
-# Depth -> colour extrinsic, straight from the device. The rotation is within
-# 0.3 degrees of identity, so the two imagers are effectively parallel and the
-# only meaningful term is the 14.7 mm stereo-to-RGB baseline along +x.
+# Depth -> colour extrinsic, straight from the device. The rotation is 1.03
+# degrees from identity, so the two imagers are near enough parallel that the
+# dominant term is the 14.9 mm stereo-to-RGB baseline along +x -- but note this
+# body is three times further off-parallel than the one calibrated on
+# 2026-08-25 was, which is a per-unit mechanical tolerance, not a regression.
 #
 # NOTE: when frames are captured with ``align=True`` the depth image has already
 # been reprojected into the colour frame by librealsense, so the *aligned* depth
@@ -157,9 +159,9 @@ DEPTH_INTRINSICS = Intrinsics(
 # entirely plausible -- exactly the kind of quietly-wrong value CLAUDE.md warns
 # about. ``RGBDFrame.intrinsics`` carries the right one so callers never choose.
 _DEPTH_TO_COLOR_ROT_RAW = np.array(
-    [[0.999977, 0.00451854, 0.00500225],
-     [-0.00451371, 0.999989, -0.000976488],
-     [-0.00500661, 0.000953887, 0.999987]],
+    [[0.999838, -0.016670, 0.006770],
+     [0.016664, 0.999861, 0.001073],
+     [-0.006787, -0.000960, 0.999977]],
     dtype=np.float64,
 )
 
@@ -187,7 +189,7 @@ def _nearest_rotation(m: np.ndarray) -> np.ndarray:
 
 DEPTH_TO_COLOR_ROT = _nearest_rotation(_DEPTH_TO_COLOR_ROT_RAW)
 DEPTH_TO_COLOR_TRANS = np.array(
-    [0.0147364465519786, 8.33612575661391e-05, 0.00028126998222433],
+    [0.014915820211172104, 0.000356515432940796, 0.00011866545537486672],
     dtype=np.float64,
 )
 
