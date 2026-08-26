@@ -36,6 +36,43 @@ Language-conditioned targeting sits on top of both:
 out, with depth resolving the ambiguities grounding cannot. Entry point:
 `scripts/target_check.py`.
 
+## Observer cameras
+
+Two fixed D435s watch the bench, alongside the wrist camera:
+[`observer_calib.py`](observer_calib.py) holds their poses,
+[`scene_camera.py`](scene_camera.py) renders them, and they return the same
+`RGBDFrame` — so `LanguageTargeter` and `GG-CNN` work through them unchanged.
+
+```python
+from perception.scene_camera import SceneCamera
+frame = SceneCamera(arm, "cam_overhead").capture()
+```
+
+Placement was measured, not chosen (coverage, occlusion and tilt against the
+scene). Two results shaped it:
+
+- **Don't mount on the OT-2** — it looks *along* the bench: 1 of 9 objects
+  visible, 7 occluded. The most convenient surface, the worst viewpoint.
+- **Tilt beats position.** A depth camera's error lies along its view axis, so an
+  oblique camera puts ~90% of it into X-Y — the coordinate the arm is commanded
+  with. Near-vertical puts 86% into Z, where a top-down grasp barely cares.
+
+Measured through the stack:
+
+| | X-Y error (median) | identity |
+|---|---|---|
+| `cam_overhead` (15° off vertical) | **7.7 mm** | 2/3 |
+| `cam_tripod` (63° off vertical) | 18.9 mm | **3/3** |
+
+They are complements, not spares. Overhead measures better; the oblique view
+*identifies* better, because from above a cube shows only its flat top face and
+green and blue separate by ~0.03 of grounding score. Raising the observers to
+720p did not fix that — the cause is the viewpoint, not the pixel count.
+
+**So: survey and verify with the observers, commit the grasp with the wrist.**
+The wrist camera works from ~300 mm with the target centred and sees the sides;
+that is where identity and the final pose belong.
+
 ## Where the numbers came from
 
 * **Intrinsics and depth→colour extrinsics** — read off the physical device
