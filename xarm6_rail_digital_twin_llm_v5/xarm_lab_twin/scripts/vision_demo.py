@@ -172,6 +172,136 @@ class Recorder(threading.Thread):
         time.sleep(seconds)
 
 
+
+class _RecorderVision:
+    """LLMBrain's vision, routed through the recorder thread.
+
+    ``VisionTargeting`` would build its own ``SimWristCamera``, which means a
+    second EGL context on the main thread while the recorder already holds one.
+    That is the arrangement this script's docstring warns about. So the brain
+    gets an object with the same surface whose ``locate`` hands the work to the
+    thread that owns the GL context and waits for the answer -- one owner, and
+    the overlay the recorder draws is the very frame the planner acted on rather
+    than a re-capture that might not match.
+
+    Subclasses the real thing so registry write-back and the size priors behave
+    identically; only the capture path changes.
+    """
+
+    def __init__(self, rec, arm, registry):
+        from agent.vision_targeting import VisionTargeting
+        self._inner = VisionTargeting(arm, registry=registry)
+        self.rec = rec
+
+    # VisionTargeting's surface, as LLMBrain uses it.
+    unavailable_reason = None
+
+    def available(self) -> bool:
+        return True
+
+    @property
+    def last(self):
+        return self._inner.last
+
+    def locate(self, description, *, max_size_m=None, min_size_m=None,
+               want_grasp=True):
+        import time as _t
+
+        from agent.vision_targeting import Sighting
+
+        target = self.rec.look_for(description)
+        if target is None or target.position_world is None:
+            return None
+
+        grasp_pose = None
+        quality = width_mm = 0.0
+        if target.grasps:
+            g = target.grasps[0]
+            grasp_pose = g.to_arm_pose()
+            quality = g.quality
+            width_mm = g.width_m * 1000.0
+
+        s = Sighting(
+            description=description,
+            position_mm=tuple(float(v) for v in target.position_world * 1000.0),
+            size_mm=target.max_size_m * 1000.0,
+            score=target.score,
+            grasp_pose=grasp_pose,
+            grasp_quality=quality,
+            jaw_width_mm=width_mm,
+            n_pixels=target.n_pixels,
+            t_wall=_t.time(),
+        )
+        self._inner.last[description.strip().lower()] = s
+        self._inner._write_back(s)
+        return s
+
+    def close(self):
+        pass
+
+
+def _caption_for(action, params) -> str:
+    """A short line describing a dispatched command, for the demo's caption."""
+    p = params or {}
+    if action in ("grasp_object", "locate_object", "move_to_object"):
+        return f'{action}: "{p.get("description", "?")}"'
+    if action == "move_to":
+        return (f"move_to ({p.get('x', 0):.0f}, {p.get('y', 0):.0f}, "
+                f"{p.get('z', 0):.0f}) mm")
+    if action == "set_rail":
+        return f"rail -> {p.get('position_mm', 0):.0f} mm"
+    if action == "done":
+        return str(p.get("message", "done"))
+    return action.replace("_", " ")
+
+
+def run_llm_task(arm, rec, prompt: str, model: str = "haiku") -> int:
+    """Let the planner drive, and record what it does.
+
+    The plan is the model's, not this script's: nothing here decides the order,
+    the heights or which object to look at.
+    """
+    from env_loader import load_env
+
+    # Populate os.environ from .env before anthropic.Anthropic() reads it, the
+    # same way run_task.py does. Without it the client constructs fine and only
+    # fails at the first request, several seconds into a recording.
+    load_env()
+
+    from agent.llm_brain import LLMBrain
+    from agent.object_registry import build_default_registry
+
+    registry = build_default_registry()
+    brain = LLMBrain(arm=arm, registry=registry, recorder=None, model=model)
+    brain._vision = _RecorderVision(rec, arm, registry)
+
+    original_dispatch = brain._dispatch
+
+    def narrating_dispatch(action, params):
+        rec.say(_caption_for(action, params))
+        return original_dispatch(action, params)
+
+    brain._dispatch = narrating_dispatch
+
+    rec.say(f"planning with Claude {model}...")
+    result = brain.execute_task(prompt)
+    codes = [r["result"] for r in result.get("results", [])]
+    failed = [c for c in codes if c != 0]
+
+    # Grade the WORLD, not the return codes. A plan can return all zeros and
+    # leave the objects somewhere else entirely -- that is the standard the
+    # episode loop holds itself to, and a demo that only reported "all OK"
+    # would be claiming more than it checked.
+    outcome = arm.physical_outcome()
+    print(f"[demo] physical outcome: {outcome}")
+
+    headline = outcome.split(";")[0].strip() if outcome else "no outcome"
+    rec.say(f"{len(codes)} commands, "
+            f"{len(failed) if failed else 'all'} "
+            f"{'failed' if failed else 'OK'}  |  {headline}")
+    rec.hold(3.5)
+    return 1 if failed else 0
+
 def run_demo(arm, rec: Recorder, targets) -> int:
     """Home, then for each (phrase, bin): look, grasp, carry, release."""
     failures = 0
@@ -248,6 +378,14 @@ def main() -> int:
                                          "the green cube:green_bin")
     ap.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
     ap.add_argument("--keep-frames", action="store_true")
+    ap.add_argument("--model", default="haiku",
+                    choices=("haiku", "sonnet", "opus"),
+                    help="planner model for --task. Compound tasks "
+                         "(several picks in one prompt) often overrun "
+                         "haiku; sonnet is the documented escalation.")
+    ap.add_argument("--task", metavar="PROMPT",
+                    help="hand this task to the LLM planner and record what "
+                         "it does, instead of the scripted pick-and-place")
     ap.add_argument("--backdrop", action="store_true",
                     help="render the lab room behind the bench (fume hood, "
                          "shelving, window). Off by default, matching the rest "
@@ -270,7 +408,8 @@ def main() -> int:
     rec.ready.wait()
 
     t0 = time.time()
-    failures = run_demo(arm, rec, targets)
+    failures = (run_llm_task(arm, rec, args.task, args.model) if args.task
+                else run_demo(arm, rec, targets))
     rec.running = False
     rec.join(timeout=10)
     arm.disconnect()
