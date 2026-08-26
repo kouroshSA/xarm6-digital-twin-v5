@@ -43,13 +43,29 @@ FPS = 20
 # holding it through the approach would show a stale mask over a moved view.
 OVERLAY_HOLD_S = 4.5
 
+# Render the fixed observers every Nth frame; they change slowly.
+OBSERVER_EVERY = 3
+
 
 class Recorder(threading.Thread):
     """Owns the GL contexts: scene camera, wrist camera, and the targeter."""
 
-    def __init__(self, arm, out_dir: str, device: str, backdrop: bool = False):
+    def __init__(self, arm, out_dir: str, device: str, backdrop: bool = False,
+                 observers: bool = False):
         super().__init__(daemon=True)
         self.backdrop = backdrop
+        # Observers are rendered every OBSERVER_EVERY frames and reused in
+        # between: they are static views of a slowly-changing bench, and four
+        # full renders per frame would drop the capture rate below the arm's
+        # motion.
+        self.observers = observers
+        self._obs_cams = {}
+        self._obs_last = {}
+        self._survey = None            # overlay from the overhead survey
+        self._survey_until = 0.0
+        self.survey_request = None
+        self.survey_result = None
+        self.survey_ready = threading.Event()
         self.arm = arm
         self.out_dir = out_dir
         self.device = device
@@ -65,27 +81,56 @@ class Recorder(threading.Thread):
 
     # -- helpers ---------------------------------------------------------
 
+    def _panel(self, img, label, w, h):
+        import cv2
+
+        out = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+        cv2.rectangle(out, (8, 8), (12 * len(label) + 16, 38), (0, 0, 0), -1)
+        cv2.putText(out, label, (14, 31), cv2.FONT_HERSHEY_SIMPLEX, 0.62,
+                    (255, 255, 255), 2, cv2.LINE_AA)
+        return out
+
     def _compose(self, scene_rgb, wrist_rgb):
         import cv2
 
-        wrist = cv2.resize(wrist_rgb, (PANEL_W, PANEL_H),
-                           interpolation=cv2.INTER_NEAREST)
-        canvas = np.zeros((PANEL_H, SCENE_W + PANEL_W, 3), dtype=np.uint8)
-        canvas[:, :SCENE_W] = scene_rgb
-        canvas[:, SCENE_W:] = wrist
+        if not self.observers:
+            canvas = np.zeros((PANEL_H, SCENE_W + PANEL_W, 3), dtype=np.uint8)
+            canvas[:, :SCENE_W] = self._panel(scene_rgb, "LAB SCENE",
+                                              SCENE_W, PANEL_H)
+            canvas[:, SCENE_W:] = self._panel(wrist_rgb,
+                                              "WRIST CAMERA  D435i 640x480",
+                                              PANEL_W, PANEL_H)
+            cv2.line(canvas, (SCENE_W, 0), (SCENE_W, PANEL_H), (40, 40, 40), 3)
+        else:
+            # 2x2: the scene, the wrist, and the two fixed observers. Laid out
+            # so the top row is what moves and the bottom row is what watches.
+            qw, qh = 960, 540
+            canvas = np.zeros((qh * 2 + 46, qw * 2, 3), dtype=np.uint8)
+            survey = (self._survey if self._survey is not None
+                      and time.time() < self._survey_until else None)
+            over = survey if survey is not None else self._obs_last.get("cam_overhead")
+            trip = self._obs_last.get("cam_tripod")
+            blank = np.zeros((qh, qw, 3), dtype=np.uint8)
+            tiles = [
+                (scene_rgb, "LAB SCENE"),
+                (wrist_rgb, "WRIST  D435i 640x480  (identity + grasp)"),
+                (over if over is not None else blank,
+                 "OVERHEAD OBSERVER  15 deg off vertical  (position + verify)"),
+                (trip if trip is not None else blank,
+                 "TRIPOD OBSERVER  63 deg off vertical  (sides + occlusion)"),
+            ]
+            for i, (img, label) in enumerate(tiles):
+                r, c = divmod(i, 2)
+                canvas[r * qh:(r + 1) * qh, c * qw:(c + 1) * qw] = \
+                    self._panel(img, label, qw, qh)
+            cv2.line(canvas, (qw, 0), (qw, qh * 2), (40, 40, 40), 3)
+            cv2.line(canvas, (0, qh), (qw * 2, qh), (40, 40, 40), 3)
 
-        cv2.line(canvas, (SCENE_W, 0), (SCENE_W, PANEL_H), (40, 40, 40), 3)
-        for x, text in ((16, "LAB SCENE"), (SCENE_W + 16, "WRIST CAMERA  D435i 640x480")):
-            cv2.rectangle(canvas, (x - 8, 12), (x + 12 * len(text), 46),
-                          (0, 0, 0), -1)
-            cv2.putText(canvas, text, (x, 38), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7, (255, 255, 255), 2, cv2.LINE_AA)
-
-        cap = self.caption
-        cv2.rectangle(canvas, (0, PANEL_H - 46), (SCENE_W + PANEL_W, PANEL_H),
-                      (0, 0, 0), -1)
-        cv2.putText(canvas, cap, (16, PANEL_H - 16), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.75, (120, 230, 255), 2, cv2.LINE_AA)
+        h, w = canvas.shape[:2]
+        cv2.rectangle(canvas, (0, h - 46), (w, h), (0, 0, 0), -1)
+        cv2.putText(canvas, self.caption, (16, h - 16),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.75, (120, 230, 255), 2,
+                    cv2.LINE_AA)
         return canvas
 
     # -- the loop --------------------------------------------------------
@@ -111,6 +156,12 @@ class Recorder(threading.Thread):
         cam.distance, cam.azimuth, cam.elevation = 2.60, 118, -11
 
         wrist = SimWristCamera(self.arm, backdrop=self.backdrop)
+        if self.observers:
+            from perception.observer_calib import OBSERVERS
+            from perception.scene_camera import SceneCamera
+            for obs in OBSERVERS:
+                self._obs_cams[obs.name] = SceneCamera(
+                    self.arm, obs.name, backdrop=self.backdrop)
         targeter = LanguageTargeter(device=self.device)
         _ = targeter.grounder            # pay the ~3 s model load before recording
         self.ready.set()
@@ -134,6 +185,16 @@ class Recorder(threading.Thread):
                     self._overlay_until = time.time() + OVERLAY_HOLD_S
                 self.result_ready.set()
 
+            if self.survey_request is not None:
+                phrases, self.survey_request = self.survey_request, None
+                self.survey_result = self._run_survey(targeter, phrases)
+                self._survey_until = time.time() + OVERLAY_HOLD_S + 2.0
+                self.survey_ready.set()
+
+            if self.observers and self.frame_idx % OBSERVER_EVERY == 0:
+                for name, ocam in self._obs_cams.items():
+                    self._obs_last[name] = ocam.capture().color
+
             with self.arm.lock:
                 scene_r.update_scene(self.arm.data, camera=cam,
                                      scene_option=self._opt)
@@ -155,6 +216,43 @@ class Recorder(threading.Thread):
         scene_r.close()
         wrist.close()
 
+    def _run_survey(self, targeter, phrases):
+        """Ground several phrases at once through the OVERHEAD observer.
+
+        This is what a fixed camera is for: one capture, the whole bench, no arm
+        movement. Returns {phrase: Target} and paints every hit onto one overlay
+        so the survey reads as a single picture rather than a sequence.
+        """
+        import cv2
+
+        from agent.vision_targeting import DEFAULT_DISTRACTORS, size_bounds_for
+
+        cam = self._obs_cams.get("cam_overhead")
+        if cam is None:
+            return {}
+        frame = cam.capture()
+        img = frame.color.copy()
+        found = {}
+        for phrase in phrases:
+            lo, hi = size_bounds_for(phrase)
+            tgt = targeter.target(phrase, frame, min_size_m=lo, max_size_m=hi,
+                                  distractors=DEFAULT_DISTRACTORS,
+                                  attach_grasps=False)
+            if tgt is None or tgt.position_world is None:
+                continue
+            found[phrase] = tgt
+            tint = np.zeros_like(img)
+            tint[tgt.mask] = (0, 190, 255)
+            img = cv2.addWeighted(img, 1.0, tint, 0.40, 0)
+            x0, y0, x1, y1 = (int(v) for v in tgt.box)
+            cv2.rectangle(img, (x0, y0), (x1, y1), (0, 190, 255), 2)
+            p = tgt.position_world * 1000.0
+            cv2.putText(img, f"{phrase}  ({p[0]:.0f}, {p[1]:.0f})",
+                        (x0, max(18, y0 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 190, 255), 2, cv2.LINE_AA)
+        self._survey = img
+        return found
+
     # -- main-thread API -------------------------------------------------
 
     def say(self, text: str):
@@ -167,6 +265,14 @@ class Recorder(threading.Thread):
         if not self.result_ready.wait(timeout):
             return None
         return self.result
+
+    def survey(self, phrases, timeout: float = 120.0):
+        """Ask the overhead observer to locate several phrases in one look."""
+        self.survey_ready.clear()
+        self.survey_request = list(phrases)
+        if not self.survey_ready.wait(timeout):
+            return {}
+        return self.survey_result or {}
 
     def hold(self, seconds: float):
         time.sleep(seconds)
@@ -253,6 +359,94 @@ def _caption_for(action, params) -> str:
     if action == "done":
         return str(p.get("message", "done"))
     return action.replace("_", " ")
+
+
+def run_observer_demo(arm, rec, targets) -> int:
+    """Survey with the observers, commit with the wrist, verify with the observers.
+
+    That is the whole argument for a fixed camera, in the order it matters:
+    one overhead look finds everything without the arm moving; the wrist -- close,
+    centred, seeing the sides -- decides identity and takes the grasp; and the
+    observers then answer the question no wrist camera can, because the gripper
+    is in the way and the arm has left: did it actually land?
+    """
+    import numpy as np
+
+    failures = 0
+    phrases = [p for p, _b in targets]
+
+    rec.say("home")
+    arm.go_home(wait=True)
+    rec.hold(1.0)
+
+    rec.say("SURVEY: one overhead look, whole bench, arm does not move")
+    found = rec.survey(phrases)
+    rec.hold(OVERLAY_HOLD_S + 1.0)
+    if not found:
+        rec.say("survey found nothing")
+        return 1
+    rec.say(f"survey located {len(found)}/{len(phrases)} objects without moving")
+    rec.hold(2.0)
+
+    for phrase, bin_name in targets:
+        tgt = found.get(phrase)
+        if tgt is None:
+            rec.say(f'"{phrase}": not in the survey, skipping')
+            failures += 1
+            continue
+
+        # The survey's coordinate is the PRIOR that aims the wrist camera --
+        # good to ~8 mm, which is plenty to point with and not enough to grasp on.
+        px, py, _pz = tgt.position_world * 1000.0
+        rec.say(f'"{phrase}" surveyed at ({px:.0f}, {py:.0f}) - aiming the wrist there')
+        if arm.set_position(float(px), float(py), 1150.0, 180.0, 0.0, 0.0,
+                            speed=80, wait=True) != 0:
+            rec.say(f"could not reach the vantage: {arm.last_refusal}")
+            failures += 1
+            continue
+        rec.hold(0.5)
+
+        rec.say(f'COMMIT: wrist camera re-measures "{phrase}" up close')
+        wt = rec.look_for(phrase)
+        if wt is None or not wt.grasps:
+            rec.say(f'"{phrase}": no grasp from the wrist')
+            failures += 1
+            continue
+        rec.hold(OVERLAY_HOLD_S - 1.0)
+
+        gx, gy, gz, roll, pitch, yaw = wt.grasps[0].to_arm_pose()
+        drift = float(np.linalg.norm(np.array([gx, gy]) - np.array([px, py])))
+        rec.say(f"wrist refines by {drift:.0f} mm; grasping at yaw {yaw:+.0f} deg")
+        arm.set_position(gx, gy, gz + 120, roll, pitch, yaw, speed=80, wait=True)
+        arm.set_position(gx, gy, gz, roll, pitch, yaw, speed=45, wait=True)
+        arm.close_lite6_gripper()
+        rec.hold(0.4)
+        arm.set_position(gx, gy, gz + 170, roll, pitch, yaw, speed=70, wait=True)
+
+        rc, pose = arm.get_body_pose(bin_name)
+        if rc != 0 or pose is None:
+            failures += 1
+            continue
+        bx, by, bz = pose[0], pose[1], pose[2]
+        rec.say(f"carrying to {bin_name}")
+        arm.set_position(bx, by, gz + 170, 180.0, 0.0, 0.0, speed=80, wait=True)
+        arm.set_position(bx, by, bz + 130, 180.0, 0.0, 0.0, speed=60, wait=True)
+        rec.say("releasing")
+        arm.open_lite6_gripper()
+        rec.hold(1.0)
+        arm.set_position(bx, by, gz + 190, 180.0, 0.0, 0.0, speed=80, wait=True)
+
+    rec.say("VERIFY: arm clear, observers check where things ended up")
+    arm.go_home(wait=True)
+    rec.hold(1.0)
+    rec.survey(phrases)
+    rec.hold(OVERLAY_HOLD_S + 1.0)
+
+    outcome = arm.physical_outcome()
+    print(f"[demo] physical outcome: {outcome}")
+    rec.say(outcome.split(";")[0].strip() if outcome else "no outcome")
+    rec.hold(3.5)
+    return failures
 
 
 def run_llm_task(arm, rec, prompt: str, model: str = "haiku") -> int:
@@ -378,6 +572,9 @@ def main() -> int:
                                          "the green cube:green_bin")
     ap.add_argument("--device", default="auto", choices=("auto", "cpu", "cuda"))
     ap.add_argument("--keep-frames", action="store_true")
+    ap.add_argument("--observers", action="store_true",
+                    help="2x2 layout with the two fixed observer "
+                         "cameras, and a survey/commit/verify sequence")
     ap.add_argument("--model", default="haiku",
                     choices=("haiku", "sonnet", "opus"),
                     help="planner model for --task. Compound tasks "
@@ -402,13 +599,15 @@ def main() -> int:
     from sim.mujoco_env import SimXArmAPI
 
     arm = SimXArmAPI(SCENE, render=False)
-    rec = Recorder(arm, frames_dir, args.device, backdrop=args.backdrop)
+    rec = Recorder(arm, frames_dir, args.device, backdrop=args.backdrop,
+                   observers=args.observers)
     rec.start()
     print("[demo] loading the grounding model...")
     rec.ready.wait()
 
     t0 = time.time()
     failures = (run_llm_task(arm, rec, args.task, args.model) if args.task
+                else run_observer_demo(arm, rec, targets) if args.observers
                 else run_demo(arm, rec, targets))
     rec.running = False
     rec.join(timeout=10)
