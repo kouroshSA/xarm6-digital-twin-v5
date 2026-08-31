@@ -324,6 +324,81 @@ def base_to_world_mm(xyz_base, rail_mm: float,
             xyz_base[2] + bz)
 
 
+#: The orientation half of the same frame relationship.
+#:
+#: Both the twin and the xArm controller report orientation as RPY degrees under
+#: the convention ``R = Rz(yaw) @ Ry(pitch) @ Rx(roll)`` -- confirmed in three
+#: independent places: ``perception.d435i_calib._euler_to_mat``, MuJoCo's
+#: ``mat2euler(axes='sxyz')`` in ``sim.mujoco_env.get_position``, and UFACTORY's
+#: own ``rpy_to_rot`` (``Rot = Rz*Ry*Rx``) in ``ufactory_vision``.
+#:
+#: Because the base->world rotation is itself a yaw, it composes on the LEFT of
+#: that Rz and collapses to a scalar addition:
+#:
+#:     R_world = Rz(BASE_YAW) @ Rz(yaw) Ry(pitch) Rx(roll)
+#:             = Rz(yaw + BASE_YAW) Ry(pitch) Rx(roll)
+#:
+#: so only yaw changes, exactly, with no gimbal caveat and no matrix round trip.
+#: That identity is a shortcut, not an assumption: `test_rpy_matches_matrix_
+#: composition` in hardware/test_real_arm.py checks it against the full matrix
+#: product at a spread of angles, including pitched poses where a careless
+#: euler shortcut would break.
+def base_to_world_rpy_deg(rpy_deg, yaw_deg: float = None):
+    """Arm-base orientation -> world orientation, as (roll, pitch, yaw) degrees.
+
+    The translation half is `base_to_world_mm`. Converting one without the other
+    is how `get_position` came to return a world position stapled to a base
+    orientation -- a pose in no frame at all, which the wrist camera then
+    composed into its hand-eye chain 90 deg out.
+    """
+    roll, pitch, yaw = (float(v) for v in rpy_deg[:3])
+    return (roll, pitch,
+            _wrap_deg(yaw + (BASE_YAW_DEG if yaw_deg is None else yaw_deg)))
+
+
+def world_to_base_rpy_deg(rpy_deg, yaw_deg: float = None):
+    """World orientation -> arm-base orientation. Inverse of `base_to_world_rpy_deg`."""
+    roll, pitch, yaw = (float(v) for v in rpy_deg[:3])
+    return (roll, pitch,
+            _wrap_deg(yaw - (BASE_YAW_DEG if yaw_deg is None else yaw_deg)))
+
+
+def world_to_base_pose(pose_world, rail_mm: float,
+                       base_at_rail_zero=BASE_AT_RAIL_ZERO_MM,
+                       yaw_deg: float = None):
+    """A whole world pose [x,y,z,roll,pitch,yaw] -> the arm base frame.
+
+    Prefer this over calling `world_to_base_mm` and forgetting the orientation.
+    That exact omission happened independently in THREE places -- the hardware
+    wrapper, the preflight waypoint converter, and the plan-validation gate --
+    each of which converted the position and passed `*pose[3:]` straight
+    through. Two of them carry a comment about not duplicating the arithmetic;
+    duplicating it was never the problem, duplicating it INCOMPLETELY was.
+
+    A pose is six numbers in one frame. Converting three of them is not a
+    partial conversion, it is a pose in no frame at all.
+    """
+    x, y, z = world_to_base_mm(pose_world[:3], rail_mm, base_at_rail_zero, yaw_deg)
+    roll, pitch, yaw = world_to_base_rpy_deg(pose_world[3:6], yaw_deg)
+    return [x, y, z, roll, pitch, yaw]
+
+
+def base_to_world_pose(pose_base, rail_mm: float,
+                       base_at_rail_zero=BASE_AT_RAIL_ZERO_MM,
+                       yaw_deg: float = None):
+    """A whole base pose -> world. Inverse of `world_to_base_pose`."""
+    x, y, z = base_to_world_mm(pose_base[:3], rail_mm, base_at_rail_zero, yaw_deg)
+    roll, pitch, yaw = base_to_world_rpy_deg(pose_base[3:6], yaw_deg)
+    return [x, y, z, roll, pitch, yaw]
+
+
+def _wrap_deg(a: float) -> float:
+    """Fold an angle into (-180, 180]. The controller accepts either, but a pose
+    printed as yaw=270 next to a twin pose of yaw=-90 reads as a disagreement."""
+    a = (a + 180.0) % 360.0 - 180.0
+    return 180.0 if a == -180.0 else a
+
+
 def check_workspace_world(xyz_world, aabb=None, floor_z=None) -> list[str]:
     """Describe every way a commanded world pose is out of bounds; empty if fine."""
     aabb = aabb or WORKSPACE_AABB_MM

@@ -196,11 +196,18 @@ class RealSenseWristCamera:
     # -- pose -------------------------------------------------------------
 
     def cam_to_world(self) -> Optional[np.ndarray]:
-        """Camera optical frame -> robot base frame, from the live flange pose.
+        """Camera optical frame -> WORLD frame, from the live flange pose.
 
-        ``None`` when no arm was supplied. Composed as
-        ``base->flange`` (live, from the arm) then ``flange->colour optical``
-        (fixed, from the hand-eye calibration).
+        ``None`` when no arm was supplied. Composed as ``world->flange`` (live,
+        from the arm) then ``flange->colour optical`` (fixed, from the hand-eye
+        calibration).
+
+        This said "robot base frame" while the arm it reads from is
+        ``RealXArmAPI``, whose ``get_position`` returns world -- and at the time
+        returned world position with a raw base orientation, so the composition
+        below really was neither frame. Both halves are world now. On the sim
+        arm nothing changes: the twin was always world, which is why
+        ``test_projection`` passed throughout.
         """
         if self.arm is None:
             return None
@@ -210,7 +217,7 @@ class RealSenseWristCamera:
                   f"frame will have no pose rather than a stale one")
             return None
         x_mm, y_mm, z_mm, roll_d, pitch_d, yaw_d = pose[:6]
-        r_base_flange = calib._euler_to_mat(
+        r_world_flange = calib._euler_to_mat(
             math.radians(roll_d), math.radians(pitch_d), math.radians(yaw_d))
         # get_position() reports whatever the TCP points at, NOT the flange. This
         # cell runs a 217 mm offset, so it reports the gripper fingertip, while
@@ -223,12 +230,12 @@ class RealSenseWristCamera:
         # The offset is read from the arm rather than assumed, so it cannot drift
         # from what the controller is actually using; anything that does not
         # report one (the sim) contributes zero and is unaffected.
-        t_base_flange = ((np.array([x_mm, y_mm, z_mm], dtype=np.float64)
-                          - r_base_flange @ self._tcp_offset_mm()) / 1000.0)
+        t_world_flange = ((np.array([x_mm, y_mm, z_mm], dtype=np.float64)
+                          - r_world_flange @ self._tcp_offset_mm()) / 1000.0)
 
         r_fc, t_fc = calib.flange_to_color_optical()
-        return pose_matrix(r_base_flange @ r_fc,
-                           t_base_flange + r_base_flange @ t_fc)
+        return pose_matrix(r_world_flange @ r_fc,
+                           t_world_flange + r_world_flange @ t_fc)
 
     def _tcp_offset_mm(self) -> np.ndarray:
         """The tool offset to back out of ``get_position()``, in tool coordinates.

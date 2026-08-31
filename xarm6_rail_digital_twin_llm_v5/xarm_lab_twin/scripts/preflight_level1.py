@@ -66,7 +66,7 @@ sys.path.insert(0, os.getcwd())
 from arm_backend import (
     XARM6_JOINT_LIMITS_DEG,
     RAIL_LIMITS_MM,
-    world_to_base_mm,
+    world_to_base_pose,
 )
 
 #: How far the FK round-trip may disagree with the requested pose (mm).
@@ -250,17 +250,19 @@ def world_plan_to_base(waypoints_world, rail_mm: float):
     """Convert (label, [x,y,z,r,p,y]) world-frame waypoints to the arm base frame.
 
     The base frame moves with the rail, so this is rail-dependent -- not a
-    constant offset. Reuses arm_backend.world_to_base_mm rather than repeating
+    constant offset. Reuses arm_backend.world_to_base_pose rather than repeating
     the arithmetic, because a second copy of that conversion is exactly how the
     frames drifted apart the first time.
+
+    It used to convert `pose[:3]` and pass `*pose[3:]` through untouched, which
+    is the same shape of drift one level down: the copy was avoided for the
+    position and quietly reintroduced for the orientation, so every waypoint
+    here reached the controller yawed a quarter turn.
     """
     if not (RAIL_LIMITS_MM[0] <= rail_mm <= RAIL_LIMITS_MM[1]):
         raise ValueError(f"rail {rail_mm} mm outside {RAIL_LIMITS_MM}")
-    out = []
-    for label, pose in waypoints_world:
-        x, y, z = world_to_base_mm(pose[:3], rail_mm)
-        out.append((label, [x, y, z, *pose[3:]]))
-    return out
+    return [(label, world_to_base_pose(pose, rail_mm))
+            for label, pose in waypoints_world]
 
 
 DEMO_WORLD = [
@@ -335,7 +337,21 @@ def self_test() -> int:
     print(f"  [{'PASS' if ok else 'FAIL'}] {'local limits catch a lying controller':48} "
           f"ok={v.ok} reasons={v.reasons}")
 
-    print(f"\n  {6 - failures} PASS  {failures} FAIL")
+    # The waypoint converter must convert the ORIENTATION as well as the
+    # position. It did not, for as long as BASE_YAW_DEG has existed: every
+    # world waypoint reached the controller yawed a quarter turn, which for the
+    # symmetric downward grasps in DEMO_WORLD is invisible in the log and often
+    # survives the grasp anyway. A converter that moves three of six numbers
+    # produces a pose in no frame at all.
+    world = [("w", [0.0, -250.0, 830.0, 180.0, 0.0, 25.0])]
+    (_, got), = world_plan_to_base(world, 350.0)
+    want = [200.0, 0.0, -17.0, 180.0, 0.0, 115.0]
+    ok = all(abs(a - b) < 1e-6 for a, b in zip(got, want))
+    failures += 0 if ok else 1
+    print(f"  [{'PASS' if ok else 'FAIL'}] {'waypoints convert orientation, not just position':48} "
+          f"got={[round(v, 1) for v in got]} want={want}")
+
+    print(f"\n  {7 - failures} PASS  {failures} FAIL")
     return 1 if failures else 0
 
 

@@ -48,7 +48,7 @@ import time
 
 sys.path.insert(0, os.getcwd())
 
-from arm_backend import BASE_AT_RAIL_ZERO_MM, world_to_base_mm
+from arm_backend import BASE_AT_RAIL_ZERO_MM, world_to_base_pose
 
 DEFAULT_IP = "127.0.0.1"
 
@@ -178,19 +178,30 @@ class PlanValidator:
                 # limitation as a planning error. RealXArmAPI has done this
                 # conversion since the frame bug was found; this module drives
                 # the SDK directly and so never inherited it.
+                #
+                # The ORIENTATION needs converting too, and for the same
+                # reason. Reachability is a property of the whole pose: the
+                # wrist joints must produce that tool orientation AT that
+                # point, so a yaw that is a quarter turn out asks the
+                # controller about a different question than the one the plan
+                # poses -- and this gate exists to answer exactly that
+                # question before anything moves. Converting only the position
+                # made the gate authoritative about a pose nobody would
+                # command, which is a worse failure than not checking.
                 wx, wy, wz = p.get("x"), p.get("y"), p.get("z")
+                world_pose = (wx, wy, wz, p.get("roll", 180),
+                              p.get("pitch", 0), p.get("yaw", 0))
                 try:
-                    bx, by, bz = world_to_base_mm((wx, wy, wz), self.rail_mm,
-                                                  BASE_AT_RAIL_ZERO_MM)
+                    bx, by, bz, broll, bpitch, byaw = world_to_base_pose(
+                        world_pose, self.rail_mm, BASE_AT_RAIL_ZERO_MM)
                 except Exception as exc:                       # noqa: BLE001
                     rec["ok"] = False
                     rec["detail"] = f"world->base conversion failed: {exc}"
                     results.append(rec)
                     continue
                 rc = self.arm.set_position(
-                    x=bx, y=by, z=bz,
-                    roll=p.get("roll", 180), pitch=p.get("pitch", 0),
-                    yaw=p.get("yaw", 0), speed=p.get("speed_mm_s", 50), wait=True)
+                    x=bx, y=by, z=bz, roll=broll, pitch=bpitch, yaw=byaw,
+                    speed=p.get("speed_mm_s", 50), wait=True)
                 err = self.arm.get_err_warn_code()[1]
                 frames = (f"world ({wx}, {wy}, {wz}) = base "
                           f"({bx:.0f}, {by:.0f}, {bz:.0f}) at rail "
