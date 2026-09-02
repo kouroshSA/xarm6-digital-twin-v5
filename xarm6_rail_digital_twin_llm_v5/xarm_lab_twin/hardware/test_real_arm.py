@@ -12,6 +12,7 @@ These pin down the two properties that made the original file dangerous:
 """
 from __future__ import annotations
 
+import math
 import sys
 import types
 
@@ -194,21 +195,34 @@ def test_sim_only_methods_raise(real_arm, wrapper):
 
 
 def test_world_to_base_conversion(real_arm, wrapper):
-    """A world pose must reach the controller in base coordinates."""
+    """A world pose must reach the controller in base coordinates.
+
+    The expectation is the red cube from the BASE_YAW_DEG measurement table in
+    arm_backend: world (0, -250) is base (200, 0) at rail 350. This test
+    previously expected (0, -200, -17), which is the same conversion done as a
+    pure TRANSLATION -- it was written before the base yaw was measured and was
+    left asserting the superseded frame, so it failed for a year of commits
+    while the code under it was right.
+    """
     real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
     arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
     arm.arm._rail_pos = 350.0                      # base sits at world x=0
     arm.set_position(x=0, y=-250, z=830)
     sent = [c for c in arm.arm.calls if c[0] == "set_position"][-1][1]
-    # base = world - (-350 + 350, -50, 847) = (0, -200, -17)
     got = (round(sent["x"]), round(sent["y"]), round(sent["z"]))
-    if got != (0, -200, -17):
-        return f"FAIL  world (0,-250,830) -> base {got}, expected (0, -200, -17)"
+    if got != (200, 0, -17):
+        return f"FAIL  world (0,-250,830) -> base {got}, expected (200, 0, -17)"
     return "PASS  world pose converted to base coordinates before dispatch"
 
 
 def test_conversion_tracks_the_rail(real_arm, wrapper):
-    """The base slides, so the same world pose maps differently per rail position."""
+    """The base slides, so the same world pose maps differently per rail position.
+
+    Under the measured -90 deg base yaw the rail runs along base **y**, not base
+    x -- the arm's +y points down the rail. Reading x here (as this test used to)
+    watches the one axis the rail cannot move, which is why it reported a
+    constant 200 and failed.
+    """
     real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
     arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
     seen = {}
@@ -216,23 +230,159 @@ def test_conversion_tracks_the_rail(real_arm, wrapper):
         arm.arm._rail_pos = rail
         arm.set_position(x=0, y=-250, z=830)
         seen[rail] = round([c for c in arm.arm.calls
-                            if c[0] == "set_position"][-1][1]["x"])
+                            if c[0] == "set_position"][-1][1]["y"])
     if seen != {0.0: 350, 700.0: -350}:
-        return f"FAIL  rail-dependent x was {seen}, expected {{0: 350, 700: -350}}"
+        return f"FAIL  rail-dependent base y was {seen}, expected {{0: 350, 700: -350}}"
     return "PASS  conversion tracks the live rail position"
 
 
 def test_round_trip_is_symmetric(real_arm, wrapper):
-    """get_position must return world, or the wrapper lies about its own frame."""
+    """get_position must return world, or the wrapper lies about its own frame.
+
+    An actual round trip rather than two hand-written constants: command a world
+    pose, take whatever reached the controller, hand that back as the arm's
+    reported base pose, and require the original world pose out. Hand-written
+    constants are how this test came to assert a superseded frame while passing
+    review -- and the pair it used, base (0,-200,-17), is not the base image of
+    world (0,-250,830) under any yaw.
+
+    **All six numbers are checked.** Orientation was excluded here, and that
+    omission is exactly why `get_position` returned a base-frame rpy for weeks:
+    the only test of the frame contract could not see the half that was wrong.
+    """
     real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
     arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
     arm.arm._rail_pos = 350.0
-    arm.arm._position = [0.0, -200.0, -17.0, 180.0, 0.0, 0.0]  # base frame
+
+    sent_world = (0.0, -250.0, 830.0, 180.0, 0.0, 25.0)
+    arm.set_position(*sent_world[:3], roll=sent_world[3], pitch=sent_world[4],
+                     yaw=sent_world[5])
+    sent = [c for c in arm.arm.calls if c[0] == "set_position"][-1][1]
+    arm.arm._position = [sent["x"], sent["y"], sent["z"],
+                         sent["roll"], sent["pitch"], sent["yaw"]]
+
     code, pose = arm.get_position()
-    got = tuple(round(v) for v in pose[:3])
-    if got != (0, -250, 830):
-        return f"FAIL  base (0,-200,40) -> world {got}, expected (0, -250, 830)"
-    return "PASS  get_position returns world coordinates"
+    got = tuple(round(v, 6) for v in pose[:6])
+    if got != sent_world:
+        return (f"FAIL  world {sent_world} -> base "
+                f"({sent['x']:.0f},{sent['y']:.0f},{sent['z']:.0f},"
+                f"{sent['roll']:.0f},{sent['pitch']:.0f},{sent['yaw']:.0f})"
+                f" -> world {got}; the round trip is not the identity")
+    # A round trip closes for any self-consistent pair of wrong transforms, so
+    # pin the base pose too: the orientation must actually have been rotated.
+    if round(sent["yaw"]) != 115:      # 25 world - (-90) base yaw
+        return (f"FAIL  round trip closes but the controller was sent yaw="
+                f"{sent['yaw']:.1f}, expected 115; the orientation is being "
+                f"passed through raw and cancelling itself on the way back")
+    return "PASS  set/get round trip is the identity in world, orientation included"
+
+
+def test_rpy_matches_matrix_composition(real_arm, wrapper):
+    """The yaw-addition shortcut must equal the full matrix product.
+
+    `base_to_world_rpy_deg` adds BASE_YAW_DEG to yaw and leaves roll and pitch
+    alone. That is exact under R = Rz(yaw)Ry(pitch)Rx(roll), because a base yaw
+    composes on the left of the Rz -- but "add 90 to one euler angle" is also
+    the shape of a great many wrong frame conversions, so prove it rather than
+    reason about it. Pitched and rolled poses are included deliberately: a
+    careless shortcut agrees with the matrices at pitch=0 and diverges away
+    from it.
+    """
+    import numpy as np
+    from arm_backend import BASE_YAW_DEG, base_to_world_rpy_deg
+    from perception.d435i_calib import _euler_to_mat
+
+    c, sn = math.cos(math.radians(BASE_YAW_DEG)), math.sin(math.radians(BASE_YAW_DEG))
+    rz_base = np.array([[c, -sn, 0.0], [sn, c, 0.0], [0.0, 0.0, 1.0]])
+
+    worst = 0.0
+    for rpy in [(180, 0, 0), (180, 0, 25), (0, 0, 0), (90, 45, -170),
+                (-30, 60, 120), (12, -75, 200), (180, 89, -45)]:
+        want = rz_base @ _euler_to_mat(*[math.radians(v) for v in rpy])
+        got = _euler_to_mat(*[math.radians(v)
+                              for v in base_to_world_rpy_deg(rpy)])
+        worst = max(worst, float(np.abs(want - got).max()))
+    if worst > 1e-9:
+        return (f"FAIL  the yaw-addition shortcut differs from Rz(BASE_YAW) @ R "
+                f"by up to {worst:.2e}; it is not the same rotation")
+    return f"PASS  rpy conversion equals the matrix composition (max {worst:.1e})"
+
+
+def test_wrist_camera_sees_a_stationary_object_as_stationary(real_arm, wrapper):
+    """The CONSUMER test: a fixed object must not move when only the rail does.
+
+    This is the 2026-08-26 hardware failure reproduced with no hardware. With the
+    arm held at one joint pose and the rail swept, a stationary cube deprojected
+    to world x = -64.9, 33.3, 129.3 at rail 300/400/500 -- tracking the rail
+    almost 1:1 instead of staying put, because `cam_to_world` was handed a world
+    translation with a base rotation and composed them as though they shared a
+    frame.
+
+    Ground truth here is stated once, as a single rigid transform world = Rz(
+    BASE_YAW) * base + origin(rail), and the camera chain is required to agree
+    with it. The wrapper reaches the same place along two separate code paths
+    (`base_to_world_mm` for the translation, `base_to_world_rpy_deg` for the
+    rotation); this is what forces those two to describe the SAME transform,
+    which is the property that was actually broken.
+    """
+    import numpy as np
+    try:
+        from perception import d435i_calib as calib
+        from perception.realsense_camera import RealSenseWristCamera
+    except Exception as exc:  # noqa: BLE001
+        return f"SKIP  perception not importable ({type(exc).__name__}: {exc})"
+    from arm_backend import BASE_AT_RAIL_ZERO_MM, BASE_YAW_DEG
+
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+
+    # One fixed joint pose. The controller reports the same BASE pose at every
+    # rail position -- the rail carries the whole base, so nothing changes in
+    # base coordinates. That is what makes this sweep a clean test.
+    base_pose = [200.0, 0.0, 150.0, 180.0, 0.0, 30.0]
+    arm.arm._position = list(base_pose)
+
+    cam = object.__new__(RealSenseWristCamera)
+    cam.arm = arm
+
+    c, sn = math.cos(math.radians(BASE_YAW_DEG)), math.sin(math.radians(BASE_YAW_DEG))
+    rz_base = np.array([[c, -sn, 0.0], [sn, c, 0.0], [0.0, 0.0, 1.0]])
+    r_fc, t_fc = calib.flange_to_color_optical()
+    tcp = np.array([0.0, 0.0, float(arm.tcp_offset_z_mm)])
+
+    def truth(rail_mm):
+        """(R, t) camera-optical -> world, from the frame definition alone."""
+        r_bf = calib._euler_to_mat(*[math.radians(v) for v in base_pose[3:6]])
+        t_bf = (np.array(base_pose[:3]) - r_bf @ tcp) / 1000.0
+        bx, by, bz = BASE_AT_RAIL_ZERO_MM
+        origin = np.array([bx + rail_mm, by, bz]) / 1000.0
+        r_wf, t_wf = rz_base @ r_bf, rz_base @ t_bf + origin
+        return r_wf @ r_fc, t_wf + r_wf @ t_fc
+
+    cube_world = np.array([0.100, -0.250, 0.780])      # stationary, metres
+    seen = []
+    for rail in (300.0, 400.0, 500.0):
+        arm.arm._rail_pos = rail
+        r_true, t_true = truth(rail)
+        # Where the cube falls in the camera's own frame at this rail position.
+        p_cam = r_true.T @ (cube_world - t_true)
+        # Deproject it with the chain under test.
+        m = cam.cam_to_world()
+        if m is None:
+            return "FAIL  cam_to_world returned None with an arm attached"
+        seen.append(m[:3, :3] @ p_cam + m[:3, 3])
+
+    spread_mm = float(np.abs(np.array(seen) - np.array(seen[0])).max()) * 1000.0
+    err_mm = float(np.abs(np.array(seen) - cube_world).max()) * 1000.0
+    if spread_mm > 1e-6:
+        drift = ", ".join(f"x={p[0] * 1000:.1f}" for p in seen)
+        return (f"FAIL  a stationary cube moved {spread_mm:.1f} mm as the rail "
+                f"swept 300->500 ({drift}); the camera pose is not in one frame")
+    if err_mm > 1e-6:
+        return (f"FAIL  the cube deprojected {err_mm:.1f} mm from where it is; "
+                f"stable across the rail but in the wrong place")
+    return ("PASS  a stationary cube stays put across a 200 mm rail sweep "
+            f"(spread {spread_mm:.1e} mm)")
 
 
 def test_floor_constraint_blocks_the_benchtop(real_arm, wrapper):
@@ -304,6 +454,8 @@ TESTS = [
     test_world_to_base_conversion,
     test_conversion_tracks_the_rail,
     test_round_trip_is_symmetric,
+    test_rpy_matches_matrix_composition,
+    test_wrist_camera_sees_a_stationary_object_as_stationary,
     test_floor_constraint_blocks_the_benchtop,
     test_floor_tracks_the_tcp_offset,
     test_unhomed_rail_refuses_cartesian,

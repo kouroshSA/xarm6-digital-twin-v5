@@ -43,6 +43,7 @@ from arm_backend import (HOME_JOINTS_DEG, HOME_RAIL_MM,
                          HOME_JOINT_SPEED_DEG_S, HOME_RAIL_SPEED_MM_S,
                          BASE_AT_RAIL_ZERO_MM, TOOL_LENGTH_MM, WORKSPACE_AABB_MM,
                          WORKSPACE_FLOOR_Z_MM, base_to_world_mm,
+                         base_to_world_pose, world_to_base_pose,
                          check_joint_limits_deg, check_workspace_world,
                          floor_z_for_tcp,
                          unsupported, world_to_base_mm)
@@ -372,11 +373,18 @@ class RealXArmAPI:
                     f"set_position: cannot read the rail position (code {rc}), so "
                     f"the world->base conversion would be wrong. Refusing to move.")
 
-        bx, by, bz = world_to_base_mm((x, y, z), float(rail_mm),
-                                      self.base_at_rail_zero)
+        bx, by, bz, broll, bpitch, byaw = world_to_base_pose(
+            (x, y, z, roll, pitch, yaw), float(rail_mm), self.base_at_rail_zero)
+        # The ORIENTATION is in world too, and needs the same conversion. It did
+        # not get one for the first weeks after BASE_YAW_DEG was measured, so a
+        # world pose arrived at the controller as world position + world-labelled
+        # base orientation: the tool went to the right point rotated a quarter
+        # turn about vertical. Every caller in the repo passes roll=180, yaw=0 --
+        # a symmetric downward grasp, where a 90 deg yaw error is invisible in
+        # the log and often survives the grasp, which is precisely why it lasted.
         return self._check(
-            self.arm.set_position(x=bx, y=by, z=bz, roll=roll, pitch=pitch,
-                                  yaw=yaw, speed=speed, wait=wait),
+            self.arm.set_position(x=bx, y=by, z=bz, roll=broll, pitch=bpitch,
+                                  yaw=byaw, speed=speed, wait=wait),
             "set_position")
 
     def set_servo_angle(self, angle, speed=30, wait=True, **kwargs) -> int:
@@ -413,6 +421,14 @@ class RealXArmAPI:
         Converted back from the controller's base frame so callers see the same
         coordinates they command. An asymmetric wrapper -- world in, base out --
         would be worse than no conversion at all.
+
+        Both halves are converted. Position alone was the original bug: this
+        returned a world position with the controller's raw base orientation
+        stapled to it, a 6-vector in no frame at all, while the docstring above
+        promised world. `RealSenseWristCamera.cam_to_world` consumed exactly
+        that -- world translation, base rotation -- and built a hand-eye chain
+        90 deg out, so a stationary cube deprojected to a world position that
+        slid 1:1 with the rail instead of staying put.
         """
         code, pose = self.arm.get_position()
         if code != 0 or not pose:
@@ -420,9 +436,8 @@ class RealXArmAPI:
         rc, rail_mm = self.get_rail_position()
         if rc != 0 or rail_mm is None:
             return rc, None
-        wx, wy, wz = base_to_world_mm(pose[:3], float(rail_mm),
-                                      self.base_at_rail_zero)
-        return code, [wx, wy, wz, *pose[3:]]
+        return code, base_to_world_pose(pose[:6], float(rail_mm),
+                                        self.base_at_rail_zero)
 
     def get_servo_angle(self):
         return self.arm.get_servo_angle()

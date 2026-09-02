@@ -111,9 +111,51 @@ def test_no_validator_is_unchanged():
     return "PASS  no validator attached -> unchanged behaviour"
 
 
+def test_gate_asks_the_controller_about_the_pose_it_was_given():
+    """The reachability gate must convert the ORIENTATION into base too.
+
+    The gate's whole job is to ask the controller "is this pose reachable?"
+    before anything moves. Reachability is a property of the full pose -- the
+    wrist has to produce that tool orientation AT that point -- so converting
+    only the position asks about a different pose than the plan contains, and
+    then reports the answer as authoritative. That is worse than not checking:
+    the plan passes the gate and the arm meets the limit at execution time, on
+    hardware, which is precisely the moment the gate exists to avoid.
+
+    Hardware-free: PlanValidator is built without __init__ (which dials a
+    controller) and given a recording stub.
+    """
+    import importlib
+    vp = importlib.import_module("scripts.validate_plan")
+
+    class _Recorder:
+        def __init__(self): self.sent = []
+        def set_position(self, **kw): self.sent.append(kw); return 0
+        def get_err_warn_code(self): return (0, [0, 0])
+
+    v = object.__new__(vp.PlanValidator)
+    v.arm = _Recorder()
+    v._initial_rail_mm = v.rail_mm = 350.0
+
+    v.validate([{"action": "move_to",
+                 "params": {"x": 0, "y": -250, "z": 830,
+                            "roll": 180, "pitch": 0, "yaw": 25}}])
+    if not v.arm.sent:
+        return "FAIL  gate asked the controller nothing about a move_to"
+    got = v.arm.sent[-1]
+    want = {"x": 200, "y": 0, "z": -17, "roll": 180, "pitch": 0, "yaw": 115}
+    off = {k: round(got[k], 1) for k in want if abs(got[k] - want[k]) > 1e-6}
+    if off:
+        return (f"FAIL  gate asked about base {off} where it should have asked "
+                f"{ {k: want[k] for k in off} }; the pose it validated is not "
+                f"the pose the plan contains")
+    return "PASS  gate converts the whole pose, orientation included, before asking"
+
+
 TESTS = [test_rejected_plan_dispatches_nothing,
          test_accepted_plan_runs,
-         test_no_validator_is_unchanged]
+         test_no_validator_is_unchanged,
+         test_gate_asks_the_controller_about_the_pose_it_was_given]
 
 
 def main() -> int:

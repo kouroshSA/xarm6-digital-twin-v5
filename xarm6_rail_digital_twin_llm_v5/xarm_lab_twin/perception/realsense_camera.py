@@ -55,6 +55,31 @@ _INTRINSICS_TOL_PX = 1.0
 # probably deleted.
 _RESET_SETTLE_S = 10.0
 
+# Frames to pull and throw away once the pipeline is streaming. The FIRST frame
+# off a freshly started pipeline is not merely noisy, it is wrong: measured on
+# 2026-09-02 with the arm stationary over a bench 350 mm away, frame 0 came back
+# 3.4% valid and reported that bench at 1226-1341 mm, while frames 1-5 were
+# 87.4-87.6% valid at a rock-steady 281-356 mm.
+#
+# This is NOT the depth stall above -- that one never produces depth at all and
+# needs a hardware_reset. This clears itself after one frame, which is exactly
+# what makes it dangerous: capture() returns a plausible-looking RGBDFrame and
+# every consumer downstream believes it. It cost a GG-CNN run that returned a
+# grasp 128 mm off target at bench height and looked like a calibration fault.
+#
+# Draining here rather than in capture() means no caller can forget, and the
+# cost is paid once per connection instead of per frame. Callers that captured
+# after a slow first move were never affected and are unchanged.
+#
+# Three is enough and more does not help. Measured over the bench at 3, 8 and 15
+# frames: the caller's first frame reports the correct range (393-394 mm, equal
+# to steady state) in every case, so the dangerous failure is gone at 3. A
+# smaller gap survives -- that first frame carries ~71% valid depth against ~82%
+# once streaming -- and it does NOT shrink with more warm-up, so it is not
+# settling and draining harder is not the fix. Unexplained; 71% is workable
+# (the run this bug broke had 8%), and 3 frames costs 100 ms.
+_WARMUP_FRAMES = 3
+
 
 class RealSenseWristCamera:
     """Streams colour + aligned depth from the wrist-mounted D435i.
@@ -104,6 +129,8 @@ class RealSenseWristCamera:
                 raise
             self._reset_and_restart(exc)
 
+        self._drain_warmup_frames()
+
         # The device's own depth scale, rather than assuming the 1 mm default.
         depth_sensor = self.profile.get_device().first_depth_sensor()
         self.depth_scale = float(depth_sensor.get_depth_scale())
@@ -144,7 +171,19 @@ class RealSenseWristCamera:
         self.profile = self.pipeline.start(self._stream_config())
         self.align = rs.align(rs.stream.color)
         self._color_intr, self._depth_intr = self._read_intrinsics()
+        self._drain_warmup_frames()
         print("[RealSenseWristCamera] depth recovered after reset.")
+
+    def _drain_warmup_frames(self, n: int = _WARMUP_FRAMES) -> None:
+        """Pull and discard the pipeline's first frames. See _WARMUP_FRAMES."""
+        for _ in range(n):
+            try:
+                self.pipeline.wait_for_frames()
+            except RuntimeError:
+                # A timeout here is the caller's problem to discover on their
+                # first real capture, with its own error; swallowing the warm-up
+                # is better than failing construction over a discarded frame.
+                return
 
     # -- intrinsics -------------------------------------------------------
 
@@ -196,11 +235,18 @@ class RealSenseWristCamera:
     # -- pose -------------------------------------------------------------
 
     def cam_to_world(self) -> Optional[np.ndarray]:
-        """Camera optical frame -> robot base frame, from the live flange pose.
+        """Camera optical frame -> WORLD frame, from the live flange pose.
 
-        ``None`` when no arm was supplied. Composed as
-        ``base->flange`` (live, from the arm) then ``flange->colour optical``
-        (fixed, from the hand-eye calibration).
+        ``None`` when no arm was supplied. Composed as ``world->flange`` (live,
+        from the arm) then ``flange->colour optical`` (fixed, from the hand-eye
+        calibration).
+
+        This said "robot base frame" while the arm it reads from is
+        ``RealXArmAPI``, whose ``get_position`` returns world -- and at the time
+        returned world position with a raw base orientation, so the composition
+        below really was neither frame. Both halves are world now. On the sim
+        arm nothing changes: the twin was always world, which is why
+        ``test_projection`` passed throughout.
         """
         if self.arm is None:
             return None
@@ -210,7 +256,7 @@ class RealSenseWristCamera:
                   f"frame will have no pose rather than a stale one")
             return None
         x_mm, y_mm, z_mm, roll_d, pitch_d, yaw_d = pose[:6]
-        r_base_flange = calib._euler_to_mat(
+        r_world_flange = calib._euler_to_mat(
             math.radians(roll_d), math.radians(pitch_d), math.radians(yaw_d))
         # get_position() reports whatever the TCP points at, NOT the flange. This
         # cell runs a 217 mm offset, so it reports the gripper fingertip, while
@@ -223,12 +269,12 @@ class RealSenseWristCamera:
         # The offset is read from the arm rather than assumed, so it cannot drift
         # from what the controller is actually using; anything that does not
         # report one (the sim) contributes zero and is unaffected.
-        t_base_flange = ((np.array([x_mm, y_mm, z_mm], dtype=np.float64)
-                          - r_base_flange @ self._tcp_offset_mm()) / 1000.0)
+        t_world_flange = ((np.array([x_mm, y_mm, z_mm], dtype=np.float64)
+                          - r_world_flange @ self._tcp_offset_mm()) / 1000.0)
 
         r_fc, t_fc = calib.flange_to_color_optical()
-        return pose_matrix(r_base_flange @ r_fc,
-                           t_base_flange + r_base_flange @ t_fc)
+        return pose_matrix(r_world_flange @ r_fc,
+                           t_world_flange + r_world_flange @ t_fc)
 
     def _tcp_offset_mm(self) -> np.ndarray:
         """The tool offset to back out of ``get_position()``, in tool coordinates.
