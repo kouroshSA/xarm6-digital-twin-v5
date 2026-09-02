@@ -16,6 +16,15 @@ same thing in every frame of every recording and two runs can be compared by
 eye. An auto-scaled colourmap would repaint the whole scene every time something
 entered or left the view, which looks informative and tells you nothing.
 
+THE VIDEO IS NOT DATA. The right-hand panel is a rendering and it cannot be
+inverted back into distances: it is clipped to [NEAR_M, FAR_M], quantised to 256
+levels across that span (~1.8 mm each at the default range), pushed through a
+colourmap that is not cleanly invertible, and then lossily compressed, which
+moves colours ACROSS the map so neighbouring JET shades can mean very different
+depths. Pass ``depth_h5=`` to keep the actual depth as well -- uint16
+millimetres in HDF5, which is lossless and is what anything downstream
+(measurement, VLA export, re-running a detector) needs.
+
 Invalid depth is drawn BLACK rather than as some distance. The D435i drops
 returns on transparent and specular surfaces -- the glass dish on this bench
 reads as a hole, not as a far surface -- and painting those pixels dark blue
@@ -89,9 +98,19 @@ class WristRecorder:
     #: that produces a file whose timing matches the run.
     CALIBRATION_FRAMES = 12
 
+    #: Rate at which raw depth is kept when ``depth_h5`` is given. 10 Hz matches
+    #: the /frames group in recording.py rather than inventing a second
+    #: convention; the video stays at full rate either way.
+    DEPTH_HZ = 10.0
+
     def __init__(self, out_path: str, arm=None, fps: float = None,
-                 near: float = NEAR_M, far: float = FAR_M):
+                 near: float = NEAR_M, far: float = FAR_M,
+                 depth_h5: Optional[str] = None, depth_hz: float = DEPTH_HZ):
         self.out_path, self.arm = out_path, arm
+        self.depth_h5, self.depth_hz = depth_h5, float(depth_hz)
+        self._h5 = self._h5_depth = self._h5_t = None
+        self._next_depth_t = 0.0
+        self.depth_frames_written = 0
         self.fps = None if fps is None else float(fps)
         self.near, self.far = near, far
         # arm=None: a plain frame grab must never call the SDK, because the main
@@ -172,6 +191,14 @@ class WristRecorder:
                               f"   black = no return")
                 side = np.hstack([colour, depth])
 
+                # Before the writer block, so the calibration below times the
+                # REAL workload. Measuring the loop without the depth write and
+                # then enabling it dropped the achieved rate from 30 to 17.9
+                # against a container already stamped 30 -- a file claiming a
+                # speed it was never recorded at, which is the exact failure
+                # the calibration exists to prevent.
+                self._maybe_keep_depth(frame.depth)
+
                 if self._writer is None:
                     # Time the full loop -- capture, colourise, stack -- before
                     # committing an fps to the container.
@@ -199,25 +226,81 @@ class WristRecorder:
         finally:
             if self._writer is not None:
                 self._writer.release()
+            if self._h5 is not None:
+                self._h5.close()
             self.cam.close()
+
+    # -- raw depth --------------------------------------------------------
+
+    def _maybe_keep_depth(self, depth_m: np.ndarray) -> None:
+        """Append the depth frame itself, losslessly, at ``depth_hz``."""
+        if not self.depth_h5:
+            return
+        now = time.time()
+        if now < self._next_depth_t:
+            return
+        self._next_depth_t = max(now, self._next_depth_t) + 1.0 / self.depth_hz
+
+        # uint16 millimetres with 0 = no return. That is the D435i's own wire
+        # format and what RGBDFrame turns into NaN on the way in, so this stores
+        # exactly what the sensor said with nothing invented and nothing lost.
+        mm = np.where(np.isfinite(depth_m), depth_m * 1000.0, 0.0)
+        mm = np.clip(mm, 0, 65535).astype(np.uint16)
+
+        if self._h5 is None:
+            import h5py
+            h, w = mm.shape
+            self._h5 = h5py.File(self.depth_h5, "w")
+            self._h5_depth = self._h5.create_dataset(
+                "depth_mm", shape=(0, h, w), maxshape=(None, h, w),
+                dtype=np.uint16, chunks=(1, h, w),
+                # Level 4, not 9. Depth compresses well regardless (large flat
+                # regions and a lot of exact zeros), and 9 cost enough time per
+                # frame to halve the video's frame rate for a few percent of
+                # file size.
+                compression="gzip", compression_opts=4)
+            self._h5_t = self._h5.create_dataset(
+                "t_wall", shape=(0,), maxshape=(None,), dtype=np.float64,
+                compression="gzip")
+            self._h5_depth.attrs["units"] = "millimetres"
+            self._h5_depth.attrs["invalid"] = 0
+            self._h5_depth.attrs["note"] = (
+                "0 means the sensor returned nothing (transparent, specular or "
+                "out of range) -- it is NOT a distance of zero")
+            self._h5.attrs["depth_hz"] = self.depth_hz
+            self._h5.attrs["video"] = os.path.basename(self.out_path)
+            self._h5.attrs["width"], self._h5.attrs["height"] = w, h
+
+        n = self._h5_depth.shape[0]
+        self._h5_depth.resize(n + 1, axis=0)
+        self._h5_depth[n] = mm
+        self._h5_t.resize(n + 1, axis=0)
+        self._h5_t[n] = now
+        self.depth_frames_written += 1
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="/tmp/wrist.mp4")
+    ap.add_argument("--depth-h5", default=None,
+                    help="also keep raw depth, uint16 mm, losslessly")
+    ap.add_argument("--depth-hz", type=float, default=WristRecorder.DEPTH_HZ)
     ap.add_argument("--seconds", type=float, default=15.0)
     ap.add_argument("--fps", type=float, default=None,
                     help="force an output fps; default measures the real one")
     args = ap.parse_args()
 
-    rec = WristRecorder(args.out, fps=args.fps).start()
+    rec = WristRecorder(args.out, fps=args.fps, depth_h5=args.depth_h5,
+                        depth_hz=args.depth_hz).start()
     t0 = time.time()
     while time.time() - t0 < args.seconds:
         time.sleep(0.2)
     rec.stop()
     print(f"  {rec.frames_written} frames -> {args.out} "
           f"({rec.frames_written / max(time.time()-t0, 1e-6):.1f} fps achieved)")
+    if args.depth_h5:
+        print(f"  {rec.depth_frames_written} raw depth frames -> {args.depth_h5}")
     return 0
 
 
