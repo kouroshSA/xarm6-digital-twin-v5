@@ -55,6 +55,16 @@ from perception.realsense_camera import RealSenseWristCamera  # noqa: E402
 #: Depth range the colourmap spans, metres. Anything nearer than NEAR or further
 #: than FAR clamps.
 #:
+#: THESE DEFAULTS ARE FOR CLOSE GRASPING WORK. Pass your own for anything else:
+#: an oblique sweep down the bench spans 166-2462 mm and clamps almost entirely
+#: to blue at this range. Pick the range by MEASURING, not by eye -- histogram
+#: the depth from a previous run's .h5 and give the colourmap the band the
+#: content actually occupies. On the 2026-09-02 sweep that was 340-1100 mm (the
+#: benchtop, 87% of pixels), with the floor at 1300-1950 and an empty gap
+#: between, so 0.35-1.10 put the whole gradient on the bench and let the floor
+#: clamp. Two guesses got there the wrong way first: 0.15-0.60 left everything
+#: blue, 0.35-1.80 saturated the bench red.
+#:
 #: Tuned to the volume the wrist actually works in, not to the sensor's range.
 #: A first attempt at 0.15-0.90 was technically correct and visually useless:
 #: the benchtop sits ~0.39 m from the lens, which landed mid-scale, so the whole
