@@ -61,11 +61,25 @@ class FakeArm:
     tcp_offset = [0.0, 0.0, 217.0, 0.0, 0.0, 0.0]
 
     # motion
+    #: Mirrors the real controller's states: 2 = ready, 5 = STATE_NOT_READY.
+    #: Starts ready, matching a freshly connected arm.
+    _state = 2
     def clean_error(self): return 0
     def motion_enable(self, enable=True): return 0
     def set_mode(self, mode): return 0
-    def set_state(self, state): return 0
-    def set_position(self, **kw): self.calls.append(("set_position", kw)); return 0
+    def get_state(self): return (0, self._state)
+    def set_state(self, state):
+        if state == 0:
+            self._state = 2     # matches the real controller after set_state(0)
+        return 0
+    def set_position(self, **kw):
+        # Real controllers refuse motion with code 9 (STATE_NOT_READY) when not
+        # in state 2. Reproducing that here is what makes the F/T state-drop
+        # tests below a real check rather than a check against a stub that
+        # cannot fail the way the hardware does.
+        if self._state != 2:
+            return 9
+        self.calls.append(("set_position", kw)); return 0
     def set_servo_angle(self, **kw): return 0
     _position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     def get_position(self): return (0, list(self._position))
@@ -84,9 +98,17 @@ class FakeArm:
     def get_gripper_position(self, **kw): return (0, self._gripper_pos)
 
     # f/t
-    def set_ft_sensor_enable(self, on): return 0
-    def set_ft_sensor_zero(self): return 0
-    def get_ft_sensor_data(self, is_raw=False): return (0, [0.0] * 6)
+    #: force reading get_ft_sensor_data returns; a test can point this at
+    #: something nonzero to check get_contact_force_n's magnitude math.
+    _ft_force = [0.0, 0.0, 0.0]
+    def set_ft_sensor_enable(self, on):
+        self._state = 5          # matches the real controller's undocumented drop
+        return 0
+    def set_ft_sensor_zero(self):
+        self._state = 5          # ditto -- both calls do this, not just the first
+        return 0
+    def get_ft_sensor_data(self, is_raw=False):
+        return (0, list(self._ft_force) + [0.0, 0.0, 0.0])
     def iden_ft_sensor_load_offset(self): return 0
 
 
@@ -443,6 +465,59 @@ def test_unhomed_rail_refuses_cartesian(real_arm, wrapper):
     return "FAIL  un-homed rail accepted a Cartesian move"
 
 
+def test_ft_sensor_calls_really_do_drop_state(real_arm, wrapper):
+    """Negative control: prove the FakeArm's simulated state-drop has teeth.
+
+    Calls the raw SDK F/T-enable with NO readiness reassert after, and checks
+    set_position then fails exactly as it does on real hardware (controller
+    code 9, STATE_NOT_READY). Without this, the positive test below could pass
+    for a reason that has nothing to do with the real bug.
+    """
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    arm.arm.set_ft_sensor_enable(1)          # raw SDK call, no ready() after
+    try:
+        arm.set_position(x=0, y=-250, z=830)
+    except real_arm.RealArmError as exc:
+        if "code 9" not in str(exc):
+            return f"FAIL  wrong error after the simulated drop: {exc}"
+        return "PASS  an un-reasserted F/T call correctly blocks motion"
+    return "FAIL  set_position succeeded despite the simulated state drop"
+
+
+def test_zero_ft_sensor_leaves_the_arm_ready(real_arm, wrapper):
+    """zero_ft_sensor must reassert readiness after BOTH the enable and the
+    zero call, not just the first -- see zero_ft_sensor's own docstring for
+    why one reassert is not enough. If either is skipped, this fails exactly
+    as the hardware did on 2026-09-07."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    rc = arm.zero_ft_sensor()
+    if rc != 0:
+        return f"FAIL  zero_ft_sensor returned {rc}"
+    if arm.arm.get_state()[1] != 2:
+        return f"FAIL  arm left in state {arm.arm.get_state()[1]}, not ready (2)"
+    try:
+        arm.set_position(x=0, y=-250, z=830)
+    except real_arm.RealArmError as exc:
+        return f"FAIL  set_position after zero_ft_sensor still refused: {exc}"
+    return "PASS  zero_ft_sensor reasserts readiness after both F/T calls"
+
+
+def test_get_contact_force_n_is_the_force_magnitude(real_arm, wrapper):
+    """get_contact_force_n must report norm(Fx,Fy,Fz), not raw components or
+    torque -- a caller comparing this against a newton ceiling needs a single
+    number, and a wrong axis or an included torque term would silently pass
+    or fail a force-limited descent for the wrong reason."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    arm.arm._ft_force = [3.0, 4.0, 0.0]      # 3-4-5 triangle -> magnitude 5.0
+    got = arm.get_contact_force_n()
+    if abs(got - 5.0) > 1e-9:
+        return f"FAIL  got {got}, expected 5.0"
+    return "PASS  get_contact_force_n is the 3-axis force magnitude"
+
+
 TESTS = [
     test_missing_rail_api_raises_at_construction,
     test_both_sdk_generations_probe,
@@ -459,6 +534,9 @@ TESTS = [
     test_floor_constraint_blocks_the_benchtop,
     test_floor_tracks_the_tcp_offset,
     test_unhomed_rail_refuses_cartesian,
+    test_ft_sensor_calls_really_do_drop_state,
+    test_zero_ft_sensor_leaves_the_arm_ready,
+    test_get_contact_force_n_is_the_force_magnitude,
 ]
 
 

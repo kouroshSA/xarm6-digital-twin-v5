@@ -35,6 +35,8 @@ Two rules govern everything in this file:
 """
 from __future__ import annotations
 
+import math
+import time
 from typing import Optional
 
 from xarm.wrapper import XArmAPI
@@ -292,8 +294,7 @@ class RealXArmAPI:
         """Enable and zero the F/T sensor. Non-fatal: an arm without the sensor
         fitted should still be drivable, but the failure is reported, not hidden."""
         try:
-            self._check(self.arm.set_ft_sensor_enable(1), "set_ft_sensor_enable")
-            self._check(self.arm.set_ft_sensor_zero(), "set_ft_sensor_zero")
+            self.zero_ft_sensor()
             print("[RealArm] F/T sensor enabled and zeroed")
         except Exception as exc:  # noqa: BLE001
             print(f"[RealArm] F/T sensor unavailable ({type(exc).__name__}: {exc}); "
@@ -514,6 +515,60 @@ class RealXArmAPI:
     def get_ft_data(self):
         """(code, [fx, fy, fz, tx, ty, tz]) — filtered, load-compensated."""
         return self.arm.get_ft_sensor_data()
+
+    def zero_ft_sensor(self) -> int:
+        """Enable and (re-)zero the F/T sensor. Safe to call mid-task, with an
+        object already gripped.
+
+        Call this AFTER gripping something and BEFORE any force-limited
+        motion: zeroing with the load already on cancels its weight, so
+        subsequent `get_contact_force_n()` readings are contact force only,
+        not tare. `_enable_ft_sensor` calls this once at construction; nothing
+        stops a caller running a force-limited descent from calling it again
+        immediately before that descent.
+
+        Both `set_ft_sensor_enable` and `set_ft_sensor_zero` silently drop the
+        controller to state 5 (STATE_NOT_READY) — undocumented, and NOT
+        limited to the first call after connecting. `set_position` right
+        after either call fails with controller code 9 unless readiness is
+        reasserted. What actually matters is reasserting it after the LAST
+        state-dropping call before the next motion — a fake-SDK check proved
+        that a `ready()` only after `set_ft_sensor_enable` is not enough (the
+        later `set_ft_sensor_zero` drops it again), while a `ready()` only
+        after `set_ft_sensor_zero` is sufficient on its own. This method
+        reasserts after both anyway: cheap (`ready()` says it is "safe to
+        re-call"), and it protects a future edit that inserts another
+        F/T-touching call between the two lines without re-deriving this.
+        Measured live 2026-09-07 doing a force-limited tube insertion into
+        ice: cost two separate STATE_NOT_READY stalls across two exploratory
+        script runs — no damage, the arm kept holding the object throughout —
+        before the actual requirement (reassert after the last call) was
+        clear.
+        """
+        self._check(self.arm.set_ft_sensor_enable(1), "set_ft_sensor_enable")
+        time.sleep(0.5)
+        self.ready()
+        self._check(self.arm.set_ft_sensor_zero(), "set_ft_sensor_zero")
+        time.sleep(0.5)
+        self.ready()
+        return 0
+
+    def get_contact_force_n(self) -> float:
+        """Magnitude of the F/T sensor's force reading (Fx,Fy,Fz), newtons.
+
+        Only meaningful right after `zero_ft_sensor()` was called WITH the
+        current load already on the arm — otherwise this includes the load's
+        own weight, not contact force. Used to cap a force-limited descent at
+        an operator-chosen ceiling instead of relying on the collision
+        detector's threshold, which UFACTORY exposes only as a 0-5
+        sensitivity level with no published newton figure — see
+        `collision_sensitivity` on the underlying `XArmAPI`.
+        """
+        code, data = self.arm.get_ft_sensor_data()
+        if code != 0 or not data:
+            raise RealArmError(f"get_ft_sensor_data failed with code {code}")
+        fx, fy, fz = data[:3]
+        return math.sqrt(fx * fx + fy * fy + fz * fz)
 
     def identify_tool_load(self) -> int:
         """Re-identify the tool load. Run after EVERY effector change, or force
