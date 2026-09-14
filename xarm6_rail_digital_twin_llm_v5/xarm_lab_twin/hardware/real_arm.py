@@ -54,6 +54,34 @@ from arm_backend import (HOME_JOINTS_DEG, HOME_RAIL_MM,
 # rather than pretending a gripper is attached.
 EFFECTORS = ("standard", "bio", "vacuum", "none")
 
+#: What was verified on the UFACTORY Bio-Gripper G2, on the arm, 2026-09-14.
+#: Read this before writing any bio-gripper logic -- the geometry is not what
+#: the rest of this file's history assumes.
+#:
+#: **Its fingers are PERPENDICULAR to the tool axis.** Every `roll=180,
+#: pitch=0, yaw=0` pose in this repo -- which is all of them -- points the tool
+#: Z axis DOWN, and with the G2 that puts the fingers SIDEWAYS and presents the
+#: gripper's flat body to the bench. To point the fingers down, the tool Z axis
+#: must be HORIZONTAL (and the wrist camera then looks horizontally across the
+#: room, seeing neither bench nor fingers). Driving a `roll=180` descent with
+#: this tool fitted drove its body into the benchtop at 90 N on the day it was
+#: installed.
+#:
+#: Consequently **`tcp_offset = [0, 0, L]` cannot describe this tool**: the
+#: fingertip lies along tool -X, not tool +Z. Establishing its TCP needs a
+#: vector (and probably a rotation); xArm Studio's multi-point TCP calibration
+#: is the right instrument and involves no contact.
+#:
+#: Readback, all confirmed by actuating and watching the value move:
+#:   get_bio_gripper_g2_position()  ->  71 closed, 150 open
+#:   get_bio_gripper_status()       ->  8 once enabled
+#: `get_bio_gripper_sn` does not exist in SDK 1.18.4.
+#:
+#: **False positive to beware:** with the G2 fitted, the STANDARD gripper
+#: interface still answers -- get_gripper_version() -> (0, '4.1.1') and
+#: get_gripper_position() -> (0, 1). That is not evidence of a standard gripper.
+BIO_GRIPPER_G2_NOTES = "see comment above; fingers are perpendicular to tool Z"
+
 # Home pose lives in arm_backend and is shared with the twin. It was VERIFIED
 # ON THE REAL ARM (2026-08-21): tip 200 mm above the benchtop, ~300 mm forward,
 # j1 near 0 so reaching it never sweeps the arm sideways across the bench.
@@ -505,8 +533,15 @@ class RealXArmAPI:
             return "held", f"gripper held open by object (pos={pos})"
 
         if self.effector == "bio":
+            # Still uncalibrated: no hold/empty threshold has been measured on a
+            # real plate, so this cannot answer. What IS known, measured on the
+            # Bio-Gripper G2 on 2026-09-14, is recorded in BIO_GRIPPER_G2_NOTES
+            # at the top of this module -- read it before writing that threshold,
+            # because the G2's geometry is not what this file's history assumes.
             ret = self.arm.get_bio_gripper_status()
-            return "unknown", f"bio gripper status={ret}; thresholds not yet calibrated"
+            pos = getattr(self.arm, "get_bio_gripper_g2_position", lambda: (1, None))()
+            return "unknown", (f"bio gripper status={ret}, g2_position={pos}; "
+                               f"thresholds not yet calibrated")
 
         return "unknown", "no effector fitted"
 
