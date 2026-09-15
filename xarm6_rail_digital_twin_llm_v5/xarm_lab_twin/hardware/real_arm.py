@@ -605,6 +605,66 @@ class RealXArmAPI:
         fx, fy, fz = data[:3]
         return math.sqrt(fx * fx + fy * fy + fz * fz)
 
+    def descend_until_contact(self, x, y, z_from, z_floor, roll=180.0,
+                              pitch=0.0, yaw=0.0, step_mm=2.0, f_max_n=3.0,
+                              speed=6, settle_s=0.3, require_contact=True):
+        """Lower straight down in small steps until the F/T sensor feels contact.
+
+        Returns ``(z_stopped, force_n, contacted)`` in the SAME frame the poses
+        are given in. Call `zero_ft_sensor()` first, WITH the payload already
+        gripped, so the readings are contact force and not the payload's weight.
+
+        **Raises by default when no contact is found, and that is the whole
+        point of this method.** On 2026-09-15 an inline version of this loop ran
+        to its floor with the force never exceeding 0.17 N -- an unambiguous
+        "touched nothing" -- and the calling script opened the gripper anyway,
+        dropping a plate off the edge of the bench onto the floor. The caller's
+        next action after a descent is almost always *release*, so "no contact"
+        must be impossible to walk past by accident. Pass
+        ``require_contact=False`` only when probing for a surface you accept may
+        not be there, and then actually branch on the returned flag.
+
+        **`step_mm` must be chosen for the STIFFNESS of what may be hit, not for
+        the distance to cover.** Force is only sampled between steps, so
+        whatever travel remains in a step when contact begins is converted
+        straight into force. Against a compliant medium (ice, foam) the force
+        ramps over several steps and 5 mm is fine. Against a rigid surface
+        (benchtop, rack, hard stop) effectively all of it lands at once: a 10 mm
+        step into a benchtop measured **90 N** and tripped a controller fault,
+        where 1-2 mm gives a firm but harmless touch. The default is 2.0 for the
+        rigid case; raise it deliberately, never by habit.
+
+        `z_floor` is a hard backstop, not a target -- reaching it means the
+        surface was not where it was expected, which is exactly the condition
+        worth raising on.
+        """
+        z = float(z_from)
+        force = 0.0
+        while z - step_mm >= z_floor:
+            z -= step_mm
+            rc = self.set_position(x=x, y=y, z=z, roll=roll, pitch=pitch,
+                                   yaw=yaw, speed=speed, wait=True)
+            if rc != 0:
+                raise RealArmError(
+                    f"descend_until_contact: move to z={z:.1f} failed (rc={rc})")
+            time.sleep(settle_s)
+            force = self.get_contact_force_n()
+            err = self.arm.get_err_warn_code()[1][0]
+            if err:
+                raise RealArmError(
+                    f"descend_until_contact: controller error {err} at z={z:.1f} "
+                    f"(|F|={force:.2f} N) -- treat as a collision, retreat "
+                    f"straight up before anything else")
+            if force > f_max_n:
+                return z, force, True
+        if require_contact:
+            raise RealArmError(
+                f"descend_until_contact: reached the floor z={z:.1f} with "
+                f"|F|={force:.2f} N and never made contact. Nothing is beneath "
+                f"the tool where one was expected -- do NOT release a payload "
+                f"here. Verify the target from directly above before retrying.")
+        return z, force, False
+
     def identify_tool_load(self) -> int:
         """Re-identify the tool load. Run after EVERY effector change, or force
         thresholds drift with the tool and collision detection misreads."""

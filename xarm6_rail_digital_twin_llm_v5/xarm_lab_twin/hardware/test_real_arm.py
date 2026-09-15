@@ -79,8 +79,17 @@ class FakeArm:
         # cannot fail the way the hardware does.
         if self._state != 2:
             return 9
-        self.calls.append(("set_position", kw)); return 0
+        self.calls.append(("set_position", kw))
+        # Track the commanded pose so a simulated descent actually descends.
+        self._position = [kw.get(k, d) for k, d in
+                          zip(("x", "y", "z", "roll", "pitch", "yaw"),
+                              self._position)]
+        return 0
     def set_servo_angle(self, **kw): return 0
+    #: latched controller error/warn, as get_err_warn_code reports it. A test
+    #: sets this to simulate a fault mid-motion (e.g. 31, collision).
+    _err_warn = [0, 0]
+    def get_err_warn_code(self): return (0, list(self._err_warn))
     _position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     def get_position(self): return (0, list(self._position))
     def get_servo_angle(self): return (0, [0] * 6)
@@ -101,6 +110,12 @@ class FakeArm:
     #: force reading get_ft_sensor_data returns; a test can point this at
     #: something nonzero to check get_contact_force_n's magnitude math.
     _ft_force = [0.0, 0.0, 0.0]
+    #: BASE z of a simulated RIGID surface, or None for free space. Below it the
+    #: reported force rises at _STIFFNESS_N_PER_MM -- calibrated to the real
+    #: measurement of 2026-09-14, where a 10 mm overshoot into a benchtop
+    #: produced 90 N. That ratio is what makes the step-size test meaningful.
+    _contact_z = None
+    _STIFFNESS_N_PER_MM = 9.0
     def set_ft_sensor_enable(self, on):
         self._state = 5          # matches the real controller's undocumented drop
         return 0
@@ -108,6 +123,11 @@ class FakeArm:
         self._state = 5          # ditto -- both calls do this, not just the first
         return 0
     def get_ft_sensor_data(self, is_raw=False):
+        if self._contact_z is not None:
+            penetration = self._contact_z - self._position[2]
+            if penetration > 0:
+                return (0, [0.0, 0.0, penetration * self._STIFFNESS_N_PER_MM,
+                            0.0, 0.0, 0.0])
         return (0, list(self._ft_force) + [0.0, 0.0, 0.0])
     def iden_ft_sensor_load_offset(self): return 0
 
@@ -518,6 +538,67 @@ def test_get_contact_force_n_is_the_force_magnitude(real_arm, wrapper):
     return "PASS  get_contact_force_n is the 3-axis force magnitude"
 
 
+def test_descend_until_contact_finds_a_surface(real_arm, wrapper):
+    """The normal case: a surface is there, the descent stops on force."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    arm.arm._rail_pos = 350.0
+    arm.arm._contact_z = -60.0          # simulated rigid surface, BASE frame
+    # world z=830 -> base z=-17, so start clear of it and descend into it
+    z, f, hit = arm.descend_until_contact(x=0, y=-250, z_from=830, z_floor=740,
+                                          step_mm=2.0, f_max_n=3.0, settle_s=0.0)
+    if not hit:
+        return f"FAIL  surface at base -60 was not detected (stopped z={z}, F={f})"
+    if f <= 3.0:
+        return f"FAIL  reported contact at only {f:.2f} N, below the 3.0 ceiling"
+    return f"PASS  descent stops on contact (world z={z:.0f}, |F|={f:.1f} N)"
+
+
+def test_descend_until_contact_raises_when_nothing_is_there(real_arm, wrapper):
+    """The 2026-09-15 bug: the loop ran to its floor touching nothing and the
+    caller released a plate into thin air, off the edge of the bench.
+
+    No contact must be impossible to walk past -- it raises rather than
+    returning a value a caller can forget to check."""
+    real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+    arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+    arm.arm._rail_pos = 350.0
+    arm.arm._contact_z = None           # nothing beneath the tool
+    try:
+        arm.descend_until_contact(x=0, y=-250, z_from=830, z_floor=790,
+                                  step_mm=2.0, f_max_n=3.0, settle_s=0.0)
+    except real_arm.RealArmError as exc:
+        if "never made contact" not in str(exc):
+            return f"FAIL  raised, but not about contact: {exc}"
+        return "PASS  descent over empty space raises instead of returning"
+    return "FAIL  descended into nothing and returned normally -- a caller would release here"
+
+
+def test_descend_step_size_governs_impact_force(real_arm, wrapper):
+    """Why step_mm must match the target's STIFFNESS, not the distance.
+
+    Force is only sampled between steps, so the travel left in a step when
+    contact begins becomes force. Against a rigid surface a 10 mm step lands
+    roughly 5x the force of a 2 mm one -- which is how a benchtop probe reached
+    90 N on 2026-09-14. Pins the ratio so the docstring's advice stays true."""
+    peak = {}
+    for step in (2.0, 10.0):
+        real_arm.XArmAPI = lambda ip: FakeArm(ip, rail_api="motor")
+        arm = real_arm.RealXArmAPI("127.0.0.1", effector="none", ft_sensor=False)
+        arm.arm._rail_pos = 350.0
+        arm.arm._contact_z = -60.0
+        _, f, hit = arm.descend_until_contact(x=0, y=-250, z_from=830, z_floor=700,
+                                              step_mm=step, f_max_n=3.0,
+                                              settle_s=0.0)
+        if not hit:
+            return f"FAIL  step {step}: no contact detected"
+        peak[step] = f
+    if peak[10.0] <= peak[2.0]:
+        return f"FAIL  10mm step gave {peak[10.0]:.1f} N, not more than 2mm's {peak[2.0]:.1f} N"
+    return (f"PASS  step size governs impact force "
+            f"(2mm -> {peak[2.0]:.1f} N, 10mm -> {peak[10.0]:.1f} N)")
+
+
 TESTS = [
     test_missing_rail_api_raises_at_construction,
     test_both_sdk_generations_probe,
@@ -537,6 +618,9 @@ TESTS = [
     test_ft_sensor_calls_really_do_drop_state,
     test_zero_ft_sensor_leaves_the_arm_ready,
     test_get_contact_force_n_is_the_force_magnitude,
+    test_descend_until_contact_finds_a_surface,
+    test_descend_until_contact_raises_when_nothing_is_there,
+    test_descend_step_size_governs_impact_force,
 ]
 
 
