@@ -70,9 +70,16 @@ def main():
     parser.add_argument("--no-render", action="store_true")
     parser.add_argument("--no-record", action="store_true")
     parser.add_argument("--model", choices=list(MODELS.keys()), default=None)
-    parser.add_argument("--save-frames", action="store_true",
-                        help="Record image frames at 10Hz (off by default). "
-                             "Adds ~10-15MB per minute of recording.")
+    # ON by default since 2026-09-16. Every one of the 954 sessions recorded
+    # before that date has no images at all, which makes the whole archive
+    # unusable for training a vision policy -- the one thing the recording
+    # format exists to feed. The cost is ~10-15 MB per minute; the cost of the
+    # old default was an archive that cannot be used. Use --no-save-frames for
+    # a state-only run.
+    parser.add_argument("--save-frames", action=argparse.BooleanOptionalAction,
+                        default=True,
+                        help="Record image frames at 10Hz from the wrist camera "
+                             "(default: on). ~10-15MB per minute.")
     parser.add_argument("--loop", action="store_true",
                         help="Enable episode learning loop: retry on failure, "
                              "learning constraints between attempts.")

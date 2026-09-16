@@ -39,6 +39,10 @@ DATASET_UNITS = {
     "ctrl":        "actuator_setpoint (rail: m, joints: rad)",
     "body_poses":  "m + quat_wxyz",
     "weld_active": "bool",
+    # 1.0 = something is welded to the gripper. In sim this is a STATE
+    # ("is it holding"), not a command ("was it told to close"), because the
+    # twin has no actuated fingers -- see the note in _sample_one.
+    "gripper":     "bool_as_float (1.0 = holding)",
 }
 
 
@@ -71,6 +75,7 @@ class Recorder:
     def __init__(self, model, data, lock, interface, scene_xml="envs/lab_scene.xml",
                  state_hz=DEFAULT_STATE_HZ,
                  enable_frames: bool = False,
+                 frame_cameras=("cam_wrist_color",),
                  frame_hz: float = 10.0,
                  frame_width: int = 320,
                  frame_height: int = 240,
@@ -106,9 +111,19 @@ class Recorder:
             for i in self.eq_ids
         ]
 
-        # Optional frame rendering — disabled by default since image data is
-        # large. Use enable_frames=True + tune frame_hz/resolution to taste.
+        # Optional frame rendering. Image data is large, so this stays opt-in at
+        # the library level; the data-generating entry points turn it on.
+        #
+        # `frame_cameras` names scene cameras to render, one image stream each,
+        # landing at /frames/<name>/images. The default is the WRIST camera,
+        # because that is the view a policy trained on this data will actually
+        # have at inference time. The original free-orbit camera is still
+        # available by passing `frame_cameras=(None,)` -- it gives a pleasant
+        # third-person view of the cell, which is useful for a human reviewing
+        # a session and useless as a policy observation, since no camera on the
+        # real robot can reproduce it.
         self.enable_frames = enable_frames
+        self.frame_cameras = tuple(frame_cameras) if frame_cameras else (None,)
         self.frame_hz = frame_hz
         self.frame_width = frame_width
         self.frame_height = frame_height
@@ -116,20 +131,42 @@ class Recorder:
         self._frame_subsample = max(1, int(round(state_hz / max(frame_hz, 1e-6))))
         self._renderer = None
         self._frame_cam = None
+        self._cam_handles = {}
         self._frame_buffer = []
         if enable_frames:
             try:
-                self._renderer = mujoco.Renderer(
-                    model, height=frame_height, width=frame_width
-                )
-                self._frame_cam = mujoco.MjvCamera()
-                mujoco.mjv_defaultFreeCamera(model, self._frame_cam)
-                self._frame_cam.lookat[:]   = frame_camera_lookat
-                self._frame_cam.distance    = frame_camera_distance
-                self._frame_cam.azimuth     = frame_camera_azimuth
-                self._frame_cam.elevation   = frame_camera_elevation
+                # The Renderer is deliberately NOT built here. It owns an EGL
+                # context, and EGL contexts are thread-affine: a context made
+                # current on one thread raises EGL_BAD_ACCESS from another. The
+                # sampler runs on its own thread, so a renderer built here was
+                # unusable there -- every render threw, the exception was caught
+                # and printed, `rendered_frame` stayed None, and the session was
+                # written with no /frames group while still reporting success.
+                # That is why all 954 recordings made before 2026-09-16 have no
+                # images: not because nobody passed --save-frames, but because
+                # it never worked when they did. It is built lazily in
+                # _ensure_renderer(), on the thread that uses it.
+                self._frame_cam_cfg = dict(lookat=frame_camera_lookat,
+                                           distance=frame_camera_distance,
+                                           azimuth=frame_camera_azimuth,
+                                           elevation=frame_camera_elevation)
+                # Resolve each requested camera NOW, so a typo is a loud failure
+                # at construction rather than a silently missing image stream
+                # discovered after a long recording session.
+                for cam in self.frame_cameras:
+                    if cam is None:
+                        self._cam_handles["free"] = None   # resolved per-thread
+                        continue
+                    try:
+                        model.camera(cam)          # raises if the name is absent
+                    except KeyError as exc:
+                        raise RuntimeError(
+                            f"frame camera {cam!r} is not in the scene; available: "
+                            f"{[mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_CAMERA, i) for i in range(model.ncam)]}"
+                        ) from exc
+                    self._cam_handles[cam] = cam
             except Exception as e:
-                print(f"[Recorder] Frame renderer init failed ({e}) -- frames disabled.")
+                print(f"[Recorder] Frame camera setup failed ({e}) -- frames disabled.")
                 print("[Recorder] Tip: on Linux, try setting MUJOCO_GL=egl or "
                       "MUJOCO_GL=osmesa for offscreen rendering when the viewer "
                       "is also using the GL context.")
@@ -261,17 +298,67 @@ class Recorder:
             self._commands_file.write(json.dumps(record) + "\n")
             self._session.n_commands += 1
 
+    def _ensure_renderer(self) -> bool:
+        """Build the Renderer on the CALLING thread. See the note in __init__.
+
+        Returns False once if construction fails, and disables frames so the
+        failure is stated once rather than per sample. A recording that cannot
+        render must not quietly look like one that had nothing to render.
+        """
+        if self._renderer is not None:
+            return True
+        if not self.enable_frames:
+            return False
+        try:
+            self._renderer = mujoco.Renderer(
+                self.model, height=self.frame_height, width=self.frame_width)
+            self._frame_cam = mujoco.MjvCamera()
+            mujoco.mjv_defaultFreeCamera(self.model, self._frame_cam)
+            cfg = getattr(self, "_frame_cam_cfg", {})
+            if cfg:
+                self._frame_cam.lookat[:] = cfg["lookat"]
+                self._frame_cam.distance  = cfg["distance"]
+                self._frame_cam.azimuth   = cfg["azimuth"]
+                self._frame_cam.elevation = cfg["elevation"]
+            # the free camera resolves to the MjvCamera we just built
+            for k in list(self._cam_handles):
+                if self._cam_handles[k] is None:
+                    self._cam_handles[k] = self._frame_cam
+            return True
+        except Exception as e:
+            print(f"[Recorder] Renderer construction failed on the sampler "
+                  f"thread ({e}) -- FRAMES DISABLED for this session.")
+            print("[Recorder] On Linux try MUJOCO_GL=egl (headless) or osmesa; "
+                  "a live GLFW viewer can also contend for the GL context.")
+            self.enable_frames = False
+            self._renderer = None
+            return False
+
+    def _close_renderer(self) -> None:
+        """Release the renderer on the thread that created it."""
+        r, self._renderer = self._renderer, None
+        if r is not None:
+            try:
+                r.close()
+            except Exception:
+                pass
+
     def _state_sampler(self):
         period = 1.0 / self.state_hz
         next_t = time.time()
-        while self._recording:
-            self._sample_one()
-            next_t += period
-            sleep_for = next_t - time.time()
-            if sleep_for > 0:
-                time.sleep(sleep_for)
-            else:
-                next_t = time.time()
+        if self.enable_frames:
+            self._ensure_renderer()      # on THIS thread, where it will be used
+        try:
+            while self._recording:
+                self._sample_one()
+                next_t += period
+                sleep_for = next_t - time.time()
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                else:
+                    next_t = time.time()
+        finally:
+            self._close_renderer()
 
     def _sample_one(self):
         rendered_frame = None
@@ -306,11 +393,14 @@ class Recorder:
             # the scene through model/data; safest to do it while holding
             # the sim lock so mj_step doesn't mutate state mid-render.
             if do_render:
-                try:
-                    self._renderer.update_scene(self.data, camera=self._frame_cam)
-                    rendered_frame = self._renderer.render().astype(np.uint8)
-                except Exception as e:
-                    print(f"[Recorder] frame render failed: {e}")
+                rendered_frame = {}
+                for name, handle in self._cam_handles.items():
+                    try:
+                        self._renderer.update_scene(self.data, camera=handle)
+                        rendered_frame[name] = self._renderer.render().astype(np.uint8)
+                    except Exception as e:
+                        print(f"[Recorder] frame render failed for {name}: {e}")
+                if not rendered_frame:
                     rendered_frame = None
 
         from transforms3d.euler import mat2euler
@@ -325,9 +415,22 @@ class Recorder:
             "ctrl":       ctrl,
             "body_poses": body_poses,
             "weld_active": weld_active,
+            # One scalar the learning pipeline can use as the gripper channel.
+            # In THIS sim the gripper is not actuated -- grasping is a magnetic
+            # <weld> (see CLAUDE.md), so the only ground truth available is
+            # "is something welded to the gripper right now". 1.0 = holding.
+            #
+            # It is therefore a STATE (is it holding), not a COMMAND (was it
+            # told to close), and the two differ on any failed grasp. A policy
+            # trained on this channel learns what a successful grasp looks
+            # like, not what the operator asked for. On real hardware the
+            # honest source is the jaw position (0-850 on this cell), which
+            # this recorder cannot see -- it is handed model/data, not an arm.
+            # Fix that before treating real recordings as comparable.
+            "gripper": np.float32(1.0 if weld_active.any() else 0.0),
         })
         if rendered_frame is not None:
-            self._frame_buffer.append({"t_wall": wall_t, "image": rendered_frame})
+            self._frame_buffer.append({"t_wall": wall_t, "images": rendered_frame})
         self._sample_count += 1
 
     def _write_trajectory(self):
@@ -345,6 +448,7 @@ class Recorder:
             # New (per-sample world state of free bodies + weld activations)
             f.create_dataset("body_poses", data=np.stack([s["body_poses"] for s in b]).astype(np.float32), compression="gzip")
             f.create_dataset("weld_active", data=np.stack([s["weld_active"] for s in b]).astype(np.uint8), compression="gzip")
+            f.create_dataset("gripper",    data=np.array([s["gripper"] for s in b], dtype=np.float32), compression="gzip")
 
             # Declare units per dataset. `body_poses` is the odd one out -- it is
             # metres/quaternion straight from MuJoCo while every other spatial
@@ -366,19 +470,32 @@ class Recorder:
 
             # Frames (only if enabled and any frames captured)
             if self.enable_frames and self._frame_buffer:
+                # /frames/t_wall is shared; each camera gets its own subgroup,
+                # so a consumer can take the view it wants without decoding the
+                # rest. No existing recording had /frames at all (0 of 954 on
+                # 2026-09-16), so there was no legacy layout to preserve here.
                 g = f.create_group("frames")
-                imgs = np.stack([fr["image"] for fr in self._frame_buffer]).astype(np.uint8)
-                g.create_dataset("images", data=imgs, compression="gzip",
-                                 compression_opts=9, chunks=(1, self.frame_height,
-                                                              self.frame_width, 3))
                 g.create_dataset("t_wall",
                                  data=np.array([fr["t_wall"] for fr in self._frame_buffer],
                                                dtype=np.float64),
                                  compression="gzip")
+                cam_names = sorted({k for fr in self._frame_buffer for k in fr["images"]})
+                for cam in cam_names:
+                    frames = [fr["images"][cam] for fr in self._frame_buffer
+                              if cam in fr["images"]]
+                    if not frames:
+                        continue
+                    cg = g.create_group(cam)
+                    cg.create_dataset(
+                        "images", data=np.stack(frames).astype(np.uint8),
+                        compression="gzip", compression_opts=9,
+                        chunks=(1, self.frame_height, self.frame_width, 3))
+                    cg.attrs["n_frames"] = len(frames)
                 g.attrs["frame_hz"] = self.frame_hz
                 g.attrs["width"]    = self.frame_width
                 g.attrs["height"]   = self.frame_height
                 g.attrs["n_frames"] = len(self._frame_buffer)
+                g.attrs["cameras"]  = [str(c) for c in cam_names]
         self._state_buffer = []
         self._frame_buffer = []
 

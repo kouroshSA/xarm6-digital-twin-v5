@@ -333,9 +333,34 @@ Every script that touches the sim writes one folder per session under
 
 - `metadata.json` — task label, model used, outcome, augmentation config
 - `commands.jsonl` — sparse action log (one JSON object per line)
-- `trajectory.h5` — 60 Hz state: rail/joints/EE/body poses/weld states, plus
-  optional 10 Hz image frames in a `/frames` group (`--save-frames`)
+- `trajectory.h5` — 60 Hz state: rail/joints/EE/body poses/weld states/gripper,
+  plus 10 Hz image frames in a `/frames` group (`--save-frames`, **on by
+  default since 2026-09-16**)
 - `llm_session.jsonl` — LLM prompt + response + dispatch trail (LLM runs only)
+
+**`/frames` layout** — `/frames/t_wall` is shared, and each camera gets its own
+subgroup: `/frames/<camera>/images`, uint8 `(N, H, W, 3)`. Which cameras are
+recorded is set by `Recorder(frame_cameras=...)`, defaulting to
+`("cam_wrist_color",)` — the view a policy will actually have at inference.
+Pass `frame_cameras=(None,)` for the old free-orbit third-person camera, which
+is good for a human reviewing a session and useless as a policy observation.
+
+**`gripper`** — one float32 per state sample, `1.0` when something is welded to
+the gripper. It is a STATE ("is it holding"), not a COMMAND ("was it told to
+close"), because the twin has no actuated fingers (see the magnetic-gripper
+hack below). The two differ on any failed grasp. On real hardware the honest
+source is jaw position, which the Recorder cannot currently see — it is handed
+`model`/`data`, not an arm.
+
+**Frame rendering was broken from its introduction until 2026-09-16** and
+nobody noticed, because the failure was caught, printed, and then the session
+was written without a `/frames` group while still reporting success — defect
+class #2. The `Renderer` owns an EGL context and EGL contexts are
+thread-affine; it was built in `Recorder.__init__` (caller's thread) and used
+from the sampler thread, so every render raised `EGL_BAD_ACCESS`. All 954
+recordings made before that date have no images at all. It is now built lazily
+inside `_ensure_renderer()`, on the sampler thread, and a construction failure
+disables frames loudly and once.
 
 The format is designed for VLA training data export. When adding new
 quantities to the trajectory, update both `recording.py::_sample_one()` and
