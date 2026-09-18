@@ -162,6 +162,48 @@ MEASURED_BASE_Z_DELTA_MM: float = (BASE_AT_RAIL_ZERO_MM[2]
 #: LESS vertically, so 217 is the conservative figure.
 TOOL_LENGTH_MM: float = 217.0
 
+#: Distance the Gripper G2 FINGERTIPS sit ABOVE the configured TCP, mm.
+#:
+#: MEASURED on the real arm 2026-09-18, with `tcp_offset` = [0,0,217,...]: the
+#: jaws were closed to a single probe, the F/T zeroed, and the tool descended in
+#: 1 mm steps onto a plate whose top was at base z = 34 (white opaque plate, so
+#: depth is trustworthy -- clear labware returns ~1% valid depth and must not be
+#: used for this). Contact came at TCP z = 4.0, the force stepping 0.11 N ->
+#: 18.52 N in a single millimetre:
+#:
+#:     fingertip_z = TCP_z + 30
+#:
+#: **So TOOL_LENGTH_MM above is the ORIGINAL standard gripper's value and does
+#: NOT describe the Gripper G2 fitted since 2026-09-14.** With the G2, a TCP set
+#: to 217 is positioned 30 mm BEYOND the fingertips; the G2's real flange-to-tip
+#: is about 187 mm. `TOOL_LENGTH_MM` is deliberately left at 217 because it only
+#: feeds `floor_z_for_tcp`, where over-stating the tool length errs SAFE: the
+#: floor holds the tips 30 mm further from the bench than asked. Correcting it
+#: would LOWER the floor, which should not happen on one measurement -- re-measure
+#: with `scripts/calibrate_tool.py` and this probe before changing it.
+#:
+#: What it is NOT safe to keep guessing is grasp height. Assuming the tips hang
+#: *below* the TCP (they do not) puts a grasp ~38 mm too high, which closes the
+#: jaws in clear air while every call still returns rc=0. Use
+#: `grasp_z_for_surface()` rather than re-deriving this per script.
+GRIPPER_G2_TIP_ABOVE_TCP_MM: float = 30.0
+
+
+def grasp_z_for_surface(surface_z_mm: float,
+                        depth_mm: float = 10.0,
+                        tip_above_tcp: float = GRIPPER_G2_TIP_ABOVE_TCP_MM) -> float:
+    """Commanded TCP z that puts the fingertips `depth_mm` BELOW a surface.
+
+    `surface_z_mm` is the measured top of the thing being grasped, in the same
+    frame the controller reports (base z, mm). `depth_mm` is how far down the
+    object's side wall the tips should sit -- 10 mm is a reasonable default for a
+    ~15 mm SBS microplate, which leaves the tips clear of the bay floor.
+
+    With `depth_mm = 0` this returns the z at which the tips just touch, which is
+    what the 2026-09-18 probe measured directly (surface 34 -> touch at 4.0).
+    """
+    return surface_z_mm - depth_mm - tip_above_tcp
+
 # ---------------------------------------------------------------------------
 # Measured cell configuration
 #

@@ -599,6 +599,46 @@ def test_descend_step_size_governs_impact_force(real_arm, wrapper):
             f"(2mm -> {peak[2.0]:.1f} N, 10mm -> {peak[10.0]:.1f} N)")
 
 
+
+def test_grasp_height_reproduces_the_measured_fingertip_contact(real_arm, wrapper):
+    """The helper must reproduce the 2026-09-18 probe, and reject the old guess.
+
+    Consumer-level, deliberately: "does a constant exist" passes for any number,
+    including a wrong one. What matters is the z a caller is handed for a surface
+    whose height is known, because that z is what decides whether the jaws close
+    on the object or on air.
+    """
+    from arm_backend import grasp_z_for_surface, GRIPPER_G2_TIP_ABOVE_TCP_MM
+
+    # Measured: plate top at base z=34, tips made contact at TCP z=4.0.
+    touch = grasp_z_for_surface(34.0, depth_mm=0.0)
+    if abs(touch - 4.0) > 0.01:
+        return (f"FAIL  test_grasp_height_reproduces_the_measured_fingertip_contact: "
+                f"a surface at 34 should be touched at TCP 4.0, got {touch:.2f}")
+
+    # A 10 mm bite into the side wall.
+    grip = grasp_z_for_surface(34.0, depth_mm=10.0)
+    if abs(grip - (-6.0)) > 0.01:
+        return (f"FAIL  test_grasp_height_reproduces_the_measured_fingertip_contact: "
+                f"10 mm below a 34 surface should be TCP -6.0, got {grip:.2f}")
+
+    # Negative control: the discarded model said the tips hang BELOW the TCP.
+    # It would put the grasp 2*30 mm high -- jaws closing in clear air.
+    wrong = 34.0 - 10.0 + 8.0           # "tips 8 mm below the TCP"
+    if abs(wrong - grip) < 30.0:
+        return ("FAIL  test_grasp_height_reproduces_the_measured_fingertip_contact: "
+                "the negative control is too close to the correct answer to have "
+                "teeth; it must differ by the full tip offset")
+
+    if GRIPPER_G2_TIP_ABOVE_TCP_MM <= 0:
+        return ("FAIL  test_grasp_height_reproduces_the_measured_fingertip_contact: "
+                "the tips sit ABOVE the TCP; a non-positive offset restores the bug")
+
+    return (f"ok    grasp height: surface 34 -> touch {touch:.1f}, grip {grip:.1f}; "
+            f"the old 'tips below TCP' guess would have said {wrong:.1f} "
+            f"({wrong - grip:.0f} mm high)")
+
+
 TESTS = [
     test_missing_rail_api_raises_at_construction,
     test_both_sdk_generations_probe,
@@ -621,6 +661,7 @@ TESTS = [
     test_descend_until_contact_finds_a_surface,
     test_descend_until_contact_raises_when_nothing_is_there,
     test_descend_step_size_governs_impact_force,
+    test_grasp_height_reproduces_the_measured_fingertip_contact,
 ]
 
 
