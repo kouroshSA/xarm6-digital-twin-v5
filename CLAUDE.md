@@ -276,6 +276,67 @@ docstring for the design constraint below.
   which body the weld actually holds and how far it rose, not the return code.
   A confident grasp of the wrong cube returns 0 and looks fine in the log.
 
+## SpaceMouse teleop
+
+3Dconnexion SpaceMouse teleoperation of the twin lives in
+`xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/teleop_sm/` and runs via
+`scripts/run_spacemouse.py` — see [`teleop_sm/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/teleop_sm/README.md)
+and [`docs/spacemouse_setup.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/docs/spacemouse_setup.md).
+Sim-only, and **no LeRobot dependency** — it reuses the existing
+`SimXArmAPI → IKSolver → ctrl → MuJoCo → Recorder` path, with `vr/`'s IK,
+workspace clamp and smoother, so it runs under Python 3.11.
+
+```bash
+python scripts/run_spacemouse.py --device pro        # or --device compact
+```
+
+- **Install is three pieces, not two.** `spacenavd` is the daemon; **`libspnav0`
+  / `libspnav-dev` is the client library the Python binding `dlopen()`s**, and
+  installing the daemon alone fails with `libspnav.so: cannot open shared
+  object file`. Then `pip install "spnav @ git+…"`.
+- Unlike `run_vr.py` this launches the **interactive viewer** and must NOT set
+  `MUJOCO_GL=egl` — the operator watches the monitor, and an EGL context would
+  contend for the GL device.
+- **A SpaceMouse is a velocity jog, not a pose tracker**, so there is no clutch.
+  The receiver integrates deflection into a target pose it *owns*; re-reading
+  the EE each tick would feed IK tracking error back into the command and the
+  target would creep or run away.
+- **Smoothing is an output filter, never part of the integrator state.** Writing
+  the smoother's output back into the target makes the smoother's state *be*
+  the target, so each tick advances by only `alpha*delta` and the jog silently
+  runs at 30% of the requested speed. This was a real bug during development;
+  `test_target_integrates_over_time` asserts distance over a full second, which
+  is what catches it — a single-tick test would not.
+- On IK failure the target is **frozen at the last feasible pose**, otherwise
+  the operator integrates into unreachable space and the arm leaps when it
+  becomes reachable again.
+- 6 joints + rail = 7 DOF against 6 axes, so `MODE_CYCLE` switches between arm
+  and rail rather than auto-allocating. Explicit beats clever: an operator can
+  predict a mode, not a heuristic.
+- **Two things are PROVISIONAL until measured on the device**: the axis
+  permutation in `teleop_sm/config.py` (vendor's matrix, and spacenavd already
+  applies `swap y-z invert y-z` before we see the axes) and the Pro's button
+  indices (the daemon remaps them). `scripts/spacemouse_probe.py` settles both;
+  `--dump` writes fixtures that `teleop_sm.device.events_from_dump()` replays.
+- Tests need no hardware: `python -m teleop_sm.test_device`,
+  `python -m teleop_sm.test_receiver`.
+
+## Pose geometry helpers
+
+`xarm_lab_twin/geometry/` holds SE(3) interpolation, smoothing and dwell
+detection vendored from InternRobotics/Aether (MIT) — see
+[`geometry/NOTICE.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/geometry/NOTICE.md)
+for provenance and the two upstream bugs fixed on the way in. Pure NumPy/SciPy;
+**no torch** (upstream's module imports torch/einops/plyfile at the top, which
+is why these are vendored rather than depended on).
+
+Deliberately not wired into anything yet — importable and tested. Intended
+consumers are listed in `geometry/README.md`.
+
+- `interpolate_poses(p1, p2, weight)`: **`weight` is p1's share**, so 1.0 → p1
+  and 0.0 → p2 — the opposite of the `t` convention in `slerp` beside it.
+- Quaternions are SciPy's `(x,y,z,w)`, **not** MuJoCo's `(w,x,y,z)`.
+
 ## VR teleop
 
 Meta Quest 3 teleoperation of the digital twin lives in
