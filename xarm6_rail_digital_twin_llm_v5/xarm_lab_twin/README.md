@@ -353,6 +353,31 @@ This vocabulary is what lets tasks like "push the green bin closer to
 the blue bin" be physically gradable; otherwise the grader has no
 substring to match against.
 
+### Teleoperation with a SpaceMouse
+
+Jog the twin by hand with a 3Dconnexion SpaceMouse and record replayable
+sessions. Sim-only; no LeRobot dependency, so it runs in `xarm6sim` (3.11).
+
+```bash
+# install: THREE pieces, not two
+sudo apt install spacenavd libspnav0 libspnav-dev
+sudo systemctl enable --now spacenavd
+pip install "spnav @ git+https://github.com/kazoo-osaro/spnav"
+
+python scripts/spacemouse_probe.py           # confirm the device is seen
+python scripts/run_spacemouse.py --device pro
+```
+
+`spacenavd` is the **daemon**; `libspnav` is the **client library** the Python
+binding loads. Installing the daemon alone fails with `libspnav.so: cannot open
+shared object file` — this catches everyone once.
+
+Six-axis jog of the TCP, a rail mode for the 7th DOF, gripper toggle, and
+`Recorder` sessions tagged `spacemouse_teleop` that `scripts/export_lerobot.py`
+consumes with no changes. Full detail in
+[`teleop_sm/README.md`](teleop_sm/README.md); setup and troubleshooting in
+[`docs/spacemouse_setup.md`](docs/spacemouse_setup.md).
+
 ### Inspecting a recording
 
 ```python
