@@ -24,6 +24,7 @@ import numpy as np
 from teleop_sm import config
 from teleop_sm.buttons import Action
 from teleop_sm.receiver import Mode, SpaceMouseReceiver
+from sim.mujoco_env import RAIL_ACT
 from vr import config as vr_config
 
 
@@ -36,11 +37,16 @@ class _FakeIK:
     def __init__(self):
         self.joint_ids = list(range(6))
         self.fail = False
+        # Optional reach boundary: poses with x beyond this fail, like a real
+        # workspace edge (as opposed to `fail`, which fails everything).
+        self.max_x_m = None
         self.calls = []
 
     def solve(self, target_pos_m, target_rot=None, seed_q=None):
         self.calls.append(np.asarray(target_pos_m, float).copy())
         if self.fail:
+            return None
+        if self.max_x_m is not None and target_pos_m[0] > self.max_x_m:
             return None
         return np.zeros(6)
 
@@ -224,8 +230,15 @@ def test_target_freezes_on_ik_failure():
     for _ in range(10):
         rx.tick(_axes(tx=1.0), set(), set(), 0.02)
 
-    frozen = rx._target_pos_m.copy()
+    before = rx._target_pos_m.copy()
     arm.ik_solver.fail = True
+
+    # The first failing tick rolls back to the last pose IK accepted, which is
+    # the smoothed one and so sits a little behind the raw target. From then
+    # on the target must not move however long the operator keeps pushing.
+    rx.tick(_axes(tx=1.0), set(), set(), 0.02)
+    frozen = rx._target_pos_m.copy()
+    assert frozen[0] <= before[0] + 1e-12, "rollback went forward, not back"
 
     for _ in range(50):
         rx.tick(_axes(tx=1.0), set(), set(), 0.02)
@@ -251,6 +264,67 @@ def test_recovers_after_ik_returns():
     assert rx.ik_fail is False, "ik_fail stuck on after IK recovered"
     assert rx._target_pos_m[0] > before[0], "jog did not resume"
 
+
+def test_first_jog_tick_starts_from_the_arm():
+    """The smoother runs in mm; seeding it in metres made the first commanded
+    pose ~0.3x the real one. One tick of a small jog must land within a few
+    mm of where the arm already is."""
+    arm, rx = _rx()
+    rx.tick(_axes(tx=0.1), set(), set(), 0.02)
+    first = arm.ik_solver.calls[0]
+    err_mm = np.linalg.norm(first - arm.data.site_xpos[0]) * 1000.0
+    assert err_mm < 5.0, (
+        f"first IK target is {err_mm:.0f} mm from the arm: {first} vs "
+        f"{arm.data.site_xpos[0]}")
+
+def test_backing_off_a_reach_boundary_recovers():
+    """The rollback pose must be one IK actually accepted.
+
+    IK is solved on the SMOOTHED position, which lags the raw target by a few
+    ticks. If the rollback saved the raw target instead, a boundary crossing
+    could save an unreachable pose as "last good", and every later tick would
+    roll back to it -- pulling the puck back could never escape, and the arm
+    stayed locked until reset or home.
+    """
+    arm, rx = _rx()
+    rx.tick(_axes(), set(), set(), 0.02)
+    start_x = rx._target_pos_m[0]
+    arm.ik_solver.max_x_m = start_x + 0.05          # 50 mm of reach in +X
+
+    for _ in range(100):                             # push well past the edge
+        rx.tick(_axes(tx=1.0), set(), set(), 0.02)
+    assert rx.ik_fail is True, "boundary never reached; test is not testing"
+
+    for _ in range(20):                              # pull back
+        rx.tick(_axes(tx=-1.0), set(), set(), 0.02)
+    assert rx.ik_fail is False, (
+        "backing away from the reach boundary did not recover: the rollback "
+        "pose is itself unreachable")
+    assert rx._target_pos_m[0] < start_x + 0.05
+
+
+def test_home_refreshes_the_rail_position():
+    """go_home moves the carriage. A stale rail_mm would make the next rail
+    jog write the pre-home position into ctrl -- an unpaced jump back."""
+    arm, rx = _rx()
+    rx.tick(_axes(), set(), set(), 0.02)
+    held = {i for i, a in rx.hold_map.items() if a is Action.RAIL_MODE}
+    for _ in range(25):
+        rx.tick(_axes(ty=1.0), set(), held, 0.02)
+    assert rx.rail_mm > 0
+
+    home_rail_m = 0.123
+
+    def _go_home(wait=False):
+        arm.home_calls += 1
+        arm.data.ctrl[arm.act_ids[RAIL_ACT]] = home_rail_m
+        return 0
+    arm.go_home = _go_home
+
+    rx.dispatch(Action.HOME)
+    assert abs(rx.rail_mm - home_rail_m * 1000.0) < 1e-6, (
+        f"rail_mm {rx.rail_mm:.1f} not refreshed after home "
+        f"(carriage is at {home_rail_m * 1000:.1f})")
 
 # ---------------------------------------------------------------------------
 # rail mode

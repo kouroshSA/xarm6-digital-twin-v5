@@ -113,7 +113,10 @@ class SpaceMouseReceiver:
         self._target_rot = rot.copy()
         self._last_good_pos_m = pos.copy()
         self._last_good_rot = rot.copy()
-        self.smoother.reset(pos)
+        # The smoother runs in MILLIMETRES (see _update_arm). Seeding it in
+        # metres made the first jog tick after startup/reset/home command a
+        # pose ~0.3x the real one -- a lunge toward the base on real IK.
+        self.smoother.reset(pos * 1000.0)
 
     def resync(self) -> None:
         """Re-anchor the target on the arm. Public because the operator needs
@@ -229,8 +232,13 @@ class SpaceMouseReceiver:
             self._target_rot = self._last_good_rot.copy()
             self.smoother.reset(self._target_pos_m * 1000.0)
         else:
-            self._last_good_pos_m = self._target_pos_m.copy()
-            self._last_good_rot = self._target_rot.copy()
+            # Save the pose IK actually ACCEPTED -- the smoothed one -- not the
+            # raw target, which runs a few ticks ahead of it. Saving the raw
+            # target let an unreachable pose become "last good" at a boundary
+            # crossing; every later tick then rolled back to it and failed
+            # again, and backing off could never escape.
+            self._last_good_pos_m = smoothed_mm / 1000.0
+            self._last_good_rot = target_rot.copy()
 
     def _servo_direct(self, target_pos_m: np.ndarray, target_rot: np.ndarray) -> None:
         """Solve IK once and write the six joint targets straight into ctrl.
@@ -319,9 +327,7 @@ class SpaceMouseReceiver:
             self.rec.log_command("reset_scene", {})
         # The arm has teleported; the integrator must follow it.
         self.resync()
-        with self.arm.lock:
-            self.rail_mm = float(
-                self.arm.data.ctrl[self.arm.act_ids[RAIL_ACT]]) * 1000.0
+        self._sync_rail()
         print("[SM] scene reset")
 
     def _go_home(self) -> None:
@@ -329,7 +335,16 @@ class SpaceMouseReceiver:
         if self.rec is not None and self.rec.is_recording:
             self.rec.log_command("gohome", {"rc": rc})
         self.resync()
+        # go_home moves the carriage too; a stale rail_mm would make the next
+        # rail jog write the pre-home position into ctrl, an unpaced jump back.
+        self._sync_rail()
         print(f"[SM] home (rc={rc})")
+
+    def _sync_rail(self) -> None:
+        """Re-read the rail command after something other than the jog moved it."""
+        with self.arm.lock:
+            self.rail_mm = float(
+                self.arm.data.ctrl[self.arm.act_ids[RAIL_ACT]]) * 1000.0
 
     # ---- HUD --------------------------------------------------------------
     def status(self) -> dict:

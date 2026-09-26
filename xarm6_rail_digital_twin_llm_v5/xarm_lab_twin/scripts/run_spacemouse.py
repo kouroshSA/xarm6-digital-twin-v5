@@ -124,9 +124,18 @@ def main() -> int:
 
     dt = 1.0 / config.FREQUENCY
     warned_idle = False
+    rc = 0
     try:
         while True:
             t0 = time.time()
+
+            # A dead reader thread leaves its last deflection in the axes, and
+            # the integrator would keep jogging on it until the workspace clamp.
+            if not device.is_alive():
+                print("[SM] the device thread died — stopping so the last "
+                      "deflection is not replayed forever.")
+                rc = 2
+                break
 
             state = device.state_twin()
             edges = device.pending_edges()
@@ -152,7 +161,7 @@ def main() -> int:
             path = receiver.rec.stop(kept=True, task_label=args.task_label)
             print(f"[SM] saved in-progress take -> {path}")
         arm.disconnect()
-    return 0
+    return rc
 
 
 if __name__ == "__main__":
