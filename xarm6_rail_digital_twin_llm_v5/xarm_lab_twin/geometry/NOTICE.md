@@ -27,7 +27,7 @@ has Procrustes alignment in `perception/extrinsic_calibration.py`.
 
 ## Deliberate divergences from upstream
 
-Both are bug fixes found while vendoring; the *maths* is untouched.
+All are bug fixes found while vendoring or in review.
 
 1. **`smooth_poses` — unknown `method`.** Upstream leaves `smoothed_trans` /
    `smoothed_quats` unassigned and dies on
@@ -43,6 +43,17 @@ Both are bug fixes found while vendoring; the *maths* is untouched.
    `AssertionError: window_size must be odd` on normal data. The window is now
    rounded up to the next odd value. Covered by
    `test_adaptive_pose_smoothing_survives_even_window`.
+
+3. **`smooth_poses(method="ma")` — zero padding.** Upstream smooths with
+   `np.convolve(..., mode="same")`, which pads with zeros: a still pose at
+   (1, 2, 3) m came out as (0.6, 1.2, 1.8) at the first and last frames with
+   window 5, and for N < window the output was misaligned (a constant 1.0
+   became [0.29, 0.43, 0.43]) with no error. Now `uniform_filter1d(mode=
+   "nearest")`, the same edge handling the gaussian and savgol branches
+   already use. The interior of a long sequence is unchanged. Covered by
+   `test_smooth_poses_leaves_a_constant_sequence_alone`, which runs every
+   method: the pre-existing test checked only shape and finiteness, and all
+   13 tests passed with `ma` or `savgol` turned into a no-op.
 
 Note also, for anyone comparing against the commissioning work order: the
 hemisphere-flip pre-pass and quaternion renormalisation that the work order

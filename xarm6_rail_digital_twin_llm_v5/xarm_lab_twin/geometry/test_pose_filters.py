@@ -203,6 +203,25 @@ def test_smooth_poses_all_methods_run():
         assert np.isfinite(out).all(), f"{method} produced non-finite values"
 
 
+def test_smooth_poses_leaves_a_constant_sequence_alone():
+    """Smoothing a pose that never moves must return that pose, at every frame
+    including the ends, and also when the sequence is shorter than the window.
+
+    Shape-and-finiteness checks cannot see this: upstream's 'ma' convolved with
+    zero padding, which pulled a still pose at (1, 2, 3) m to (0.6, 1.2, 1.8)
+    at both ends, and returned [0.29, 0.43, 0.43] for a constant 1.0 when
+    N < window -- all finite, all the right shape.
+    """
+    rot = R.from_euler("xyz", [20, -35, 110], degrees=True).as_matrix()
+    for n in (3, 30):
+        poses = np.stack([_pose(rot, [1.0, 2.0, 3.0])] * n)
+        for method in ("gaussian", "savgol", "ma"):
+            out = pf.smooth_poses(poses, window_size=7, method=method)
+            assert np.allclose(out, poses, atol=1e-9), (
+                f"{method!r}, N={n}: constant sequence changed, worst "
+                f"{np.abs(out - poses).max():.3g}")
+
+
 # ---------------------------------------------------------------------------
 # dwell detection
 # ---------------------------------------------------------------------------

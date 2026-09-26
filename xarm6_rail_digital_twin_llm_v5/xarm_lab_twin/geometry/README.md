@@ -40,6 +40,13 @@ loudly rather than silently reversing every interpolation.
 SciPy's ordering is used throughout because these functions are built on
 `scipy.spatial.transform`. Convert at the boundary if you feed MuJoCo poses in.
 
+**Translations are in METRES; the twin works in millimetres.** The hard-coded
+constants in `detect_static_sequence` (`threshold=0.01`) and
+`adaptive_pose_smoothing` (`0.1 / motion`) only make sense for metres.
+`set_position`, the recordings and the LLM plans are all in mm; feed those in
+unconverted and a 0.3 mm jitter reads as motion, so the adaptive window always
+collapses to `base_window`. Divide by 1000 at the boundary.
+
 **`detect_static_sequence` compares two different units to one threshold.**
 `trans_diff` is metres, `rot_diff` is a dimensionless Frobenius norm, and both
 are tested against the same `threshold`. That is upstream's choice, kept so

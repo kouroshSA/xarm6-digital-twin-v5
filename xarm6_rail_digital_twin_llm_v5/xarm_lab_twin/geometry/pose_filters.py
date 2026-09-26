@@ -36,7 +36,7 @@ from __future__ import annotations
 from typing import Literal
 
 import numpy as np
-from scipy.ndimage import gaussian_filter1d
+from scipy.ndimage import gaussian_filter1d, uniform_filter1d
 from scipy.signal import savgol_filter
 from scipy.spatial.transform import Rotation as R
 
@@ -183,11 +183,14 @@ def smooth_poses(poses: np.ndarray, window_size: int = 5,
         smoothed_quats = savgol_filter(quats, window_size, poly_order,
                                        axis=0, mode="nearest")
     elif method == "ma":
-        kernel = np.ones(window_size) / window_size
-        smoothed_trans = np.array(
-            [np.convolve(translations[:, i], kernel, mode="same") for i in range(3)]).T
-        smoothed_quats = np.array(
-            [np.convolve(quats[:, i], kernel, mode="same") for i in range(4)]).T
+        # Upstream used np.convolve(mode="same"), which zero-pads: a still pose
+        # was dragged toward the origin at both ends (40% at window 5), and for
+        # N < window the output was misaligned garbage. Edge replication, as
+        # the other two methods already use. Deliberate divergence; NOTICE.md.
+        smoothed_trans = uniform_filter1d(translations, window_size, axis=0,
+                                          mode="nearest")
+        smoothed_quats = uniform_filter1d(quats, window_size, axis=0,
+                                          mode="nearest")
     else:
         # Upstream falls through here and dies on an UnboundLocalError naming
         # an internal variable, which tells the caller nothing. Deliberate
