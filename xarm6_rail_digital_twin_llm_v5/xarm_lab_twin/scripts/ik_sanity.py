@@ -65,7 +65,12 @@ def run_scene(path: str, n: int, rng: np.random.Generator,
     import threading
 
     model, data = _load(path)
-    lock = threading.Lock()
+    # RLock, not Lock. IKSolver.solve() acquires this itself, and the call
+    # below is already inside `with lock:` -- a plain Lock self-deadlocks on
+    # the first target, which looks exactly like a slow solve. SimXArmAPI
+    # passes an RLock for the same reason; see the comment at its
+    # `self.lock = threading.RLock()`.
+    lock = threading.RLock()
     solver = IKSolver(model, data, lock)
 
     jids = [model.joint(nm).id for nm in JOINT_NAMES]
