@@ -433,6 +433,14 @@ file's "Recording format" section so consumers can find them.
 - **Never commit secrets.** `.gitignore` excludes `.env`, `*.key`,
   `secrets/`, and `How-to-run.txt` (which historically had pasted API keys).
   Before any `git add .`, scan for `sk-ant-` to be safe.
+- **Two remotes; never `git push origin`.** `dev` is the private working repo
+  (`main` tracks it, bare `git push` goes there). `origin` is the public repo,
+  and it is a *filtered mirror*: `Claude-Session:` links and `Co-Authored-By:
+  … <noreply@anthropic.com>` trailers are stripped, so its hashes differ from
+  dev's. Publish only with `tools/sync_public.sh` (dry run) then
+  `tools/sync_public.sh --push`. A direct push would upload the unfiltered
+  history. The filter is deterministic, so routine syncs are fast-forwards;
+  the script refuses a rewrite unless given `--force`.
 - **Magnetic-gripper hack.** This sim doesn't have actuated gripper fingers.
   `gripper_close` activates a MuJoCo `<weld>` constraint between the
   gripper body and the nearest cube/tube/bin/rack. If you're adding a new
