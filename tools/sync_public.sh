@@ -71,7 +71,11 @@ fi
 NEW_TIP=$(git rev-parse "$BRANCH")
 
 # --- verify before anything leaves this machine ----------------------------
-LEFT=$(git log "$BRANCH" --format=%B | grep -ciE 'Claude-Session:|noreply@anthropic\.com' || true)
+# Trailer lines as the filter defines them, plus a session URL ANYWHERE -- the
+# URL is the thing that must not leak; prose that merely names the trailer
+# (like this script's own commit message) is fine.
+LEFT=$(git log "$BRANCH" --format=%B |
+       grep -ciE '^Claude-Session: |^Co-Authored-By: .*<noreply@anthropic\.com>|claude\.ai/code/session' || true)
 if [ "$LEFT" != "0" ]; then
   echo "FAIL: $LEFT stripped-pattern lines survived the filter" >&2; exit 1
 fi
