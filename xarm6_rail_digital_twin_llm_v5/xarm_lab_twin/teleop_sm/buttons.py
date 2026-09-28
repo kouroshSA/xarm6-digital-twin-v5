@@ -31,6 +31,8 @@ class Action(Enum):
     RECORD_TOGGLE = "record_toggle"
     RESET_SCENE = "reset_scene"
     HOME = "home"
+    SPEED_TOGGLE = "speed_toggle"     # fine <-> normal
+    RESYNC = "resync"                 # re-anchor the target on the arm
 
 
 #: Actions that are meaningful while HELD rather than on the rising edge.
@@ -49,12 +51,26 @@ BUTTON_MAPS: dict[str, dict[int, Action]] = {
         0: Action.GRIPPER_TOGGLE,
         1: Action.MODE_CYCLE,
     },
+    # MEASURED 2026-09-28 with spacemouse_probe.py. Each numbered key was
+    # pressed a DIFFERENT number of times (1/2/3/4) so it could be identified
+    # by press count rather than trusted to 3Dconnexion's documented order --
+    # which matters, because the daemon logs "15 buttons before disjointed
+    # button remapping".
+    #
+    #     physical "1" -> bnum 0      physical "3" -> bnum 2
+    #     physical "2" -> bnum 1      physical "4" -> bnum 3
+    #
+    # bnum 4 and bnum 12 also reported, but WHICH physical keys they are was
+    # never established -- two further keys were pressed without being named.
+    # Flagged rather than guessed.
     "pro": {
-        0: Action.GRIPPER_TOGGLE,
-        1: Action.MODE_CYCLE,
-        3: Action.RECORD_TOGGLE,
-        4: Action.RESET_SCENE,
-        5: Action.HOME,
+        0: Action.SPEED_TOGGLE,       # key "1"  MEASURED
+        1: Action.MODE_CYCLE,         # key "2"  MEASURED
+        2: Action.RECORD_TOGGLE,      # key "3"  MEASURED
+        3: Action.RESYNC,             # key "4"  MEASURED
+        4: Action.GRIPPER_TOGGLE,     # UNIDENTIFIED key; keyboard 'g' also works
+        5: Action.RESET_SCENE,        # provisional
+        6: Action.HOME,               # provisional
     },
 }
 
@@ -73,7 +89,7 @@ HOLD_MAPS: dict[str, dict[int, Action]] = {
         1: Action.RAIL_MODE,
     },
     "pro": {
-        2: Action.RAIL_MODE,
+        12: Action.RAIL_MODE,         # UNIDENTIFIED physical key (bnum measured)
     },
 }
 
@@ -86,6 +102,8 @@ KEYBOARD_FALLBACK: dict[str, Action] = {
     "h": Action.HOME,
     "g": Action.GRIPPER_TOGGLE,
     "m": Action.MODE_CYCLE,
+    "f": Action.SPEED_TOGGLE,
+    "z": Action.RESYNC,
 }
 
 

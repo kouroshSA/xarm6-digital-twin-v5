@@ -44,10 +44,11 @@ from vr import transforms
 class Mode:
     """Which DOFs the six axes drive. Cycled with MODE_CYCLE."""
 
-    ARM = "arm"        # 6-axis Cartesian jog of the EE
-    RAIL = "rail"      # Y translation drives the rail; everything else ignored
+    ARM = "arm"        # 6-axis Cartesian jog of the EE (through IK)
+    RAIL = "rail"      # one translation axis drives the rail; others ignored
+    JOINT = "joint"    # the six axes drive joints 1..6 directly, no IK
 
-    ORDER = (ARM, RAIL)
+    ORDER = (ARM, RAIL, JOINT)
 
     @staticmethod
     def next(current: str) -> str:
@@ -75,6 +76,9 @@ class SpaceMouseReceiver:
         self.hold_map = hold_map_for(model)
 
         self.mode: str = Mode.ARM
+        self.fine = False                  # SPEED_TOGGLE
+        self._raw_axes = None              # un-permuted axes, for JOINT mode
+        self._down_s: dict[int, float] = {}   # dual-role key press durations
         self.gripper_closed = False
         self.ik_fail = False
         self._lock = threading.Lock()
@@ -96,6 +100,10 @@ class SpaceMouseReceiver:
         self.max_pos_speed = config.MAX_POS_SPEED
         self.max_rot_speed = config.MAX_ROT_SPEED
         self.max_rail_speed = config.MAX_RAIL_SPEED
+
+    def _speed_scale(self) -> float:
+        """Multiplier on every speed cap. 1.0 normal, FINE_SPEED_FACTOR fine."""
+        return config.FINE_SPEED_FACTOR if self.fine else 1.0
 
     # ---- pose helpers -----------------------------------------------------
     def _ee_pose_twin(self) -> tuple:
@@ -126,7 +134,7 @@ class SpaceMouseReceiver:
 
     # ---- main tick --------------------------------------------------------
     def tick(self, state_twin: np.ndarray, edges: set[int],
-             held: set[int], dt: float) -> None:
+             held: set[int], dt: float, raw_axes=None) -> None:
         """Advance one control step.
 
         `state_twin` is the device's six axes already permuted into the twin
@@ -135,18 +143,53 @@ class SpaceMouseReceiver:
         keeps this class free of any spnav dependency and therefore testable
         with plain arrays.
         """
+        self._raw_axes = (np.asarray(raw_axes, float)
+                          if raw_axes is not None else None)
         if self._target_pos_m is None:
             self._seed_target()
 
+        taps = self._resolve_dual_role(held, dt)
         rail_held = self._action_held(Action.RAIL_MODE, held)
         self._handle_edges(edges, suppress_mode_cycle=rail_held)
+        for action in taps:
+            self.dispatch(action)
 
         effective_mode = Mode.RAIL if rail_held else self.mode
 
         if effective_mode == Mode.RAIL:
             self._update_rail(state_twin, dt)
+        elif effective_mode == Mode.JOINT:
+            self._update_joints(dt)
         else:
             self._update_arm(state_twin, dt)
+
+    def _dual_role(self) -> dict:
+        """Keys carrying BOTH an edge action and a hold action."""
+        return {i: a for i, a in self.button_map.items() if i in self.hold_map}
+
+    def _resolve_dual_role(self, held: set[int], dt: float) -> list:
+        """Tap vs hold for a key that does double duty.
+
+        THIS IS WHY THE COMPACT'S MODE_CYCLE USED TO BE DEAD. With two
+        buttons, button 1 must be MODE_CYCLE tapped and RAIL_MODE held. The
+        press tick delivers the edge AND the held state together, so the
+        edge was always suppressed as "the start of a hold" -- and no edge
+        arrives on release, so MODE_CYCLE could never fire at all.
+
+        Resolved by duration instead: accumulate how long the key has been
+        down, and on RELEASE fire the edge action only if it was shorter
+        than `config.TAP_MAX_S`. A genuine hold has already done its job via
+        `_action_held` and fires nothing extra.
+        """
+        fired = []
+        for idx, action in self._dual_role().items():
+            if idx in held:
+                self._down_s[idx] = self._down_s.get(idx, 0.0) + dt
+            elif idx in self._down_s:
+                duration = self._down_s.pop(idx)
+                if duration < config.TAP_MAX_S:
+                    fired.append(action)
+        return fired
 
     def _action_held(self, action: Action, held: set[int]) -> bool:
         """Is a key bound to `action` currently down?
@@ -165,9 +208,10 @@ class SpaceMouseReceiver:
             # Compact those are the same physical button by necessity.
             if action in HELD_ACTIONS:
                 continue
-            # A key doing double duty (Compact button 1) must not fire its
-            # edge action on the press that starts a hold.
-            if suppress_mode_cycle and self.hold_map.get(idx) is Action.RAIL_MODE:
+            # A key doing double duty is decided on RELEASE by
+            # _resolve_dual_role (tap = edge action, hold = the held action),
+            # never on the press -- see that method.
+            if idx in self.hold_map:
                 continue
             self.dispatch(action)
 
@@ -183,6 +227,13 @@ class SpaceMouseReceiver:
             self._reset_scene()
         elif action is Action.HOME:
             self._go_home()
+        elif action is Action.SPEED_TOGGLE:
+            self._toggle_speed()
+        elif action is Action.RESYNC:
+            self.resync()
+            if self.rec is not None and self.rec.is_recording:
+                self.rec.log_command("resync", {})
+            print("[SM] target re-anchored on the arm")
 
     # ---- arm jog ----------------------------------------------------------
     def _update_arm(self, state_twin: np.ndarray, dt: float) -> None:
@@ -194,8 +245,9 @@ class SpaceMouseReceiver:
             # the arm here -- that would let tracking error walk the target.
             return
 
-        delta_pos_mm = lin * self.max_pos_speed * dt
-        delta_rpy_deg = ang * self.max_rot_speed * dt
+        k = self._speed_scale()
+        delta_pos_mm = lin * self.max_pos_speed * k * dt
+        delta_rpy_deg = ang * self.max_rot_speed * k * dt
 
         target_pos_mm = self._target_pos_m * 1000.0 + delta_pos_mm
         target_pos_mm = transforms.clamp_workspace_mm(target_pos_mm)
@@ -279,14 +331,52 @@ class SpaceMouseReceiver:
         if abs(y) < 1e-9:
             return
         self.rail_mm = float(np.clip(
-            self.rail_mm + y * self.max_rail_speed * dt,
+            self.rail_mm + y * self.max_rail_speed * self._speed_scale() * dt,
             config.RAIL_MIN_MM, config.RAIL_MAX_MM))
         with self.arm.lock:
             self.arm.data.ctrl[self.arm.act_ids[RAIL_ACT]] = self.rail_mm / 1000.0
         # The arm moves with the carriage, so the held target is now stale.
         self._seed_target()
 
+    # ---- joint jog --------------------------------------------------------
+    def _update_joints(self, dt: float) -> None:
+        """Six axes drive joints 1..6 directly. No IK, no workspace clamp.
+
+        Uses the RAW device axes, not the twin-permuted ones: the permutation
+        maps a hand push onto a WORLD direction, which means nothing for
+        "which joint". Axis i drives joint i+1 in the device's own order.
+
+        The only guard here is the model's own ctrl range, which is why
+        MAX_JOINT_SPEED is deliberately low. The mode exists because
+        Cartesian jogging cannot escape a singularity or a bad IK branch --
+        the tool simply will not go where you push, and driving joints is the
+        way out.
+        """
+        raw = self._raw_axes
+        if raw is None or not np.any(raw):
+            return
+        k = self._speed_scale()
+        with self.arm.lock:
+            for i in range(6):
+                if raw[i] == 0.0:
+                    continue
+                aid = self.arm.act_ids[1 + i]
+                cur = float(self.arm.data.ctrl[aid])
+                step = np.deg2rad(float(raw[i]) * config.MAX_JOINT_SPEED * k * dt)
+                lo, hi = self.arm.model.actuator_ctrlrange[aid]
+                self.arm.data.ctrl[aid] = float(np.clip(cur + step, lo, hi))
+        # The tool moved without IK knowing; the Cartesian target is stale.
+        self._seed_target()
+
     # ---- discrete actions -------------------------------------------------
+    def _toggle_speed(self) -> None:
+        self.fine = not self.fine
+        if self.rec is not None and self.rec.is_recording:
+            self.rec.log_command("speed_mode", {"fine": self.fine})
+        print(f"[SM] speed {'FINE' if self.fine else 'NORMAL'} "
+              f"({self.max_pos_speed * self._speed_scale():.0f} mm/s)")
+
+
     def _cycle_mode(self) -> None:
         self.mode = Mode.next(self.mode)
         if self.rec is not None and self.rec.is_recording:
@@ -366,6 +456,8 @@ class SpaceMouseReceiver:
             # SpaceMouse-specific extras; additive, so VR consumers ignore them.
             "mode": self.mode,
             "device_model": self.model,
+            "fine": bool(self.fine),
+            "speed_mm_s": round(self.max_pos_speed * self._speed_scale(), 1),
         }
 
 

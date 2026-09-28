@@ -65,7 +65,9 @@ class _FakeArm:
 
     def __init__(self):
         self.lock = threading.RLock()
-        self.model = object()
+        # JOINT mode clamps to the model's own ctrl range, so the stub needs one.
+        self.model = type("M", (), {
+            "actuator_ctrlrange": np.array([[-1.0, 1.0]] * 8)})()
         self.data = _FakeData()
         self.act_ids = [0, 1, 2, 3, 4, 5, 6]
         self.ee_site = 0
@@ -389,6 +391,51 @@ def test_hold_rail_button_switches_mode_without_cycling():
 
     assert rx.mode == mode_before, "holding the rail key also cycled the mode"
     assert rx.rail_mm != rail_before, "holding the rail key did not drive the rail"
+    # NOTE: this test alone is NOT sufficient -- it passes even if MODE_CYCLE
+    # can never fire at all, which is exactly the bug it originally hid.
+    # test_tapping_the_dual_role_key_cycles_the_mode is the other half.
+
+
+def test_tapping_the_dual_role_key_cycles_the_mode():
+    """The other half of the dual-role contract, and a regression test.
+
+    On the Compact, button 1 must be MODE_CYCLE when TAPPED and RAIL_MODE
+    when HELD. The press tick delivers the edge and the held state together,
+    so suppressing the edge as "the start of a hold" made MODE_CYCLE
+    unreachable -- the mode could never be changed on a Compact at all, and
+    the hold-only test above passed throughout.
+
+    A tap is now resolved on RELEASE by duration. This fails on the old
+    press-suppression logic.
+    """
+    arm, rx = _rx(model="compact")
+    rx.tick(_axes(), set(), set(), 0.02)
+    start = rx.mode
+
+    # press (edge + held, as a real press delivers), then release quickly
+    rx.tick(_axes(), {1}, {1}, 0.02)
+    assert rx.mode == start, "mode must not change on the press itself"
+    rx.tick(_axes(), set(), set(), 0.02)          # release inside TAP_MAX_S
+
+    assert rx.mode == Mode.next(start), (
+        f"a TAP must cycle the mode: still {rx.mode!r}. If this fails, "
+        f"MODE_CYCLE is unreachable on a 2-button device.")
+
+
+def test_holding_past_the_tap_window_does_not_cycle():
+    """Long press = hold only. The tap fix must not make every hold cycle."""
+    arm, rx = _rx(model="compact")
+    rx.tick(_axes(), set(), set(), 0.02)
+    start = rx.mode
+
+    rx.tick(_axes(), {1}, {1}, 0.02)
+    held_for = 0.02
+    while held_for < config.TAP_MAX_S + 0.1:      # keep holding
+        rx.tick(_axes(), set(), {1}, 0.05)
+        held_for += 0.05
+    rx.tick(_axes(), set(), set(), 0.02)          # release
+
+    assert rx.mode == start, "a long hold must NOT cycle the mode"
 
 
 # ---------------------------------------------------------------------------
@@ -412,13 +459,24 @@ def test_gripper_toggles_on_edge_only():
 
 
 def test_mode_cycles():
+    """Cycling visits every mode and returns to the start.
+
+    Written against len(Mode.ORDER) rather than a hardcoded two steps, so
+    adding a mode later cannot silently make this vacuous -- which is what
+    happened when JOINT was added.
+    """
     arm, rx = _rx(model="compact")
     rx.tick(_axes(), set(), set(), 0.02)
     assert rx.mode == Mode.ARM
+
+    seen = [rx.mode]
+    for _ in range(len(Mode.ORDER) - 1):
+        rx.dispatch(Action.MODE_CYCLE)
+        seen.append(rx.mode)
+    assert seen == list(Mode.ORDER), f"cycle order {seen} != {list(Mode.ORDER)}"
+
     rx.dispatch(Action.MODE_CYCLE)
-    assert rx.mode == Mode.RAIL
-    rx.dispatch(Action.MODE_CYCLE)
-    assert rx.mode == Mode.ARM, "mode must cycle back round"
+    assert rx.mode == Mode.ARM, "mode must cycle back round to the start"
 
 
 def test_unbound_button_is_ignored():
@@ -490,6 +548,93 @@ def test_status_has_the_vr_hud_keys():
                 "clutch", "servo_mode"):
         assert key in st, f"status() is missing VR key {key!r}: {st}"
     assert st["type"] == "status"
+
+
+def test_speed_toggle_scales_the_jog():
+    """FINE must actually slow the arm, not just flip a flag.
+
+    Asserts distance travelled, because a flag test would pass for an
+    implementation that never applies the factor.
+    """
+    arm, rx = _rx()
+    rx.tick(_axes(), set(), set(), 0.02)
+
+    def travel(ticks=25):
+        before = rx._target_pos_m.copy()
+        for _ in range(ticks):
+            rx.tick(_axes(tx=1.0), set(), set(), 0.02)
+        return abs(rx._target_pos_m[0] - before[0])
+
+    normal = travel()
+    rx.dispatch(Action.SPEED_TOGGLE)
+    assert rx.fine is True
+    fine = travel()
+
+    ratio = fine / normal if normal else 0.0
+    assert abs(ratio - config.FINE_SPEED_FACTOR) < 0.05, (
+        f"fine mode moved {ratio:.2f}x normal, expected "
+        f"{config.FINE_SPEED_FACTOR}")
+
+    rx.dispatch(Action.SPEED_TOGGLE)
+    assert rx.fine is False, "speed toggle must toggle back"
+
+
+def test_speed_toggle_reported_in_status():
+    arm, rx = _rx()
+    rx.tick(_axes(), set(), set(), 0.02)
+    full = rx.status()["speed_mm_s"]
+    rx.dispatch(Action.SPEED_TOGGLE)
+    assert rx.status()["fine"] is True
+    assert rx.status()["speed_mm_s"] < full
+
+
+def test_joint_mode_drives_joints_not_ik():
+    """JOINT mode writes joint ctrl directly and must not call IK."""
+    arm, rx = _rx()
+    rx.tick(_axes(), set(), set(), 0.02)
+    rx.mode = Mode.JOINT
+    before = [float(arm.data.ctrl[arm.act_ids[1 + i]]) for i in range(6)]
+    n_ik = len(arm.ik_solver.calls)
+
+    for _ in range(20):
+        rx.tick(_axes(), set(), set(), 0.02, raw_axes=np.array([1., 0, 0, 0, 0, 0]))
+
+    after = [float(arm.data.ctrl[arm.act_ids[1 + i]]) for i in range(6)]
+    assert after[0] != before[0], "joint 1 did not move in JOINT mode"
+    assert after[1:] == before[1:], f"other joints moved: {after}"
+    assert len(arm.ik_solver.calls) == n_ik, "JOINT mode must not solve IK"
+
+
+def test_joint_mode_uses_raw_axes_not_permuted():
+    """Axis i must drive joint i+1 in the DEVICE's order.
+
+    The permutation maps a push onto a world direction, which is meaningless
+    for "which joint" -- feeding it here would move the wrong joint.
+    """
+    arm, rx = _rx()
+    rx.tick(_axes(), set(), set(), 0.02)
+    rx.mode = Mode.JOINT
+    before = [float(arm.data.ctrl[arm.act_ids[1 + i]]) for i in range(6)]
+
+    # raw axis 2 -> joint 3, regardless of where the permutation sends it.
+    raw = np.zeros(6); raw[2] = 1.0
+    twin = np.zeros(6); twin[0] = 1.0        # deliberately disagrees
+    for _ in range(20):
+        rx.tick(twin, set(), set(), 0.02, raw_axes=raw)
+
+    after = [float(arm.data.ctrl[arm.act_ids[1 + i]]) for i in range(6)]
+    moved = [i for i in range(6) if after[i] != before[i]]
+    assert moved == [2], f"expected only joint 3 to move, got joints {moved}"
+
+
+def test_joint_mode_clamps_to_ctrl_range():
+    arm, rx = _rx()
+    rx.tick(_axes(), set(), set(), 0.02)
+    rx.mode = Mode.JOINT
+    for _ in range(4000):
+        rx.tick(_axes(), set(), set(), 0.05, raw_axes=np.array([1., 0, 0, 0, 0, 0]))
+    lo, hi = arm.model.actuator_ctrlrange[arm.act_ids[1]]
+    assert float(arm.data.ctrl[arm.act_ids[1]]) <= hi + 1e-9
 
 
 def _main():

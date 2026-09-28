@@ -140,7 +140,8 @@ def main() -> int:
             state = device.state_twin()
             edges = device.pending_edges()
             held = {i for i in range(32) if device.button_held(i)}
-            receiver.tick(state, edges, held, dt)
+            raw = device.state()      # JOINT mode needs un-permuted axes
+            receiver.tick(state, edges, held, dt, raw_axes=raw)
 
             # One-shot nudge if the device has never produced an event: the
             # loop otherwise looks healthy while doing nothing at all.
