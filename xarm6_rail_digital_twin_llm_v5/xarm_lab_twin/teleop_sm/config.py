@@ -42,6 +42,21 @@ MAX_ROT_SPEED: float = 45.0
 #: Rail speed at full deflection in RAIL mode, mm/s.
 MAX_RAIL_SPEED: float = 200.0
 
+#: Joint speed at full deflection in JOINT mode, deg/s. Deliberately slow:
+#: joint jogging bypasses IK AND the workspace clamp, so the only guard left
+#: is the operator's eyes and the model's own joint limits.
+MAX_JOINT_SPEED: float = 20.0
+
+#: Multiplier on every speed cap when FINE is toggled on. One fixed speed is
+#: either too fast to place a plate or too slow to cross the bench; the
+#: operator feels that within a minute of driving.
+FINE_SPEED_FACTOR: float = 0.25
+
+#: A dual-role key (Compact button 1) counts as a TAP if released within this
+#: many seconds, otherwise it is a HOLD. Needed because the press tick sees
+#: the edge and the held state together.
+TAP_MAX_S: float = 0.35
+
 # ---- filtering ------------------------------------------------------------
 #: Exponential smoothing on the integrated target before IK. Matches
 #: `vr.config.SMOOTH_ALPHA` deliberately: same filter, same feel, one number
@@ -72,26 +87,32 @@ from vr.config import RAIL_MAX_MM, RAIL_MIN_MM  # noqa: E402,F401
 # ---- axis mapping ---------------------------------------------------------
 #: Permutation from the device's axis frame into the twin world frame.
 #:
-#: PROVISIONAL UNTIL MEASURED. This is the matrix vendor code ships
-#: (`tx_zup_spnav`), and it encodes *their* bench orientation, not ours. The
-#: work order is explicit that it must be confirmed by pushing the cap forward
-#: and checking the TCP moves +X in the twin.
+#: MEASURED 2026-09-28 on the SpaceMouse Pro, not inherited. The probe logged
+#: six deliberate pushes; the dominant raw axis of each:
 #:
-#: There is a second reason to distrust it here: spacenavd reports
-#: `device flags: swap y-z invert y-z` for the SpaceMouse Pro, so the daemon
-#: has ALREADY transformed the axes before the client sees them. Any matrix
-#: derived from raw HID reports is therefore one transform too many.
+#:     cap forward / back  ->  raw tz   (+ forward)
+#:     cap right  / left   ->  raw tx   (+ right)
+#:     cap up     / down   ->  raw ty   (+ up)
 #:
-#: `scripts/spacemouse_probe.py --dump` plus `teleop_sm/test_device.py`'s
-#: recorded fixtures are how this gets settled.
+#: so the device frame is X=right, Y=up, Z=forward. Rotations share those
+#: axes (a forward push also tilts, which is why rx rides along with tz).
+#:
+#: The twin frame was anchored the same way rather than assumed: driving the
+#: rail +300 mm moved the EE +291 mm in world X, and the workspace box puts Z
+#: up. So twin X = along the rail, Y = across the bench, Z = up.
+#:
+#: Mapping (the work order requires cap-forward -> twin +X):
+#:     twin x = raw tz     twin y = raw tx     twin z = raw ty
+#:
+#: THE VENDOR MATRIX WAS `[[0,0,-1],[1,0,0],[0,1,0]]` -- right except for the
+#: SIGN of the tz->x term, which would have driven the arm BACKWARDS along
+#: the rail. One sign, invisible without measuring, exactly as predicted.
 AXIS_PERMUTATION: np.ndarray = np.array([
-    [0, 0, -1],
+    [0, 0, 1],
     [1, 0, 0],
     [0, 1, 0],
 ], dtype=float)
 
-#: Per-axis sign flips applied after the permutation, so a wrong direction can
-#: be corrected without re-deriving the matrix. (tx, ty, tz, rx, ry, rz).
 AXIS_SIGNS: np.ndarray = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=float)
 
 # ---- recording ------------------------------------------------------------
