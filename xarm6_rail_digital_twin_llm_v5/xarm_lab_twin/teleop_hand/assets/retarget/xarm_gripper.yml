@@ -1,0 +1,29 @@
+# dex-retargeting config: thumb tip -> index tip vector onto the gripper's
+# jaw vector. After upstream's configs/teleop/panda_gripper.yml, with one
+# change: add_dummy_free_joint.
+#
+# WHY THE FREE JOINT. A 1-DoF gripper with a FIXED base can only match the
+# human vector's projection onto its jaw axis. Measured on real MediaPipe
+# landmarks (README, Phase 0) the thumb->index direction in the MANO frame
+# swings so far between poses that the projection changes sign: a spread
+# "pointing up" hand read as closed. The dummy 6-DoF base lets the optimizer
+# align the jaw with the human vector, so only its LENGTH drives finger_joint.
+# Map joints by NAME (retargeting.joint_names): with the free joint present,
+# finger_joint is no longer index 0.
+retargeting:
+  type: vector
+  urdf_path: xarm_gripper/xarm_gripper.urdf
+
+  target_joint_names: [ "finger_joint" ]
+  target_origin_link_names: [ "left_finger" ]
+  target_task_link_names: [ "right_finger" ]
+  scaling_factor: 1.5          # tune in Phase 2; upstream's panda value
+
+  target_link_human_indices: [ [ 4 ], [ 8 ] ]   # thumb tip -> index tip
+
+  add_dummy_free_joint: True
+
+  # A smaller alpha means stronger filtering, i.e. more smooth but also larger latency
+  low_pass_alpha: 0.2          # upstream default
+
+  ignore_mimic_joint: False

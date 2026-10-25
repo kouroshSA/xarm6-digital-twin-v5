@@ -57,6 +57,11 @@ xarm-python-sdk==1.18.4
 # `keyboard` package, which needs root on Linux.
 pynput==1.8.2
 
+# Hand-tracking teleop, teleop side (teleop_hand/retarget.py, its tests).
+# >= 0.5 is the first release that supports numpy 2. The TRACKER's extra
+# dependency (mediapipe) lives in requirements-hand.txt, in its own env.
+dex_retargeting==0.5.0
+
 # --- optional ----------------------------------------------------------------
 # pin/pinocchio + pink: preferred IK backend. pink's API does not match MuJoCo's
 # types in pink>=4.2, so sim/ik_solver.py falls back to its own Jacobian solver

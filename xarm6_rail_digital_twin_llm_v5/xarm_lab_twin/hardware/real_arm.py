@@ -115,6 +115,10 @@ WAVE_SPEED_DEG_S = 30.0
 # against the fitted fingers with the B5 measurement.
 GRIPPER_CLOSED_THRESHOLD = 20
 
+#: Standard xArm Gripper position that is fully open, SDK units (0 = closed).
+#: One constant for open_gripper() and the continuous set_gripper_opening().
+STANDARD_GRIPPER_OPEN_POS = 850
+
 
 class RealArmError(RuntimeError):
     """Raised when the hardware or SDK cannot do what was asked.
@@ -477,7 +481,7 @@ class RealXArmAPI:
 
     def open_gripper(self, wait: bool = True) -> int:
         if self.effector == "standard":
-            return self._check(self.arm.set_gripper_position(850, wait=wait),
+            return self._check(self.arm.set_gripper_position(STANDARD_GRIPPER_OPEN_POS, wait=wait),
                                "set_gripper_position(open)")
         if self.effector == "bio":
             return self._check(self.arm.open_bio_gripper(wait=wait), "open_bio_gripper")
@@ -496,6 +500,18 @@ class RealXArmAPI:
             return self._check(self.arm.set_vacuum_gripper(True, wait=wait),
                                "set_vacuum_gripper(on)")
         raise RealArmError("no effector fitted (effector='none')")
+
+    def set_gripper_opening(self, fraction: float, wait: bool = False) -> int:
+        """Continuous jaw opening, 0.0 closed .. 1.0 open. Standard gripper
+        only (hand teleop's continuous mode); the BIO and vacuum tools are
+        binary and go through open_gripper / close_gripper."""
+        if self.effector != "standard":
+            raise RealArmError(f"set_gripper_opening needs the standard gripper, "
+                               f"not {self.effector!r}")
+        f = min(max(float(fraction), 0.0), 1.0)
+        return self._check(
+            self.arm.set_gripper_position(round(f * STANDARD_GRIPPER_OPEN_POS), wait=wait),
+            "set_gripper_position(opening)")
 
     # Names the sim exposes; kept so the dispatcher needs no special-casing.
     # These are NOT the Lite6 SDK calls -- they route to the fitted effector.
@@ -771,6 +787,19 @@ class RealXArmAPI:
 
     def set_mode(self, mode):
         return self.arm.set_mode(mode)
+
+    def get_err_warn_code(self):
+        """(code, [error_code, warn_code]) from the controller."""
+        return self.arm.get_err_warn_code()
+
+    def clean_error(self):
+        """Clears the error only. The SDK requires motion_enable(True) and
+        set_state(0) afterwards; callers do that explicitly, never silently."""
+        return self.arm.clean_error()
+
+    def set_collision_sensitivity(self, value: int):
+        """0..5. Not saved on the controller: lost on reboot (SDK docs)."""
+        return self.arm.set_collision_sensitivity(int(value))
 
     def set_state(self, state):
         return self.arm.set_state(state)

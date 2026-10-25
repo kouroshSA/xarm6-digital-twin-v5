@@ -10,3 +10,6 @@ vr/*.pem
 vr/key.pem
 vr/cert.pem
 vr/*.jpg
+
+# Hand teleop: MediaPipe model, downloaded on first use (sha256-pinned in teleop_hand/config.py)
+teleop_hand/assets/mediapipe/*.task

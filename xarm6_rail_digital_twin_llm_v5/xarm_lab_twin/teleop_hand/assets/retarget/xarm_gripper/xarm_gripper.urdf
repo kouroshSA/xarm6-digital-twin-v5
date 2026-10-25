@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<!-- Kinematics-only model of a parallel-jaw gripper for dex-retargeting.
+     No meshes, no inertia beyond what pinocchio needs to load it.
+
+     ONE DoF: `finger_joint` opens each finger by q along +-y; the right finger
+     follows through <mimic>. Jaw separation = PAD_GAP + 2 q.
+
+       stroke   0.085 m  = full jaw opening, xArm Gripper (850 SDK units fully
+                           open, hardware/real_arm.py open_gripper). The mm
+                           figure is UFACTORY's datasheet value, not a measured
+                           one; only the 0..1 normalisation depends on it.
+       range    0 .. stroke/2 = 0.0425 per finger
+       PAD_GAP  0.030 m  = scaling_factor (1.5, xarm_gripper.yml) x
+                           config.PINCH_CLOSED_M (0.02). It puts "closed" at a
+                           2 cm thumb-index tip distance: MediaPipe's tip
+                           landmarks sit at the finger CENTRES, so touching
+                           fingertips never read 0. test_retarget checks this
+                           relation, so changing one of the three without the
+                           others fails.
+
+     Pattern after upstream's panda_gripper (dex-retargeting configs/teleop).
+-->
+<robot name="xarm_gripper">
+  <link name="base"/>
+  <link name="left_finger"/>
+  <link name="right_finger"/>
+  <joint name="finger_joint" type="prismatic">
+    <parent link="base"/>
+    <child link="left_finger"/>
+    <origin xyz="0 0.015 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0.0" upper="0.0425" effort="100" velocity="0.2"/>
+  </joint>
+  <joint name="finger_joint_mimic" type="prismatic">
+    <parent link="base"/>
+    <child link="right_finger"/>
+    <origin xyz="0 -0.015 0" rpy="0 0 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0.0" upper="0.0425" effort="100" velocity="0.2"/>
+    <mimic joint="finger_joint" multiplier="1" offset="0"/>
+  </joint>
+</robot>
