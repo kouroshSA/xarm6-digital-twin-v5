@@ -371,6 +371,32 @@ python scripts/run_kinesthetic_real.py --fake               # no robot
 - Tests: `MUJOCO_GL=egl python -m teleop_kin.test_receiver` (twin) and
   `MUJOCO_GL=egl python -m teleop_kin.test_real` (fake controller).
 
+## Hand-tracking teleop (dex-retargeting, IN PROGRESS)
+
+`xarm_lab_twin/teleop_hand/` — bare-hand teleop of rail + arm + gripper from a
+D435 facing the operator. Status, findings, settled parameters and the TO-DO
+list are in [`teleop_hand/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/teleop_hand/README.md);
+read it before continuing. Twin side works and was tested live (steps 1-5);
+`run_handteleop_real.py` and `docs/hand_teleop.md` are NOT written yet.
+
+- **Two processes, two envs**: tracker (`run_hand_tracker.py`, env
+  `xarm6sim_hand` = xarm6sim + mediapipe) publishes `HandFrame` JSON on
+  udp/47100; the teleop side (`run_handteleop_sim.py`) runs in `xarm6sim`.
+- **mediapipe >= 0.10.30 has no `mp.solutions`**: `detector.py` is upstream's
+  detector ported to the Tasks HandLandmarker. Handedness is NOT inverted on a
+  D435 (upstream assumes a mirrored image).
+- **`guards.solve_guarded` checks FK of every IK answer.** `IKSolver.solve`
+  treats orientation as best-effort and can return a rotation-missed solution
+  as a success -- the same trap applies to any caller passing `target_rot`.
+- **Guards must let the arm move OUT of a band** (joint-limit margin, wrist
+  singularity), or an arm parked at the edge freezes: IK jitter makes even the
+  return move read as "inside". Found live.
+- The twin servo core (gravity-sag bias, IK on the rail SETPOINT) is shared
+  with kinesthetic teaching via `teleop_kin/servo.py::TwinServo`.
+- Every real-arm exit goes through `teleop_kin.real_teach.return_to_position_mode`.
+- Tests: `python -m teleop_hand.test_retarget`, `.test_palm`, `.test_mapping`,
+  `MUJOCO_GL=egl python -m teleop_hand.test_twin`.
+
 ## Pose geometry helpers
 
 `xarm_lab_twin/geometry/` holds SE(3) interpolation, smoothing and dwell

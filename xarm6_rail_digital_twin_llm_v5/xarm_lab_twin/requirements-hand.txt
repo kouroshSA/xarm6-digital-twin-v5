@@ -1,0 +1,7 @@
+# Hand-tracking TRACKER env (scripts/run_hand_tracker.py). See teleop_hand/README.md.
+#   conda create -n xarm6sim_hand --clone xarm6sim
+#   conda activate xarm6sim_hand && pip install -r requirements-hand.txt
+# Kept out of xarm6sim: mediapipe pulls opencv-contrib-python, which installs
+# into the same cv2/ directory as opencv-python.
+mediapipe==1.1.1
+dex_retargeting==0.5.0
