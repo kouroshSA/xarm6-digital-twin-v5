@@ -321,6 +321,56 @@ python scripts/run_spacemouse.py --device pro        # or --device compact
 - Tests need no hardware: `python -m teleop_sm.test_device`,
   `python -m teleop_sm.test_receiver`.
 
+## Kinesthetic teaching (twin mouse-drag + real-arm manual mode)
+
+`xarm_lab_twin/teleop_kin/` — see [`teleop_kin/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/teleop_kin/README.md)
+and the operator guide [`docs/kinesthetic_teaching.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/docs/kinesthetic_teaching.md).
+
+```bash
+python scripts/run_kinesthetic_sim.py                       # drag the teach handle
+python scripts/run_kinesthetic_real.py --ip <ip> [--robot lite6]
+python scripts/run_kinesthetic_real.py --fake               # no robot
+```
+
+- **The teach handle is a mocap body in geom group 4** (`teach_handle`, in
+  `lab_scene_primitive.xml`, propagated by `build_mesh_scene.py`). Group 4 is
+  hidden by the default `MjvOption`, so recorded frames and the wrist camera
+  never show it; `SimXArmAPI.set_viewer_geomgroup(4, True)` shows it in the
+  interactive viewer only. `sim/render_options.ray_geomgroup` derives its mask
+  from that same option — it used to cast against every group, so rays would
+  have hit a ball the picture does not show.
+- **The passive viewer moves mocap bodies itself** on Ctrl-drag
+  (`mjv_applyPerturbPose(..., 0)` in every `sync()`), so the mocap pose IS the
+  drag target. Verified on 3.8.1; `handle.drag_target()` is the one place to
+  change if that ever stops being true.
+- **`SimXArmAPI.register_key_handler(fn)`** gives a teleop first refusal on
+  viewer keys (`fn(keycode) -> True` consumes). Empty by default, so the nudge
+  keymap is unchanged. Handlers run on the viewer thread: queue, don't block.
+- **The twin sags 15–20 mm under gravity** in every interface (bare PD
+  actuators). Teach mode cancels it with a per-joint integral bias gated on the
+  joint being at rest; ctrl (the exported action) is the compensated setpoint.
+  Don't "fix" the gating by integrating during motion — that winds up on
+  tracking lag.
+- **IK is solved with the rail at its SETPOINT** (`TwinServo.rail_at_setpoint`, `teleop_kin/servo.py`). The rail
+  deflects a few mm while the arm moves; solving on the deflected value left the
+  tool 1.5–3 mm off once it sprang back. SpaceMouse/VR still solve on the live
+  rail.
+- **`servo_direct(..., max_joint_step_rad=)`** (in `teleop_sm/receiver.py`,
+  shared) rejects IK branch flips — a 293° jump was measured at the reach
+  boundary. A *failed* solve costs ~215 ms under `arm.lock`; teach mode backs
+  off retries so it cannot starve the physics thread. Any per-tick servo loop
+  that retries IK every tick at a boundary has the same problem.
+- **Real arm: every exit path runs `set_mode(0)` + `set_state(0)`** — key
+  release, Ctrl-C, SIGTERM (turned into `SystemExit`), exceptions, controller
+  errors. `test_sigterm_in_manual_mode_ends_in_mode_0` kills a real process,
+  with SIGKILL as the negative control. Nothing in the runner commands motion.
+- **Real takes take the gripper channel from the REAL gripper**
+  (`Recorder(gripper_fn=...)`). The twin is only a mirror, so its weld state
+  says nothing about a real object; the weld source would record 0 through
+  every real grasp.
+- Tests: `MUJOCO_GL=egl python -m teleop_kin.test_receiver` (twin) and
+  `MUJOCO_GL=egl python -m teleop_kin.test_real` (fake controller).
+
 ## Pose geometry helpers
 
 `xarm_lab_twin/geometry/` holds SE(3) interpolation, smoothing and dwell
@@ -407,7 +457,9 @@ Pass `frame_cameras=(None,)` for the old free-orbit third-person camera, which
 is good for a human reviewing a session and useless as a policy observation.
 
 **`gripper`** — one float32 per state sample, `1.0` when something is welded to
-the gripper. It is a STATE ("is it holding"), not a COMMAND ("was it told to
+the gripper (or, when the Recorder is given `gripper_fn`, whatever that returns —
+`run_kinesthetic_real.py` passes the real gripper's state, since the mirrored
+twin's welds cannot see a real object). It is a STATE ("is it holding"), not a COMMAND ("was it told to
 close"), because the twin has no actuated fingers (see the magnetic-gripper
 hack below). The two differ on any failed grasp. On real hardware the honest
 source is jaw position, which the Recorder cannot currently see — it is handed

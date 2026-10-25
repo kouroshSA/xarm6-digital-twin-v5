@@ -82,8 +82,18 @@ class Recorder:
                  frame_camera_lookat=(0.0, 0.15, 1.0),
                  frame_camera_distance: float = 2.8,
                  frame_camera_azimuth: float = 135.0,
-                 frame_camera_elevation: float = -20.0):
+                 frame_camera_elevation: float = -20.0,
+                 gripper_fn=None):
         self.model = model; self.data = data; self.lock = lock
+        # Optional override for the `gripper` channel: a callable returning
+        # 1.0 (holding/closed) or 0.0, read once per state sample, OUTSIDE the
+        # sim lock. None (the default) keeps the weld-activation source below.
+        # It exists for run_kinesthetic_real.py, where the twin is a mirror and
+        # its welds say nothing about the REAL gripper: with the weld source a
+        # real close on a real object recorded as 0 -- a gripper press that
+        # never reached the data. The dataset field is unchanged; only where
+        # the value comes from.
+        self.gripper_fn = gripper_fn
         self.interface = interface; self.scene_xml = scene_xml
         self.state_hz = state_hz
         self.joint_ids = [model.joint(n).id for n in JOINT_NAMES]
@@ -403,6 +413,18 @@ class Recorder:
                 if not rendered_frame:
                     rendered_frame = None
 
+        if self.gripper_fn is not None:
+            try:
+                gripper = np.float32(1.0 if float(self.gripper_fn()) >= 0.5 else 0.0)
+            except Exception as e:
+                if not getattr(self, "_gripper_fn_warned", False):
+                    print(f"[Recorder] gripper_fn failed ({e}); falling back to "
+                          f"weld state (reported once)")
+                    self._gripper_fn_warned = True
+                gripper = np.float32(1.0 if weld_active.any() else 0.0)
+        else:
+            gripper = np.float32(1.0 if weld_active.any() else 0.0)
+
         from transforms3d.euler import mat2euler
         ee_rpy = np.array(mat2euler(ee_mat, axes='sxyz'), dtype=np.float32)
         self._state_buffer.append({
@@ -427,7 +449,8 @@ class Recorder:
             # honest source is the jaw position (0-850 on this cell), which
             # this recorder cannot see -- it is handed model/data, not an arm.
             # Fix that before treating real recordings as comparable.
-            "gripper": np.float32(1.0 if weld_active.any() else 0.0),
+            # (run_kinesthetic_real.py does, via `gripper_fn`.)
+            "gripper": gripper,
         })
         if rendered_frame is not None:
             self._frame_buffer.append({"t_wall": wall_t, "images": rendered_frame})

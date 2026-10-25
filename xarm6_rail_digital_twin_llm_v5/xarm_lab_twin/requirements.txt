@@ -52,6 +52,11 @@ pillow==12.2.0
 # merge these environments (it also pins torch 2.4.1 against ot2vision's 2.13).
 xarm-python-sdk==1.18.4
 
+# Keyboard for scripts/run_kinesthetic_real.py: hold-to-teach needs key RELEASE
+# events, which MuJoCo's viewer key_callback does not deliver. Not the
+# `keyboard` package, which needs root on Linux.
+pynput==1.8.2
+
 # --- optional ----------------------------------------------------------------
 # pin/pinocchio + pink: preferred IK backend. pink's API does not match MuJoCo's
 # types in pink>=4.2, so sim/ik_solver.py falls back to its own Jacobian solver
