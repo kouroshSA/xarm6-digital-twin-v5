@@ -226,6 +226,24 @@
       <camera name="cam_right" pos=" 0.0315 0 0" quat="0.7071 0.7071 0 0" fovy="90"/>
     </body>
 
+    <!-- Teach handle: mocap body the operator drags with the mouse in
+         kinesthetic teaching mode (scripts/run_kinesthetic_sim.py). Visual
+         only: contype/conaffinity 0 so it never collides. Geom group 4 is
+         hidden by the default MjvOption, so the Recorder's offscreen renders,
+         the wrist camera and sim/render_options.ray_geomgroup never see it;
+         run_kinesthetic_sim.py turns group 4 on in the interactive viewer
+         only. Parked out of the way; the runner snaps it onto the EE. -->
+    <body name="teach_handle" mocap="true" pos="0 0.3 1.2">
+      <geom name="teach_handle_ball" type="sphere" size="0.018"
+            rgba="1.0 0.55 0.0 0.6" contype="0" conaffinity="0" group="4"/>
+      <geom name="teach_handle_x" type="capsule" fromto="0 0 0 0.05 0 0" size="0.003"
+            rgba="1 0 0 0.8" contype="0" conaffinity="0" group="4"/>
+      <geom name="teach_handle_y" type="capsule" fromto="0 0 0 0 0.05 0" size="0.003"
+            rgba="0 1 0 0.8" contype="0" conaffinity="0" group="4"/>
+      <geom name="teach_handle_z" type="capsule" fromto="0 0 0 0 0 0.05" size="0.003"
+            rgba="0 0 1 0.8" contype="0" conaffinity="0" group="4"/>
+    </body>
+
     <geom name="floor" type="plane" size="3 3 0.1"
           rgba="0.7 0.7 0.65 1" contype="1" conaffinity="1"/>
 

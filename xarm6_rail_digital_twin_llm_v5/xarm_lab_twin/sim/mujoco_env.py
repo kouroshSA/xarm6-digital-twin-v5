@@ -260,6 +260,14 @@ class SimXArmAPI:
         self.lock  = threading.RLock()
         self._running = True
         self._viewer = None  # set by _launch_viewer so disconnect() can close it
+        # Teleop interfaces claim viewer keys here BEFORE the nudge keymap. Each
+        # is a callable(keycode) -> bool, True meaning "consumed". Empty by
+        # default, so the nudge behaviour is unchanged unless someone opts in.
+        self._key_handlers: list = []
+        # Geom-group visibility requested before the viewer window exists. The
+        # viewer is created asynchronously, so a request made right after
+        # construction would otherwise be lost; _launch_viewer applies these.
+        self._viewer_geomgroup_requests: dict = {}
 
         self.act_ids   = [self.model.actuator(n).id for n in ACT_NAMES]
         self.joint_ids = [self.model.joint(n).id for n in JOINT_NAMES]
@@ -850,6 +858,9 @@ class SimXArmAPI:
             # this line clears it first. See sim/render_options.py.
             from sim.render_options import BACKDROP_GROUP
             v.opt.geomgroup[BACKDROP_GROUP] = 0
+            with self.lock:
+                for group, on in self._viewer_geomgroup_requests.items():
+                    v.opt.geomgroup[group] = 1 if on else 0
             # MUST hold the lock, like every other sync. _launch_viewer waits
             # only 0.4s, but launch_passive has to create a window, so this
             # first sync can land well after __init__ has returned and the
@@ -897,13 +908,48 @@ class SimXArmAPI:
         267: dict(dz_mm= -10.0),     # PAGE_DOWN
     }
 
+    def register_key_handler(self, fn) -> None:
+        """Let a teleop interface see viewer keys before the nudge keymap.
+
+        `fn(keycode) -> bool`; returning True consumes the key. Handlers run in
+        registration order on the viewer thread, so they should enqueue work
+        rather than block.
+        """
+        self._key_handlers.append(fn)
+
+    def unregister_key_handler(self, fn) -> None:
+        if fn in self._key_handlers:
+            self._key_handlers.remove(fn)
+
+    def set_viewer_geomgroup(self, group: int, on: bool) -> None:
+        """Show or hide a geom group in the INTERACTIVE viewer only.
+
+        Offscreen renderers (the Recorder, the wrist camera) build their own
+        MjvOption and are unaffected -- which is the point: the teach handle
+        lives in group 4 so the operator sees it and the training frames do not.
+        Safe to call before the viewer window has appeared.
+        """
+        with self.lock:
+            self._viewer_geomgroup_requests[int(group)] = bool(on)
+            v = self._viewer
+            if v is not None:
+                v.opt.geomgroup[int(group)] = 1 if on else 0
+
     def _viewer_key_callback(self, keycode: int) -> None:
         """Handle keyboard nudges on the body currently selected in the viewer.
 
         Selection comes from MuJoCo's built-in double-click flow
         (viewer.perturb.select holds the selected body id, 0 = none).
         Unknown keycodes are ignored so MuJoCo's own bindings still work.
+        Registered key handlers (register_key_handler) get first refusal.
         """
+        for fn in list(self._key_handlers):
+            try:
+                if fn(keycode):
+                    return
+            except Exception as e:
+                # A teleop bug must not kill the viewer thread.
+                print(f"[viewer] key handler error: {e}")
         kwargs = self._VIEWER_KEYMAP.get(keycode)
         if kwargs is None:
             return

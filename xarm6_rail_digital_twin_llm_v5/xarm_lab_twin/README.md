@@ -378,6 +378,25 @@ consumes with no changes. Full detail in
 [`teleop_sm/README.md`](teleop_sm/README.md); setup and troubleshooting in
 [`docs/spacemouse_setup.md`](docs/spacemouse_setup.md).
 
+### Kinesthetic teaching (twin mouse-drag, real-arm manual mode)
+
+Record demonstrations by moving the end effector by hand.
+
+```bash
+python scripts/run_kinesthetic_sim.py                       # twin: drag the orange ball
+python scripts/run_kinesthetic_real.py --ip 192.168.1.xxx   # real arm, hold Space to release
+python scripts/run_kinesthetic_real.py --fake               # rehearse with no robot
+```
+
+In the twin, double-click the orange teach handle and Ctrl + right-drag it (Ctrl
++ left-drag rotates); the arm follows through rate-limited IK, and Up/Down work
+the gripper. On the real arm, holding Space puts the controller in manual mode
+and the twin mirrors the arm live; every exit path returns it to mode 0. Both
+write `Recorder` sessions (`kinesthetic_sim` / `kinesthetic_real`) that
+`scripts/export_lerobot.py` consumes unchanged. Operator directions in
+[`docs/kinesthetic_teaching.md`](docs/kinesthetic_teaching.md); design and
+measured behaviour in [`teleop_kin/README.md`](teleop_kin/README.md).
+
 ### Inspecting a recording
 
 ```python

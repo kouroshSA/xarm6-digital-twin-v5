@@ -61,7 +61,10 @@ def ray_geomgroup(backdrop: bool = False):
     """
     import numpy as np
 
-    groups = np.ones(6, dtype=np.uint8)
-    if not backdrop:
-        groups[BACKDROP_GROUP] = 0
-    return groups
+    # Derived from the renderer's own option rather than starting from "all
+    # groups on". MuJoCo's default MjvOption hides groups 3-5, and the teach
+    # handle (group 4, see envs/lab_scene_primitive.xml) relies on that to stay
+    # out of rendered frames. An all-ones mask let rays hit a ball the picture
+    # does not show -- the exact disagreement this function exists to prevent.
+    return np.asarray(scene_option(backdrop=backdrop).geomgroup,
+                      dtype=np.uint8).copy()

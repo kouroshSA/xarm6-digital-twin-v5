@@ -298,15 +298,7 @@ class SpaceMouseReceiver:
         Mirrors TeleopReceiver._servo_direct, including holding the lock
         across the solve (which save/restores qpos) and the ctrl write.
         """
-        with self.arm.lock:
-            seed = np.array([float(self.arm.data.qpos[jid])
-                             for jid in self.arm.ik_solver.joint_ids])
-            q = self.arm.ik_solver.solve(target_pos_m, target_rot=target_rot,
-                                         seed_q=seed)
-            if q is not None:
-                for i, ang in enumerate(q):
-                    self.arm.data.ctrl[self.arm.act_ids[1 + i]] = float(ang)
-        self.ik_fail = q is None
+        self.ik_fail = not servo_direct(self.arm, target_pos_m, target_rot)
 
     def _servo_validated(self, target_pos_mm: np.ndarray,
                          target_rot: np.ndarray) -> None:
@@ -459,6 +451,40 @@ class SpaceMouseReceiver:
             "fine": bool(self.fine),
             "speed_mm_s": round(self.max_pos_speed * self._speed_scale(), 1),
         }
+
+
+def servo_direct(arm, target_pos_m: np.ndarray,
+                 target_rot: Optional[np.ndarray],
+                 max_joint_step_rad: Optional[float] = None) -> bool:
+    """Solve IK once, seeded from the live qpos, and write the six joint
+    setpoints straight into `data.ctrl`. Returns True if the setpoints were
+    written.
+
+    Shared by every interface that servos the twin per tick (SpaceMouse,
+    kinesthetic teach handle). The lock is held across the solve -- which
+    save/restores qpos -- AND the ctrl write, so the sim thread never steps on
+    a half-written command. On failure ctrl is left exactly as it was.
+
+    `max_joint_step_rad`, when given, rejects a solution in which any joint
+    moves further than that from its current setpoint. A per-tick servo target
+    is a few mm from the last one, so a large joint change means the solver
+    found a DIFFERENT IK branch -- measured at the reach boundary: a 293 deg
+    flip on one joint -- and writing it would whip the arm around.
+    """
+    with arm.lock:
+        seed = np.array([float(arm.data.qpos[jid])
+                         for jid in arm.ik_solver.joint_ids])
+        q = arm.ik_solver.solve(target_pos_m, target_rot=target_rot,
+                                seed_q=seed)
+        if q is not None and max_joint_step_rad is not None:
+            cur = np.array([float(arm.data.ctrl[arm.act_ids[1 + i]])
+                            for i in range(len(q))])
+            if float(np.max(np.abs(np.asarray(q) - cur))) > max_joint_step_rad:
+                q = None
+        if q is not None:
+            for i, ang in enumerate(q):
+                arm.data.ctrl[arm.act_ids[1 + i]] = float(ang)
+    return q is not None
 
 
 def _rpy_to_matrix(rpy_rad: np.ndarray) -> np.ndarray:
