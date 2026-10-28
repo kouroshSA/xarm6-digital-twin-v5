@@ -34,11 +34,24 @@ class HandFrame:
     opening: Optional[float] = None              # 0 closed .. 1 open
     opening_raw_m: Optional[float] = None        # thumb-index tip distance
     aux_hand_fist: bool = False
+    #: Main-hand gesture, debounced by the tracker: none | fist | point.
+    #: Only set when the tracker runs with --gestures.
+    gesture: str = "none"
+    point_origin_cam_m: Optional[list] = None    # index MCP, camera frame
+    point_dir_cam: Optional[list] = None         # unit MCP->tip, camera frame
     confidence: float = 0.0
     approx: bool = False                         # webcam: no real depth
     v: int = config.MSG_VERSION
 
     # ---- convenience -----------------------------------------------------
+    @property
+    def point_ray(self):
+        """(origin, unit direction) in the camera frame, or None."""
+        if self.gesture != "point" or self.point_origin_cam_m is None \
+                or self.point_dir_cam is None:
+            return None
+        return np.asarray(self.point_origin_cam_m, float), np.asarray(self.point_dir_cam, float)
+
     @property
     def valid(self) -> bool:
         """A frame the mapper may move the arm on."""
@@ -72,7 +85,7 @@ def _as_list(x):
 def make_frame(seq: int, **kw) -> HandFrame:
     """Build a frame from numpy values (tracker and tests)."""
     kw.setdefault("t_mono", time.monotonic())
-    for k in ("palm_pos_cam_m", "palm_rot_cam"):
+    for k in ("palm_pos_cam_m", "palm_rot_cam", "point_origin_cam_m", "point_dir_cam"):
         if k in kw:
             kw[k] = _as_list(kw[k])
     return HandFrame(seq=seq, **kw)

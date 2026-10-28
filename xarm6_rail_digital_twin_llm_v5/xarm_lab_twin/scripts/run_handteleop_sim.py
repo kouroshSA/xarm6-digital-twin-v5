@@ -124,6 +124,12 @@ def main() -> int:
     ap.add_argument("--start-j1-deg", type=float, default=None,
                     help="after homing, turn joint 1 to this angle (e.g. -70 faces the "
                          "operator side / front-row cubes)")
+    ap.add_argument("--gestures", action="store_true",
+                    help="enable fist-follow and point-to-grasp (tracker needs --gestures too); "
+                         "active only while the clutch is released")
+    ap.add_argument("--cam-extrinsic", default="nominal", metavar="FILE|nominal",
+                    help="hand camera -> world pose (JSON from calibrate_hand_camera). "
+                         "'nominal' is a PLACEHOLDER for exercising the gestures in the twin")
     ap.add_argument("--task-label", default=config.TASK_LABEL_SIM)
     ap.add_argument("--no-viewer", action="store_true")
     ap.add_argument("--trace", default=None,
@@ -161,6 +167,20 @@ def main() -> int:
                       recorder_factory=make_recorder if rec_on else None,
                       task_label=args.task_label)
     rx.servo.gravity_comp = not args.no_gravity_comp
+    if args.gestures:
+        from teleop_hand.camera_pose import HandCameraPose
+        from teleop_hand.gesture_control import GestureController
+        from teleop_hand.point_grasp import PointGraspExecutor
+        from teleop_hand.pointing import TwinScene
+        cam = (HandCameraPose.nominal(args.preset) if args.cam_extrinsic == "nominal"
+               else HandCameraPose.load(args.cam_extrinsic))
+        if cam.is_nominal:
+            print("[HAND] WARNING: --cam-extrinsic nominal. Fist-follow and pointing use a "
+                  "PLACEHOLDER camera pose, so \"where my fist is\" is only as good as that guess. "
+                  "Calibrate before trusting either on the real arm.")
+        rx.gestures = GestureController(cam, TwinScene(arm))
+        rx.point_executor = PointGraspExecutor(
+            arm, abort_fn=lambda: held.pressed(clutch_key))
     handler = keys.make_viewer_handler(rx.post)
     arm.register_key_handler(handler)
     view = None
@@ -174,6 +194,10 @@ def main() -> int:
           f"scale={args.scale} record={'on' if rec_on else 'off'}")
     print(f"[HAND] listening for HandFrames on udp/{udp.port} -- start run_hand_tracker.py")
     print(keys.describe(args.clutch, clutch_key, args.precision_key, args.rail))
+    if args.gestures:
+        print("[HAND] gestures ON (clutch released): FIST = the tool follows at "
+              f"{config.FOLLOW_STANDOFF_MM[0]:.0f}-{config.FOLLOW_STANDOFF_MM[1]:.0f} mm; "
+              f"POINT held {config.POINT_DWELL_S:.1f} s = go to / grasp what you point at")
     print("=" * 70 + "\n")
 
     period = 1.0 / config.FREQUENCY

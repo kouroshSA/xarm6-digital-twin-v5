@@ -175,6 +175,13 @@ class SingleHandDetector:
 
         return num_box, joint_pos, desired["kp2d"], mediapipe_wrist_rot
 
+    def main_hand(self, hands: List[dict]) -> Optional[dict]:
+        """The hand `detect` drives the arm with (same label rule)."""
+        for h in hands:
+            if h["label"] == self.detected_hand_type:
+                return h
+        return None
+
     def other_hand(self, hands: List[dict]) -> Optional[dict]:
         for h in hands:
             if h["label"] != self.detected_hand_type:

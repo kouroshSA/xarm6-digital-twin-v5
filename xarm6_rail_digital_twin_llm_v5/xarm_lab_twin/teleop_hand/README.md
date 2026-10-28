@@ -24,6 +24,15 @@ python scripts/run_handteleop_sim.py --operator-view # --orient yaw|full, --rail
 Hold **Right Ctrl** (clutch) to move; pinch thumb+index to grip; Insert (in the
 MuJoCo viewer) records a take with `interface == "handtrack_sim"`.
 
+## Gestures (fist-follow, point-to-grasp)
+
+`--gestures` on `run_hand_tracker.py` and `run_handteleop_sim.py`. Design,
+parameters, camera calibration and limits: [`docs/dex_retargeting.md`](../docs/dex_retargeting.md).
+Modules: `gestures.py` (classifier, pointing ray), `follow.py`, `pointing.py`,
+`point_grasp.py` (wrist camera + GG-CNN), `gesture_control.py` (state machine),
+`camera_pose.py`. Tests: `test_gestures.py`, `test_gestures_twin.py`.
+Not yet done on hardware: classifier on real landmarks, `calibrate_hand_camera.py`.
+
 ## Environments
 
 * `xarm6sim` — teleop side. Added `dex_retargeting==0.5.0` (pure Python + nlopt;
@@ -136,3 +145,22 @@ MUJOCO_GL=egl python -m teleop_hand.test_twin       # 4: tests 9, 10, 11 + no-cl
    6-DoF usability, latency incl. camera, holds/errors, SIGTERM.
 8. Port the joint-limit "allow moving out" fix and the FK verification to
    kinesthetic teaching's `servo_direct` path, which trusts IKSolver the same way.
+9. **Calibrate the tracker camera on the real arm (postponed 2026-10-28)** —
+   `scripts/calibrate_hand_camera.py` is written and rehearsed (`--fake`,
+   `test_hand_calib`) but never run on hardware, so fist-follow and point-to-grasp
+   still use the placeholder `nominal()` pose. Needs: (a) a camera mount that sees
+   BOTH the operator's hand zone and the gripper (a camera facing the operator
+   cannot see the robot) -- side-on, ~1.5-2 m from the operator-rail line, is the
+   leading option; fallback is a fixed multi-tag board measured by touching the
+   tags with the tool tip; (b) an ArUco tag >= 100 mm (DICT_4X4_50 id 0, measure
+   the black square) fixed on the gripper, with its tool-frame offset; (c) the new
+   D435 on USB 3 (the old D430 observer is unplugged). Operator sits EAST of the
+   rail; world +x is WEST (OT-2 at +x).
+10. **Clutch mapping ignores the calibrated camera pose.** `config.PRESETS` is a
+    fixed `facing`/`behind` rotation; with the camera east of the rail neither
+    matches. Add an `east` preset or derive the mapper rotation from the loaded
+    `HandCameraPose`.
+11. **Gesture follow-ups**: classifier check on real landmarks (validated only on a
+    synthetic skeleton), fist-follow keep-out check (the twin's direct servo path
+    has no collision checking), a real-arm runner for the gestures, a gesture to
+    release a held object, wrist camera with the viewer open (GLFW vs EGL).
