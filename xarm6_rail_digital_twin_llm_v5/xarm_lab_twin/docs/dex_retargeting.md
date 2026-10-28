@@ -97,6 +97,24 @@ the robot world frame (§4). Both are active **only while the clutch is
 released**: a fisted hand closes the pinch, which under the clutch would mean
 "close the gripper".
 
+### Setting up on another machine
+
+```bash
+git clone https://github.com/kouroshSA/xarm6-digital-twin-v5_dev.git   # private; needs access
+cd xarm6-digital-twin-v5_dev/xarm6_rail_digital_twin_llm_v5/xarm_lab_twin
+conda create -n xarm6sim python=3.11 -y && conda activate xarm6sim
+pip install -r requirements.txt                    # includes dex_retargeting==0.5.0
+conda create -n xarm6sim_hand --clone xarm6sim -y  # tracker env (mediapipe)
+conda activate xarm6sim_hand && pip install -r requirements-hand.txt
+```
+
+The GG-CNN weights are in the repo (`perception/grasp/weights/`). The MediaPipe
+hand model downloads on first tracker run. Both gestures run in the twin with no
+robot attached; the only hardware needed is a D435 (`run_hand_tracker.py --demo`
+and the tests need none). Check the install with `python -m teleop_hand.test_gestures`
+(xarm6sim) and `MUJOCO_GL=egl python -m teleop_hand.test_gestures_twin`. The
+gestures use the placeholder camera pose until the tracker camera is calibrated.
+
 Enable on both processes:
 
 ```bash
