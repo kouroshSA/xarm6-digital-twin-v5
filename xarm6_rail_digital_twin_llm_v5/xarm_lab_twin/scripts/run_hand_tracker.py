@@ -106,6 +106,9 @@ def main() -> int:
     ap.add_argument("--serial", default=None, help="RealSense serial (several connected)")
     ap.add_argument("--aux-gesture", action="store_true",
                     help="track the other hand too; a fist there is the gesture clutch")
+    ap.add_argument("--gestures", action="store_true",
+                    help="classify the main hand's fist / point and publish the pointing "
+                         "ray (for run_handteleop_sim.py --gestures)")
     ap.add_argument("--udp-port", type=int, default=config.UDP_PORT)
     ap.add_argument("--show", action="store_true", help="debug window")
     ap.add_argument("--seconds", type=float, default=None, help="stop after N s")
@@ -131,7 +134,7 @@ def main() -> int:
     from teleop_hand.tracker import HandTracker, save_log
     src = _source(args)
     pub = UdpPublisher(port=args.udp_port)
-    tr = HandTracker(src, hand=args.hand, aux_gesture=args.aux_gesture,
+    tr = HandTracker(src, hand=args.hand, aux_gesture=args.aux_gesture, gestures_on=args.gestures,
                      selfie=not args.swap_hands, publisher=pub, depth_k=args.depth_k)
     if args.log_keypoints:
         tr.log = []

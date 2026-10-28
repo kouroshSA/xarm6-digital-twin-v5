@@ -21,7 +21,7 @@ from typing import Optional
 
 import numpy as np
 
-from teleop_hand import config, palm
+from teleop_hand import config, gestures, palm
 from teleop_hand.messages import UdpPublisher, make_frame
 
 
@@ -106,7 +106,7 @@ class HandTracker:
     def __init__(self, source, *, hand: str = "Right", aux_gesture: bool = False,
                  selfie: bool = True, publisher: Optional[UdpPublisher] = None,
                  depth_k: float = config.WEBCAM_DEPTH_K, detector=None,
-                 retargeter=None, max_detect_width: int = 640):
+                 retargeter=None, max_detect_width: int = 640, gestures_on: bool = False):
         from teleop_hand.detector import SingleHandDetector
         from teleop_hand.retarget import GripperRetargeter
         # selfie=True means "trust MediaPipe's handedness label". Upstream's
@@ -124,6 +124,8 @@ class HandTracker:
         self.pub = publisher
         self.depth_k = depth_k
         self.fist = palm.Debounce(config.FIST_DEBOUNCE_FRAMES)
+        self.gestures_on = gestures_on
+        self.gesture = gestures.GestureDebounce()
         self.max_detect_width = max_detect_width
         self.seq = 0
         self.fps = 0.0
@@ -148,6 +150,12 @@ class HandTracker:
             other = self.det.other_hand(hands)
             fist = self.fist.update(bool(other is not None and palm.is_fist(other["kp3d"])))
 
+        g_label, ray_o, ray_d = gestures.NONE, None, None
+        if self.gestures_on:
+            main = self.det.main_hand(hands)
+            raw = gestures.classify_gesture(main["kp3d"]) if main is not None else gestures.NONE
+            g_label = self.gesture.update(raw)
+
         overlay = {"kp2d": kp2d, "pts": {}, "rot": None, "pos": None}
         if jp is None:
             f = make_frame(self.seq, t_mono=t, detected=False, hand=self.hand,
@@ -165,12 +173,15 @@ class HandTracker:
             else:
                 pos, q, pts = webcam_palm(kp_px, k, self.depth_k), 0.0, {}
                 rot, src, approx = rot_mp, "mediapipe", True
+            if g_label == gestures.POINT and depth is not None:
+                ray_o, ray_d = gestures.pointing_ray(main["kp3d"], kp_px, depth, k)
             overlay.update(pts=pts, rot=rot, pos=pos, q=q, opening=opening)
             f = make_frame(self.seq, t_mono=t, detected=True, hand=self.hand,
                            palm_pos_cam_m=pos, pos_valid=pos is not None,
                            palm_rot_cam=rot, rot_source=src, rot_quality=float(q),
                            opening=opening, opening_raw_m=raw_m,
-                           aux_hand_fist=fist, confidence=1.0, approx=approx)
+                           aux_hand_fist=fist, confidence=1.0, approx=approx,
+                           gesture=g_label, point_origin_cam_m=ray_o, point_dir_cam=ray_d)
             if self.log is not None:
                 self.log.append({"t": t, "joint_pos": np.round(jp, 6).tolist(),
                                  "palm_pos": None if pos is None else np.round(pos, 5).tolist(),
@@ -205,7 +216,10 @@ class HandTracker:
                "no hand" if not f.detected else
                f"open {f.opening:.2f}  q {f.rot_quality:.2f} ({f.rot_source})"
                + (f"  z {f.palm_pos_cam_m[2]:.3f} m" if f.pos_valid else "  NO DEPTH"),
-               "LEFT FIST" if f.aux_hand_fist else ""]
+               "LEFT FIST" if f.aux_hand_fist else "",
+               f"gesture: {f.gesture}" + ("" if f.gesture != "point" or f.point_ray
+                                          else " (no depth on knuckle)")
+               if self.gestures_on else ""]
         for i, s in enumerate(txt):
             cv2.putText(img, s, (10, 24 + 22 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         return img

@@ -24,6 +24,15 @@ python scripts/run_handteleop_sim.py --operator-view # --orient yaw|full, --rail
 Hold **Right Ctrl** (clutch) to move; pinch thumb+index to grip; Insert (in the
 MuJoCo viewer) records a take with `interface == "handtrack_sim"`.
 
+## Gestures (fist-follow, point-to-grasp)
+
+`--gestures` on `run_hand_tracker.py` and `run_handteleop_sim.py`. Design,
+parameters, camera calibration and limits: [`docs/dex_retargeting.md`](../docs/dex_retargeting.md).
+Modules: `gestures.py` (classifier, pointing ray), `follow.py`, `pointing.py`,
+`point_grasp.py` (wrist camera + GG-CNN), `gesture_control.py` (state machine),
+`camera_pose.py`. Tests: `test_gestures.py`, `test_gestures_twin.py`.
+Not yet done on hardware: classifier on real landmarks, `calibrate_hand_camera.py`.
+
 ## Environments
 
 * `xarm6sim` — teleop side. Added `dex_retargeting==0.5.0` (pure Python + nlopt;

@@ -150,6 +150,7 @@ RGBA_TRACKING = (1.0, 0.55, 0.0, 0.6)    # orange
 RGBA_RELEASED = (0.55, 0.55, 0.55, 0.45) # grey
 RGBA_BLOCKED = (1.0, 0.1, 0.1, 0.7)      # red
 RGBA_PRECISION = (0.15, 0.45, 1.0, 0.6)  # blue
+RGBA_GESTURE = (0.2, 0.8, 0.3, 0.6)      # green: fist-follow / point target
 
 # ---- keys -----------------------------------------------------------------
 CLUTCH_KEY = "ctrl_r"               # pynput Key name; --clutch-key overrides
@@ -170,3 +171,36 @@ REAL_ERR_POLL_S = 0.2
 RECORD = True
 TASK_LABEL_SIM = "handtrack_sim"
 TASK_LABEL_REAL = "handtrack_real"
+
+# ---- gestures: fist-follow and point-to-grasp ------------------------------
+#: Both are active only while the teleop clutch is RELEASED, so a fisted or
+#: pointing hand can never fight the clutch-driven mapper (a fist closes the
+#: pinch, which would read as "close the gripper" under the clutch).
+GESTURE_DEBOUNCE_FRAMES = 3         # tracker: consecutive frames before a change
+#: Index counts as extended when MCP->PIP and PIP->tip differ by less than this.
+POINT_STRAIGHT_DEG = 40.0
+
+# Fist-follow.
+FOLLOW_STANDOFF_MM = (100.0, 150.0)  # the EE stays between these from the fist
+FOLLOW_ENGAGE_S = 0.25              # fist held this long before the arm moves
+FOLLOW_Z_MIN_MM = 870.0             # bench top is 750; keep the tool well above
+FOLLOW_JUMP_MM = 120.0              # one-frame fist jump treated as an outlier
+FOLLOW_JUMP_ACCEPT_FRAMES = 3       # ...unless this many frames agree on it
+FOLLOW_MAX_SPEED_MM_S = 150.0
+
+# Pointing.
+POINT_DWELL_S = 1.0                 # ray must hold still this long to commit
+POINT_STEADY_DEG = 4.0              # ...within this angle of its running mean
+POINT_CONE_DEG = 8.0                # an object within this of the ray is "pointed at"
+POINT_STANDOFF_MM = 80.0            # stop this far short of a surface the ray hits
+POINT_FLOOR_CLEARANCE_MM = 100.0    # free-space targets stay this far above the bench
+POINT_REACH_MM = 550.0              # free-space targets within this of the arm base
+POINT_MAX_RAY_M = 2.5
+
+# Point-to-grasp sequence (wrist camera + GG-CNN).
+GRASP_LOOK_ABOVE_MM = 300.0         # flange height above the object for the look
+GRASP_APPROACH_ABOVE_MM = 100.0
+GRASP_MAX_PRIOR_ERR_MM = 25.0       # GG-CNN grasp must be this near the pointed object
+GRASP_LIFT_MM = 120.0
+GRASP_SPEED_MM_S = 80.0
+GRASP_DESCENT_SPEED_MM_S = 50.0

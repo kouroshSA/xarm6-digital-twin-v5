@@ -396,6 +396,27 @@ read it before continuing. Twin side works and was tested live (steps 1-5);
 - Every real-arm exit goes through `teleop_kin.real_teach.return_to_position_mode`.
 - Tests: `python -m teleop_hand.test_retarget`, `.test_palm`, `.test_mapping`,
   `MUJOCO_GL=egl python -m teleop_hand.test_twin`.
+- **Gestures: fist-follow and point-to-grasp** (`--gestures` on tracker AND
+  runner; explained in [`docs/dex_retargeting.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/docs/dex_retargeting.md)).
+  Active only while the clutch is released. They are ABSOLUTE, so they need the
+  tracker camera's pose in the world frame (`teleop_hand/camera_pose.py`);
+  `nominal()` is a PLACEHOLDER and the runner warns while it is in use.
+  `from_correspondences` reuses `perception.extrinsic_calibration.solve_camera_pose`
+  -- do not add a second solver (defect class #1).
+- **Pointing ray = index-MCP depth + landmark direction, never fingertip depth**
+  (a fingertip's depth sample is the background). "Pointed at" is an 8 deg CONE
+  tested before the ray cast. The grasp picks the GG-CNN candidate NEAREST the
+  pointed object, not the highest quality: the first live run chose the
+  heater-shaker's edge, 9 mm from the cube. It refuses (and does not descend on
+  the prior) when GG-CNN proposes nothing near, or the grasp is nearer another object.
+- **Calibrate the tracker camera with `scripts/calibrate_hand_camera.py`** (ArUco tag on the
+  gripper, PnP camera-side, real joints through the twin's FK world-side; never commands the
+  arm). Use a tag >= 100 mm: a 60 mm tag at ~1.2 m is ~28 px wide and biased by centimetres.
+  `--fake` rehearses it; `python -m teleop_hand.test_hand_calib` (xarm6sim_hand) tests it.
+  Lab layout: world +x is WEST (OT-2 at x=+0.85), so an operator east of the rail is at -x.
+- Gesture tests: `python -m teleop_hand.test_gestures` (no hardware),
+  `MUJOCO_GL=egl python -m teleop_hand.test_gestures_twin` (graded on which body
+  is welded and how far it rose, not return codes).
 
 ## Pose geometry helpers
 

@@ -34,7 +34,7 @@ from teleop_hand import config, guards
 from teleop_hand.mapping import ArmTeleopMapper
 from teleop_hand.retarget import BinaryGrip
 from teleop_kin.handle import TeachHandle
-from teleop_kin.receiver import _rot_angle_deg
+from teleop_kin.receiver import _rot_angle_deg, rate_limit_pose
 from teleop_kin.servo import TwinServo
 from teleop_kin.takes import TakeControl
 
@@ -69,7 +69,8 @@ class HandReceiver:
                  clutch_fn: Callable[[], bool], precision_fn: Callable[[], bool] = lambda: False,
                  gesture_clutch: bool = False, marker: Optional[TeachHandle] = None,
                  recorder=None, recorder_factory=None,
-                 task_label: str = config.TASK_LABEL_SIM, clock=time.monotonic):
+                 task_label: str = config.TASK_LABEL_SIM, clock=time.monotonic,
+                 gestures=None, point_executor=None):
         self.arm = arm
         self.mapper = mapper
         self.source = source
@@ -88,6 +89,16 @@ class HandReceiver:
         self.rail_mm = self.servo.rail_setpoint_mm()
         self.rail_step_mm = config.RAIL_STEP_MM
         self.max_rail_speed = config.RAIL_MAX_SPEED
+
+        # Gestures (fist-follow, point-to-grasp): None = off.
+        self.gestures = gestures
+        self.point_executor = point_executor
+        self.gesture_out = None
+        self._follow_rot = None
+        self._g_fail_target = None
+        self._g_fail_time = -1e9
+        self._g_solved = None
+        self.last_point_result = None
 
         self._actions: "queue.SimpleQueue[HandAction]" = queue.SimpleQueue()
         self._frame = None
@@ -139,12 +150,17 @@ class HandReceiver:
                 self.arm.data.ctrl[self.arm.act_ids[RAIL_ACT]] = self.rail_mm / 1000.0
 
         if out.engaged:
+            self._reset_gesture_motion()
+            if self.gestures is not None:
+                self.gestures.pause()
             self._servo(out, frame, now)
             self._gripper(out.opening)
         else:
             self.blocked = None
             self._solved_pos = None
             self._fail_target = None
+            if self.gestures is not None:
+                self._gestures_tick(now, dt, ee_pos)
 
         self.servo.apply(dt)
         self._show_marker(out)
@@ -185,6 +201,84 @@ class HandReceiver:
             print(f"[HAND] target refused ({why}) at ({p[0]:.0f}, {p[1]:.0f}, {p[2]:.0f}) mm"
                   f" -- arm holding")
 
+    # ---- gestures -------------------------------------------------------------
+    def _reset_gesture_motion(self) -> None:
+        self._follow_rot = None
+        self._g_fail_target = None
+        self._g_solved = None
+        self.gesture_out = None
+
+    def _gestures_tick(self, now: float, dt: float, ee_pos) -> None:
+        base = self.geom.base_mm(self.rail_mm)
+        gout = self.gestures.update(self._frame, now, dt, ee_pos, base)
+        self.gesture_out = gout
+        if gout.kind == "follow":
+            self._follow(gout.follow_target_m, now, dt, base)
+            return
+        self._reset_gesture_motion()
+        self.gesture_out = gout
+        if gout.kind == "point" and self.point_executor is not None:
+            self._run_point(gout.point)
+
+    def _follow(self, target_m, now: float, dt: float, base_mm) -> None:
+        cur_pos, cur_rot = self.servo.commanded_pose()
+        if self._follow_rot is None:
+            self._follow_rot = cur_rot.copy()         # orientation stays as it was
+        step_pos, step_rot = rate_limit_pose(
+            cur_pos, cur_rot, target_m, self._follow_rot,
+            config.FOLLOW_MAX_SPEED_MM_S * dt, config.MAX_ROT_SPEED * dt)
+        new_rail, p_mm = self.mapper._rail_push(step_pos * 1000.0, base_mm, self.rail_mm, dt)
+        if new_rail is not None:
+            self.rail_mm = new_rail
+            with self.arm.lock:
+                self.arm.data.ctrl[self.arm.act_ids[RAIL_ACT]] = self.rail_mm / 1000.0
+        pos = p_mm / 1000.0
+        if self._g_solved is not None:
+            if (float(np.linalg.norm(pos - self._g_solved[0])) * 1000.0 < config.SOLVE_MIN_POS_MM
+                    and _rot_angle_deg(self._g_solved[1], step_rot) < config.SOLVE_MIN_ROT_DEG):
+                return
+        if self._g_fail_target is not None:
+            if now - self._g_fail_time < config.IK_RETRY_PERIOD_S or \
+                    float(np.linalg.norm(pos - self._g_fail_target)) * 1000.0 < config.SOLVE_MIN_POS_MM:
+                return
+        with self.servo.rail_at_setpoint():
+            q, why = guards.solve_guarded(self.arm, pos, step_rot, self.servo.q_cmd,
+                                          self.limits, check_wrist=False)
+        self.n_solves += 1
+        if q is not None:
+            self.servo.q_cmd = q
+            self.blocked = None
+            self._g_fail_target = None
+            self._g_solved = (pos.copy(), step_rot.copy())
+            return
+        self.blocked = why
+        self._g_fail_target, self._g_fail_time = pos.copy(), now
+        if now - self._last_warn > config.IK_WARN_PERIOD_S:
+            self._last_warn = now
+            print(f"[HAND] follow target refused ({why}) -- arm holding")
+
+    def _run_point(self, target) -> None:
+        """Blocking, like HOME: nothing else commands the arm meanwhile. The
+        clutch key aborts between steps (the executor's `abort_fn`)."""
+        if self.marker is not None:
+            self.marker.write_pose(np.asarray(target.position_mm) / 1000.0,
+                                   self.servo.commanded_pose()[1])
+            self.marker.set_color(config.RGBA_GESTURE)
+            self._shown_rgba = config.RGBA_GESTURE
+        base = self.geom.base_mm(self.rail_mm)
+        scene = getattr(self.gestures, "scene", None)
+        others = ({n: np.asarray(c) * 1000.0 for n, c in scene.candidates().items()}
+                  if scene is not None else {})
+        res = self.point_executor.run(target, base, self.geom.rail_axis, self.rail_mm, others)
+        self.last_point_result = res
+        self.takes.log_command("point", {"kind": target.kind, "name": target.name,
+                                         "position_mm": [round(float(v), 1) for v in target.position_mm],
+                                         "ok": res.ok, "stage": res.stage, "held": res.held,
+                                         "message": res.message})
+        self._after_primitive()
+        self.gestures.mode = "idle"
+        print(f"[HAND] point -> {'OK' if res.ok else 'FAILED'} ({res.stage}): {res.message}")
+
     def _retry_due(self, pos, rot, now: float) -> bool:
         if now - self._fail_time < config.IK_RETRY_PERIOD_S:
             return False
@@ -209,6 +303,8 @@ class HandReceiver:
     # ---- marker -------------------------------------------------------------
     def marker_rgba(self) -> tuple:
         out = self.out
+        if self.gesture_out is not None and self.gesture_out.kind == "follow":
+            return config.RGBA_BLOCKED if self.blocked else config.RGBA_GESTURE
         if out is None or not out.engaged:
             return config.RGBA_RELEASED
         if self.blocked or out.status.get("clamped"):
@@ -220,7 +316,12 @@ class HandReceiver:
     def _show_marker(self, out) -> None:
         if self.marker is None:
             return
-        if out.engaged and out.target_pos is not None:
+        g = self.gesture_out
+        if g is not None and g.kind == "follow" and g.follow_target_m is not None:
+            self.marker.write_pose(g.follow_target_m, self._follow_rot
+                                   if self._follow_rot is not None
+                                   else self.servo.commanded_pose()[1])
+        elif out.engaged and out.target_pos is not None:
             self.marker.write_pose(out.target_pos, out.target_rot)
         else:
             self.marker.write_pose(*self.servo.commanded_pose())
@@ -285,4 +386,9 @@ class HandReceiver:
             "orient": self.mapper.orient_mode, "map": self.mapper.map_mode,
             "rail_mode": self.mapper.rail_mode,
         })
+        if self.gesture_out is not None:
+            st["gesture"] = dict(self.gesture_out.status)
+        if self.last_point_result is not None:
+            r = self.last_point_result
+            st["last_point"] = {"ok": r.ok, "stage": r.stage, "held": r.held}
         return st
