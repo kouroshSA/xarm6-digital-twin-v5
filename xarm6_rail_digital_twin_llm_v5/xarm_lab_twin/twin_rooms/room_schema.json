@@ -48,8 +48,8 @@
           "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$",
                    "description": "A folder under robots/."},
           "base_pose": {"$ref": "#/$defs/pose"},
-          "end_effector": {"type": "string",
-                           "enum": ["parallel_gripper", "bio_gripper", "none"]},
+          "end_effector": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$",
+                           "description": "one of the robot type's end_effectors (robots/<type>/robot.json), or 'none'; omit for the type's default"},
           "controllable": {"type": "boolean"}
         }
       }

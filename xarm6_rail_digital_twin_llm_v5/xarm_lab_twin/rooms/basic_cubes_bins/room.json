@@ -9,7 +9,7 @@
     }
   },
   "robots": [
-    {"instance": "arm0", "type": "xarm6_rail", "end_effector": "none", "controllable": true}
+    {"instance": "arm0", "type": "xarm6_rail_basic", "end_effector": "none", "controllable": true}
   ],
   "objects": [
     {"name": "red_cube", "source": "scene", "dynamic": true, "type": "cube", "label": "red cube"},

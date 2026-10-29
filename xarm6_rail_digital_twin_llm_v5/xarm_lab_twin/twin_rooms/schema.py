@@ -174,6 +174,16 @@ def validate_semantics(d: dict, room_dir: Path, robots_dir: Path = None) -> List
             if r.get("type") and r["type"] not in known:
                 errs.append(f"robots[{i}].type: unknown robot type {r['type']!r}; "
                             f"known: {known}")
+            elif r.get("end_effector"):
+                # Read only the effector list: the full robot check (every name
+                # looked up in the model) belongs to load_robot_type, not to
+                # every room load.
+                eff = json.loads((robots_dir / r["type"] / "robot.json").read_text()
+                                 ).get("end_effectors", {})
+                have = ["none"] + [k for k in eff if k != "default"]
+                if r["end_effector"] not in have:
+                    errs.append(f"robots[{i}].end_effector: {r['end_effector']!r} is not "
+                                f"an end effector of {r['type']}; have {have}")
 
     objs = d.get("objects", [])
     names = [o.get("name") for o in objs]

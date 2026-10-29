@@ -121,7 +121,7 @@ BAD = [
      "instance 'arm0' is used more than once"),
     ("unknown end effector",
      lambda d: {**d, "robots": [{**d["robots"][0], "end_effector": "suction"}]},
-     "is not one of"),
+     "'suction' is not an end effector of xarm6_rail"),
     ("inverted workspace", lambda d: {**d, "workspace_bounds": {"min": [0, 0, 1.0], "max": [1, 1, 0.8]}},
      "z min 1.0 is not below max 0.8"),
     ("wrong type", lambda d: {**d, "objects": {"red_cube": {}}}, "objects: expected array"),

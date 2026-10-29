@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "twin_rooms/robot_schema.json",
+  "title": "robot.json",
+  "description": "A robot TYPE, defined once and referenced by rooms. It maps the logical names control code uses (rail_joint, arm_joints, ee_site...) to MJCF names, and says where the model comes from. Numbers that already have one source in code are given as {\"ref\": \"module:NAME\"} rather than copied (defect class #1); joint and rail limits are not stored at all, because the compiled model's jnt_range is their single source.",
+  "type": "object",
+  "required": ["type", "name", "description", "model", "names", "home", "end_effectors"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$",
+             "description": "lowercase letters, digits and '_'; must equal the folder name under robots/"},
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "model": {
+      "description": "Where the robot's bodies come from. `extract_from`: the robot is the listed top-level bodies of an existing scene, copied out at build time (never hand-copied, so it cannot drift from the scene).",
+      "type": "object",
+      "required": ["default", "variants", "bodies"],
+      "additionalProperties": false,
+      "properties": {
+        "default": {"type": "string"},
+        "variants": {"type": "object", "minProperties": 1,
+                     "additionalProperties": {"type": "string"},
+                     "description": "variant name -> scene XML path, relative to the robot folder"},
+        "bodies": {"type": "array", "minItems": 1, "items": {"type": "string"},
+                   "description": "top-level bodies that make up the robot; the first is the mount (moved by the room's base_pose)"},
+        "operator_aids": {"type": "array", "items": {"type": "string"},
+                          "description": "top-level helper bodies the teleop tools need (mocap teach handle, VR head); hidden from cameras"}
+      }
+    },
+    "names": {
+      "type": "object",
+      "required": ["arm_joints", "arm_actuators", "ee_site", "base_body", "gripper_body"],
+      "additionalProperties": false,
+      "properties": {
+        "rail_joint": {"type": "string"},
+        "rail_actuator": {"type": "string"},
+        "arm_joints": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "arm_actuators": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "ee_site": {"type": "string"},
+        "base_body": {"type": "string"},
+        "flange_body": {"type": "string"},
+        "gripper_body": {"type": "string", "description": "the body grasp welds attach objects to"},
+        "arm_collision_geoms": {"type": "array", "items": {"type": "string"}},
+        "wrist_camera_body": {"type": "string"},
+        "cameras": {"type": "object", "additionalProperties": {"type": "string"}},
+        "led_strips": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "rail": {
+      "type": "object",
+      "required": ["axis"],
+      "additionalProperties": false,
+      "properties": {
+        "axis": {"$ref": "#/$defs/vec3", "description": "world direction the carriage moves in"},
+        "base_at_rail_zero_mm": {"$ref": "#/$defs/vec3_or_ref"}
+      }
+    },
+    "home": {
+      "type": "object",
+      "required": ["joints_deg"],
+      "additionalProperties": false,
+      "properties": {
+        "joints_deg": {"$ref": "#/$defs/numbers_or_ref"},
+        "rail_mm": {"$ref": "#/$defs/number_or_ref"},
+        "joint_speed_deg_s": {"$ref": "#/$defs/number_or_ref"},
+        "rail_speed_mm_s": {"$ref": "#/$defs/number_or_ref"}
+      }
+    },
+    "ik": {
+      "type": "object",
+      "required": ["solver"],
+      "additionalProperties": false,
+      "properties": {
+        "solver": {"type": "string", "pattern": "^[A-Za-z_][\\w.]*:[A-Za-z_]\\w*$",
+                   "description": "module:Class"},
+        "rail": {"type": "string", "enum": ["fixed"],
+                 "description": "how IK treats the rail: 'fixed' = solved for the arm at the current rail position"},
+        "pos_tol_m": {"$ref": "#/$defs/number_or_ref"}
+      }
+    },
+    "end_effectors": {
+      "description": "The end effectors this type can carry, by the names rooms use in robots[].end_effector. `default` names the one fitted when a room does not say.",
+      "type": "object",
+      "required": ["default"],
+      "properties": {"default": {"type": "string"}},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "gripper_mode": {"type": "string", "description": "the SimXArmAPI.set_gripper mode that selects it"},
+          "geoms": {"type": "array", "items": {"type": "string"}},
+          "materials": {"type": "array", "items": {"type": "string"}},
+          "finger_joints": {"type": "array", "items": {"type": "string"}},
+          "finger_actuators": {"type": "array", "items": {"type": "string"}},
+          "open_ctrl": {"$ref": "#/$defs/number_or_ref"},
+          "closed_ctrl": {"$ref": "#/$defs/number_or_ref"},
+          "reach_m": {"$ref": "#/$defs/number_or_ref"},
+          "aperture_m": {"$ref": "#/$defs/number_or_ref"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  },
+  "$defs": {
+    "ref": {"type": "object", "required": ["ref"], "additionalProperties": false,
+            "properties": {"ref": {"type": "string", "pattern": "^[A-Za-z_][\\w.]*:[A-Za-z_]\\w*$",
+                                   "description": "module:NAME, a constant importable from the project root"}}},
+    "vec3": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+    "vec3_or_ref": {"anyOf": [{"$ref": "#/$defs/vec3"}, {"$ref": "#/$defs/ref"}]},
+    "number_or_ref": {"anyOf": [{"type": "number"}, {"$ref": "#/$defs/ref"}]},
+    "numbers_or_ref": {"anyOf": [{"type": "array", "items": {"type": "number"}},
+                                 {"$ref": "#/$defs/ref"}]}
+  }
+}

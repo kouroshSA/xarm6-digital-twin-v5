@@ -47,7 +47,7 @@ class RobotSpec:
     instance: str
     type: str
     base_pose: Pose
-    end_effector: str
+    end_effector: Optional[str]     # None = the robot type's default
     controllable: bool
 
 
@@ -163,7 +163,7 @@ def parse_room(d: dict, room_dir: Path) -> RoomDef:
         dir=room_dir, scene=d.get("scene"), environment=d.get("environment"),
         robots=[RobotSpec(r["instance"], r["type"],
                           Pose.parse(r.get("base_pose")) or Pose((0.0, 0.0, 0.0)),
-                          r.get("end_effector", "parallel_gripper"),
+                          r.get("end_effector"),
                           r.get("controllable", True)) for r in d["robots"]],
         objects=[ObjectSpec(o["name"], o["source"], dict(o.get("params", {})),
                             Pose.parse(o.get("pose")), o.get("dynamic", True),

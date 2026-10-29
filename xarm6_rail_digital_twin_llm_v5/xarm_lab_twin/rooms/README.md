@@ -31,7 +31,7 @@ are metres and degrees.
 | `id` | must equal the folder name |
 | `scene` | passthrough: `{"default": "meshes", "variants": {"meshes": "../../envs/lab_scene.xml"}}` |
 | `environment` | composed: `"environment.xml"` or `{"extract_from": ..., "bodies": [...], "floor": true, "lights": true}` |
-| `robots[]` | `instance`, `type` (a folder under `robots/`), `base_pose`, `end_effector`, `controllable` (exactly one) |
+| `robots[]` | `instance`, `type` (a folder under [`robots/`](../robots/README.md)), `base_pose`, `end_effector` (one the type offers, or `none`; omit for its default), `controllable` (exactly one) |
 | `objects[]` | `name`, `source` (`scene`, `builtin:cube\|bin\|tube_rack\|tube`, `mjcf:<path>`, `simready:<slug>`), `pose`, `dynamic`, `type`, `label`, `aliases`, `grippable`, `driver`, `params` |
 | `cameras[]` | `name`, optional `pos`/`lookat`/`fovy`, `role` |
 | `workspace_bounds` | `{"min": [x,y,z], "max": [x,y,z]}`; `null` = the robot's default for that axis |
@@ -43,7 +43,7 @@ names, builtin parameters). Every problem is reported with its field path:
 
 ```
 rooms/my_room/room.json: 2 problem(s)
-  - robots[0].end_effector: 'suction' is not one of ['parallel_gripper', 'bio_gripper', 'none']
+  - robots[0].end_effector: 'suction' is not an end effector of xarm6_rail; have ['none', 'parallel_gripper', 'bio_gripper']
   - objects[0].pose.pos: expected at least 3 items, got 2
 ```
 
