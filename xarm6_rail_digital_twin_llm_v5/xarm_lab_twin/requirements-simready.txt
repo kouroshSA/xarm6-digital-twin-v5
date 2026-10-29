@@ -1,0 +1,11 @@
+# SimReady importer (simready_import/), installed INTO xarm6sim:
+#   conda activate xarm6sim && pip install -r requirements-simready.txt
+# All five have Linux wheels for both x86_64 and aarch64 (DGX Spark), checked
+# 2026-10-29 for CPython 3.11, so none is optional. huggingface_hub and numpy
+# are already part of xarm6sim; listed so the importer's needs are in one place.
+usd-core==26.11            # Pixar pxr bindings (no Omniverse needed)
+huggingface_hub>=1.33      # SimReady Central datasets
+trimesh==5.2.0             # mesh I/O, hulls, volumes
+numpy>=2.0
+coacd==1.0.14              # convex decomposition of concave collision meshes
+fast-simplification==0.2.0 # visual mesh decimation

@@ -127,6 +127,10 @@ pip install pynput
 
 # Optional — only if --mode real (real hardware) or scan_to_mesh
 pip install xarm-python-sdk open3d
+
+# Optional — only to import NVIDIA SimReady assets into rooms
+# (simready_import/; x86_64 and aarch64 wheels for all of them)
+pip install -r requirements-simready.txt
 ```
 
 ## Step 4 — Set up the API key (only for LLM-driven scripts)
