@@ -137,6 +137,32 @@ def _triangulate(counts, indices) -> Tuple[np.ndarray, np.ndarray]:
             np.array(owner, dtype=np.int64), np.array(corners, dtype=np.int64).reshape(-1, 3))
 
 
+def _mat_to_quat(R: np.ndarray) -> Tuple[float, float, float, float]:
+    """Rotation matrix (column-vector convention) -> unit quaternion w, x, y, z."""
+    t = np.trace(R)
+    if t > 0:
+        s = 2.0 * np.sqrt(1.0 + t)
+        q = (0.25 * s, (R[2, 1] - R[1, 2]) / s, (R[0, 2] - R[2, 0]) / s, (R[1, 0] - R[0, 1]) / s)
+    else:
+        i = int(np.argmax(np.diag(R)))
+        j, k = (i + 1) % 3, (i + 2) % 3
+        s = 2.0 * np.sqrt(1.0 + R[i, i] - R[j, j] - R[k, k])
+        v = [0.0, 0.0, 0.0]
+        v[i] = 0.25 * s
+        v[j] = (R[j, i] + R[i, j]) / s
+        v[k] = (R[k, i] + R[i, k]) / s
+        q = ((R[k, j] - R[j, k]) / s, *v)
+    q = np.array(q) / np.linalg.norm(q)
+    return tuple(float(x) for x in (q if q[0] >= 0 else -q))
+
+
+def _input(shader, name):
+    """A shader input, or None when the shader does not have it (pxr hands back
+    an invalid input that throws on use)."""
+    inp = shader.GetInput(name)
+    return inp if inp and inp.GetAttr().IsValid() else None
+
+
 def _purpose(prim) -> str:
     return UsdGeom.Imageable(prim).ComputePurpose() if prim.IsA(UsdGeom.Imageable) else "default"
 
@@ -158,12 +184,12 @@ def _material_info(mat: UsdShade.Material, stage_dir: Path, warnings: List[str])
         return info
     rgb = (0.7, 0.7, 0.7)
     alpha = 1.0
-    diff = preview.GetInput("diffuseColor")
+    diff = _input(preview, "diffuseColor")
     if diff is not None:
         if diff.HasConnectedSource():
             src = diff.GetConnectedSources()[0][0].source
             tex = UsdShade.Shader(src.GetPrim())
-            f = tex.GetInput("file")
+            f = _input(tex, "file")
             if f is not None and f.Get() is not None:
                 ap = f.Get()
                 resolved = ap.resolvedPath or str((stage_dir / ap.path).resolve())
@@ -171,13 +197,13 @@ def _material_info(mat: UsdShade.Material, stage_dir: Path, warnings: List[str])
                     info.texture = Path(resolved)
                 else:
                     warnings.append(f"material {info.name}: texture {ap.path} not found")
-            fb = tex.GetInput("fallback")
+            fb = _input(tex, "fallback")
             if fb is not None and fb.Get() is not None:
                 rgb = tuple(fb.Get())[:3]
             rgb = (1.0, 1.0, 1.0) if info.texture else rgb
         elif diff.Get() is not None:
             rgb = tuple(float(c) for c in diff.Get())
-    op = preview.GetInput("opacity")
+    op = _input(preview, "opacity")
     if op is not None and not op.HasConnectedSource() and op.Get() is not None:
         alpha = float(op.Get())
     info.rgba = (float(rgb[0]), float(rgb[1]), float(rgb[2]), alpha)
@@ -345,8 +371,7 @@ def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
             rot = (m[:3, :3] / scale[:, None]).T          # column-vector rotation
             rot = to_z @ rot
             pos = (to_z @ (m[3, :3] * mpu))
-            q = Gf.Quatd(Gf.Matrix3d(*rot.T.flatten().tolist()).ExtractRotationQuat())
-            quat = (q.GetReal(), *q.GetImaginary())
+            quat = _mat_to_quat(rot)
             s = scale * mpu
             kind = p.GetTypeName()
             if kind == "Cube":
