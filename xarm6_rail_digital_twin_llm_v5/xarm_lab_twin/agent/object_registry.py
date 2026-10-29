@@ -419,10 +419,10 @@ def build_default_registry() -> ObjectRegistry:
             "(-x) opening that faces the bench. Deck surface at z=755 mm. "
             "11 SBS slots (3 cols x 4 rows) + TRASH at slot 12. Pitch "
             "132 mm cols x 89 mm rows. Slot world-xy (z=755 for all): "
-            "  slot 1=(867, +132), 2=(867, 0), 3=(867, -132) [front row], "
-            "  slot 4=(956, +132), 5=(956, 0), 6=(956, -132) [mid-front], "
-            "  slot 7=(1044, +132), 8=(1044, 0), 9=(1044, -132) [mid-back], "
-            "  slot 10=(1133, +132), 11=(1133, 0), TRASH=(1133, -132). "
+            "  slot 1=(717, +132), 2=(717, 0), 3=(717, -132) [front row], "
+            "  slot 4=(806, +132), 5=(806, 0), 6=(806, -132) [mid-front], "
+            "  slot 7=(894, +132), 8=(894, 0), 9=(894, -132) [mid-back], "
+            "  slot 10=(983, +132), 11=(983, 0), TRASH=(983, -132). "
             "REACH WARNING from rail=700: slots 1-6 reach cleanly; "
             "slots 7-9 are at the edge of arm reach; slots 10-11 + "
             "TRASH are usually unreachable through the front opening. "
@@ -491,7 +491,7 @@ def build_default_registry() -> ObjectRegistry:
         safety_notes=(
             "Opentrons-style 96-position tip rack. 127 x 85 x 80 mm "
             "(taller than a plate). Start position: OT-2 slot 10 "
-            "(back-left, world (1133, +132)). Body centre z=795; "
+            "(back-left, world (983, +132)). Body centre z=795; "
             "top z=835. Grasp from directly above. "
             "REACH WARNING: slot 10 is at the back of the OT-2 deck, "
             "at the edge of the arm's reach through the front "
@@ -516,13 +516,13 @@ def build_default_registry() -> ObjectRegistry:
         aliases=["shaker", "heater shaker", "opentrons shaker",
                  "heater-shaker", "shaker module"],
         position_xyz_m=[0.1, 0.13, 0.791],
-        optimal_rail_mm=50.0,
+        optimal_rail_mm=450.0,
         grasp=shaker_grasp,
         safety_notes=(
-            "Opentrons Heater-Shaker module on the bench front-left. "
+            "Opentrons Heater-Shaker module on the bench. "
             "152 x 90 x 82 mm. Top platform at z=836 mm holds a "
             "96-well plate. To PLACE a plate on the shaker: approach "
-            "(-300, -250, 870), descend to (-300, -250, 845), open "
+            "(+100, +130, 870), descend to (+100, +130, 845), open "
             "gripper. Heavy (2 kg); do NOT push or pick up unless the "
             "task explicitly asks. Two status LEDs on the left and "
             "right faces of the chassis indicate plate placement: "
@@ -560,24 +560,24 @@ def build_default_registry() -> ObjectRegistry:
                  "pcr machine", "opentrons thermocycler",
                  "thermocycler gen2"],
         position_xyz_m=[0.1, 0.32, 0.75],
-        optimal_rail_mm=350.0,
+        optimal_rail_mm=450.0,
         grasp=pcr_grasp,
         safety_notes=(
-            "Opentrons Thermocycler Module at world (+200, -300). "
+            "Opentrons Thermocycler Module at world (+100, +320). "
             "Outer ~350 W (along x) x 170 D (along y) x 130 H mm. "
-            "Footprint: x in (25..375)mm, y in (-385..-215)mm. "
+            "Footprint: x in (-75..275)mm, y in (235..405)mm. "
             "Chassis walls top out at world z=850 mm -- any transit "
             "across the footprint with a plate in the gripper MUST "
             "be at z>=920 mm or the plate will collide with the wall. "
             "The lid hinges on the -x side and OPENS UPWARD AWAY "
             "FROM THE OT-2 (when open the lid stands vertical at "
-            "world x ~30mm, pointing UP). pcr_open MUST be called "
+            "world x ~-70mm, pointing UP). pcr_open MUST be called "
             "before any plate can be loaded or removed. Cavity "
-            "centre at world (+200, -300, 765); plate sits on the "
+            "centre at world (+100, +320, 765); plate sits on the "
             "heated block with its body centre at ~z=780. To LOAD a "
             "plate: pcr_open, traverse at z>=920 (NOT 870), approach "
-            "(+200, -300, 920), descend to (+200, -300, 790), "
-            "gripper_open, lift back to (+200, -300, 920), pcr_close. "
+            "(+100, +320, 920), descend to (+100, +320, 790), "
+            "gripper_open, lift back to (+100, +320, 920), pcr_close. "
             "Two LEDs on the front and back faces of the chassis "
             "indicate state: GREEN = plate correctly seated AND lid "
             "closed; RED = plate inside but mis-positioned (off-centre "

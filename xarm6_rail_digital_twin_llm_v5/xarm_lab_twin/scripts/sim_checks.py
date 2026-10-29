@@ -66,7 +66,12 @@ REGISTRY_SEEDS = "agent/object_registry.py"
 
 def _render_prompt(scene) -> str:
     """Render the system prompt exactly as LLMBrain would, minus the runtime-only
-    sections (registry/world-model/lessons), which carry no hardcoded geometry."""
+    sections (world-model/lessons, speed cap). The registry IS rendered: it was
+    once omitted on the assumption that it carries no hardcoded geometry, while
+    its safety notes still held every coordinate in RETIRED_PROMPT_COORDS --
+    the check passed and the planner was told the heater-shaker and PCR sat
+    where they had not been for weeks."""
+    from agent.object_registry import build_default_registry
     from agent.llm_brain import SYSTEM_PROMPT_TEMPLATE
     from agent.scene_geometry import render_geometry_section, worked_example_coords
     return SYSTEM_PROMPT_TEMPLATE.format(
@@ -74,7 +79,7 @@ def _render_prompt(scene) -> str:
         # flips, and a check that stubbed it could not tell whether it still works.
         vision_policy_section=__import__(
             "agent.llm_brain", fromlist=["x"]).render_vision_policy(),
-        registry_context="(omitted)",
+        registry_context=build_default_registry().to_llm_context(),
         speed_cap_section="(omitted)",
         world_model_section="(omitted)",
         # Rendered for real, not stubbed: these checks scan the prompt for
