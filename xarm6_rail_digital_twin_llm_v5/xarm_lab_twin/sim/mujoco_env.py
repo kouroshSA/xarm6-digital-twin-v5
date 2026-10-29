@@ -60,6 +60,10 @@ GRIPPABLE_BODIES = {
 }
 # Backward-compat alias (older code still references GRIPPABLE_CUBES)
 GRIPPABLE_CUBES = GRIPPABLE_BODIES
+# Derived, not listed: push_object's grasp mode used to test a literal
+# ("red_cube", ...) that went stale when the red cube was split into
+# front/back, silently sending both red cubes down the flyover path.
+CUBE_BODIES = tuple(n for n in GRIPPABLE_BODIES if "_cube" in n)
 
 # How far the IK solution may miss the commanded pose before set_position
 # refuses. The solver's own fallback does not check convergence, so without this
@@ -1206,7 +1210,12 @@ class SimXArmAPI:
                                    # look more like "true pushing" but knocks bins
                                    # over when the path crosses the bin row.
     PUSH_APPROACH_Z_MM = 870.0     # safer height to reach over the object first
-    PUSH_GRASP_Z_MM = 795.0        # grasp height (same as cube pick-place)
+    # Grasp height ABOVE THE CUBE'S CENTRE. This was an absolute 795 mm, which
+    # is centre+30 for a cube resting at 765; the red and blue cubes now rest
+    # at 780, where 795 sits on the cube top, the descent was refused as a
+    # collision, and the grasp closed on air 85 mm up. The push still
+    # "succeeded" because the final snap teleports the object regardless.
+    PUSH_GRASP_ABOVE_CENTRE_MM = 30.0
 
     def push_object(self, target_name: str,
                     to_x_mm: float, to_y_mm: float,
@@ -1251,8 +1260,8 @@ class SimXArmAPI:
         #     for bins/tubes because their geometry (tall walls / tall body
         #     with cap) makes a clean magnetic grasp at the heights needed
         #     unreliable under position-only IK.
-        use_grasp = (target_name in ("red_cube", "green_cube", "blue_cube"))
-        grasp_z = self.PUSH_GRASP_Z_MM
+        use_grasp = target_name in CUBE_BODIES
+        grasp_z = cube_pos[2] * 1000.0 + self.PUSH_GRASP_ABOVE_CENTRE_MM
         transit_z = self.PUSH_TRANSIT_Z_MM
 
         # Position the rail roughly under the source cube. World arm-base
