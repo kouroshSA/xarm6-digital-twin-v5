@@ -149,3 +149,24 @@ must be named after the body, and keeps the scene's element names under `obj/`, 
 the code that drives it (vortex, PCR, heater-shaker) finds it. Without a `pose` it
 stays where the scene puts it. This is how `lab_a2s2_rebuilt` gets the cup,
 plates, tip box, OT-2 and instruments without a hand-made copy.
+
+## Exporting a room to USD
+
+```bash
+python -m twin_rooms export-usd simready_demo [--out DIR] --converter /path/to/mujoco_usd_converter
+```
+
+This builds the room and runs `mujoco_usd_converter <build/scene.xml> <out>`
+(default `rooms/<id>/build/usd/`), for later Isaac Lab / GR00T work. The converter
+pins its own MuJoCo version (0.8.0 needs 3.16; the twin runs 3.8.1), so it gets
+its own environment instead of being added to `xarm6sim`:
+
+```bash
+conda create -n xarm6sim_usd python=3.11 && conda activate xarm6sim_usd
+pip install mujoco-usd-converter
+export XARM_USD_CONVERTER=$(which mujoco_usd_converter)
+```
+
+MuJoCo-specific settings, such as the weld-constraint grasps and solver
+options, are carried in the MjcPhysics schemas. They may behave differently in
+other runtimes.

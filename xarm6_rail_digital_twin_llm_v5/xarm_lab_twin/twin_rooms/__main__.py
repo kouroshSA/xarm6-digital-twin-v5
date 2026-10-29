@@ -5,6 +5,8 @@
     build <id> [--variant V]       build it; writes rooms/<id>/build/scene.xml
     validate [<id> ...]            check room.json files (all rooms by default)
     view <id> [--variant V]        open the room in the MuJoCo viewer
+    export-usd <id> [--out DIR]    build it, then convert build/scene.xml to USD with
+                                   mujoco-usd-converter (its own env; see rooms/README.md)
 
 Run from xarm_lab_twin/.
 """
@@ -14,6 +16,7 @@ import argparse
 import json
 import shutil
 import sys
+from pathlib import Path
 
 from twin_rooms import RoomError, list_rooms, load_room
 from twin_rooms.room import ROOMS_DIR, TEMPLATES
@@ -87,6 +90,36 @@ def cmd_view(args) -> int:
     return 0
 
 
+#: mujoco-usd-converter pins its own MuJoCo (0.8.0 needs 3.16.x; this env runs
+#: 3.8.1), so it lives in a separate environment and is run as a program.
+CONVERTER_ENV = "XARM_USD_CONVERTER"
+
+
+def cmd_export_usd(args) -> int:
+    import os
+    import shutil
+    import subprocess
+    from twin_rooms.builder import build_room
+    exe = args.converter or os.environ.get(CONVERTER_ENV) or shutil.which("mujoco_usd_converter")
+    if not exe:
+        print("mujoco-usd-converter is not installed. It needs its own MuJoCo version, so "
+              "install it in a separate env:\n"
+              "  conda create -n xarm6sim_usd python=3.11 && conda activate xarm6sim_usd\n"
+              "  pip install mujoco-usd-converter\n"
+              f"then pass --converter $(which mujoco_usd_converter), or set {CONVERTER_ENV}.")
+        return 2
+    _, ctx = build_room(args.id, variant=args.variant)
+    scene = ctx.model_path        # passthrough: its scene file; composed: build/scene.xml
+    out = Path(args.out or (ctx.room.dir / "build" / "usd"))
+    out.mkdir(parents=True, exist_ok=True)
+    print(f"converting {scene} -> {out}")
+    r = subprocess.run([exe, str(scene), str(out)])
+    if r.returncode == 0:
+        print("note: MuJoCo-specific settings (the weld-constraint grasps, solver options) are "
+              "carried in MjcPhysics schemas and may behave differently in other runtimes")
+    return r.returncode
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m twin_rooms", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -102,6 +135,12 @@ def main(argv=None) -> int:
         s.add_argument("id")
         s.add_argument("--variant", help="meshes | primitive")
         s.set_defaults(fn=fn)
+    e = sub.add_parser("export-usd")
+    e.add_argument("id")
+    e.add_argument("--variant")
+    e.add_argument("--out")
+    e.add_argument("--converter", help=f"the mujoco_usd_converter program (or ${CONVERTER_ENV})")
+    e.set_defaults(fn=cmd_export_usd)
     v = sub.add_parser("validate")
     v.add_argument("ids", nargs="*")
     v.set_defaults(fn=cmd_validate)

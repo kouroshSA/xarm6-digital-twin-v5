@@ -203,6 +203,29 @@ def test_cli_validates_every_room():
     assert main(["build", "no_such_room"]) == 1
 
 
+def test_export_usd_hands_the_built_scene_to_the_converter():
+    """The converter needs its own MuJoCo, so export-usd runs it as a program:
+    a stand-in records what it was given."""
+    import os
+    import stat
+    from twin_rooms.__main__ import main
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        fake = tmp / "fake_converter"
+        fake.write_text("#!/bin/sh\necho \"$1\" > \"$2/args.txt\"\n")
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        assert main(["export-usd", "empty_bench", "--out", str(tmp / "usd"),
+                     "--converter", str(fake)]) == 0
+        given = (tmp / "usd" / "args.txt").read_text().strip()
+        assert given.endswith("rooms/_templates/empty_bench/build/scene.xml"), given
+        os.environ.pop("XARM_USD_CONVERTER", None)
+        import shutil as _sh
+        if not _sh.which("mujoco_usd_converter"):
+            assert main(["export-usd", "empty_bench"]) == 2      # not installed: told how
+    finally:
+        shutil.rmtree(tmp)
+
+
 TESTS = [v for k, v in dict(globals()).items() if k.startswith("test_")]
 
 if __name__ == "__main__":
