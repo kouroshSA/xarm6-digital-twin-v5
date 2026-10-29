@@ -1,0 +1,367 @@
+{
+  "id": "lab_a2s2",
+  "name": "A2S2 wet lab bench",
+  "description": "The original lab: L-shaped bench, xArm6 on a 700 mm rail, red/green/blue cubes, two bins and a cup, two Falcon-tube racks, OT-2, heater-shaker, vortex mixer, PCR thermocycler. Passthrough to envs/lab_scene.xml, loaded unchanged.",
+  "scene": {
+    "default": "meshes",
+    "variants": {
+      "meshes": "../../envs/lab_scene.xml",
+      "primitive": "../../envs/lab_scene_primitive.xml"
+    }
+  },
+  "robots": [
+    {
+      "instance": "arm0",
+      "type": "xarm6_rail",
+      "end_effector": "parallel_gripper",
+      "controllable": true
+    }
+  ],
+  "objects": [
+    {
+      "name": "red_cube_back",
+      "source": "scene",
+      "dynamic": true,
+      "type": "cube",
+      "label": "back red cube",
+      "aliases": [
+        "far red cube",
+        "red cube back",
+        "red cube behind the rail",
+        "back red"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "red_cube_front",
+      "source": "scene",
+      "dynamic": true,
+      "type": "cube",
+      "label": "front red cube",
+      "aliases": [
+        "near red cube",
+        "red cube front",
+        "red cube nearest me",
+        "front red"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "green_cube",
+      "source": "scene",
+      "dynamic": true,
+      "type": "cube",
+      "label": "green cube",
+      "aliases": [
+        "green block",
+        "green"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "blue_cube",
+      "source": "scene",
+      "dynamic": true,
+      "type": "cube",
+      "label": "blue cube",
+      "aliases": [
+        "blue block",
+        "blue"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "green_bin",
+      "source": "scene",
+      "dynamic": true,
+      "type": "bin",
+      "label": "green bin",
+      "aliases": [
+        "green container",
+        "green box"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "translucent_cup",
+      "source": "scene",
+      "dynamic": true,
+      "type": "container",
+      "label": "translucent cup",
+      "aliases": [
+        "cup",
+        "beaker",
+        "white cup",
+        "plastic cup",
+        "clear cup"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "blue_bin",
+      "source": "scene",
+      "dynamic": true,
+      "type": "bin",
+      "label": "blue bin",
+      "aliases": [
+        "blue container",
+        "blue box"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "left_tube_rack",
+      "source": "scene",
+      "dynamic": true,
+      "type": "rack",
+      "label": "left rack",
+      "aliases": [
+        "left tube rack"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "right_tube_rack",
+      "source": "scene",
+      "dynamic": true,
+      "type": "rack",
+      "label": "right rack",
+      "aliases": [
+        "right tube rack",
+        "back tube rack",
+        "back rack",
+        "the second tube rack"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "tube_L1",
+      "source": "scene",
+      "dynamic": true,
+      "type": "tube",
+      "label": "tube L1",
+      "aliases": [
+        "left rack column 1 row 1",
+        "front-left orange tube on the left",
+        "orange tube front-left"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "tube_L2",
+      "source": "scene",
+      "dynamic": true,
+      "type": "tube",
+      "label": "tube L2",
+      "aliases": [
+        "left rack column 2 row 2",
+        "back blue tube on the left",
+        "blue tube back row left rack"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "tube_L3",
+      "source": "scene",
+      "dynamic": true,
+      "type": "tube",
+      "label": "tube L3",
+      "aliases": [
+        "left rack column 4 row 1",
+        "front-right orange tube on the left",
+        "orange tube front-right of left rack"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "tube_R1",
+      "source": "scene",
+      "dynamic": true,
+      "type": "tube",
+      "label": "tube R1",
+      "aliases": [
+        "right rack column 1 row 2",
+        "back blue tube in the back rack",
+        "blue tube in the back-left rack column 1"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "tube_R2",
+      "source": "scene",
+      "dynamic": true,
+      "type": "tube",
+      "label": "tube R2",
+      "aliases": [
+        "right rack column 3 row 1",
+        "front orange tube in the back rack"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "tube_R3",
+      "source": "scene",
+      "dynamic": true,
+      "type": "tube",
+      "label": "tube R3",
+      "aliases": [
+        "right rack column 4 row 2",
+        "back blue tube in the back rack column 4"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "opentrons_ot2",
+      "source": "scene",
+      "dynamic": false,
+      "type": "instrument",
+      "label": "ot2",
+      "aliases": [
+        "ot-2",
+        "opentrons",
+        "pipetting robot",
+        "liquid handler"
+      ],
+      "grippable": false
+    },
+    {
+      "name": "well_plate_A",
+      "source": "scene",
+      "dynamic": true,
+      "type": "plate",
+      "label": "plate A",
+      "aliases": [
+        "well plate A",
+        "well_plate_a",
+        "plate a",
+        "96-well plate A",
+        "OT-2 plate",
+        "the plate on the OT-2",
+        "the plate on the deck"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "well_plate_B",
+      "source": "scene",
+      "dynamic": true,
+      "type": "plate",
+      "label": "plate B",
+      "aliases": [
+        "well plate B",
+        "well_plate_b",
+        "plate b",
+        "96-well plate B",
+        "bench plate",
+        "the plate on the bench"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "tip_box",
+      "source": "scene",
+      "dynamic": true,
+      "type": "plate",
+      "label": "tip rack",
+      "aliases": [
+        "tip box",
+        "pipette tips",
+        "tips",
+        "tip_rack",
+        "96-tip rack"
+      ],
+      "grippable": true
+    },
+    {
+      "name": "heater_shaker",
+      "source": "scene",
+      "dynamic": true,
+      "type": "instrument",
+      "label": "shaker",
+      "aliases": [
+        "heater shaker",
+        "opentrons shaker",
+        "heater-shaker",
+        "shaker module"
+      ],
+      "grippable": true,
+      "driver": "heater_shaker"
+    },
+    {
+      "name": "vortex_genie",
+      "source": "scene",
+      "dynamic": false,
+      "type": "instrument",
+      "label": "vortex",
+      "aliases": [
+        "vortex-genie",
+        "vortex genie",
+        "genie",
+        "vortex mixer",
+        "vortex-genie 2",
+        "genie 2"
+      ],
+      "grippable": false,
+      "driver": "vortex"
+    },
+    {
+      "name": "pcr_module",
+      "source": "scene",
+      "dynamic": false,
+      "type": "instrument",
+      "label": "pcr",
+      "aliases": [
+        "thermocycler",
+        "thermocycler module",
+        "pcr machine",
+        "opentrons thermocycler",
+        "thermocycler gen2"
+      ],
+      "grippable": false,
+      "driver": "pcr"
+    },
+    {
+      "name": "led_strip_A",
+      "source": "scene",
+      "dynamic": false,
+      "type": "fixture",
+      "label": "led strip A",
+      "grippable": false,
+      "driver": "rail_leds"
+    },
+    {
+      "name": "led_strip_B",
+      "source": "scene",
+      "dynamic": false,
+      "type": "fixture",
+      "label": "led strip B",
+      "grippable": false,
+      "driver": "rail_leds"
+    }
+  ],
+  "cameras": [
+    {
+      "name": "cam_overhead",
+      "role": "vision"
+    },
+    {
+      "name": "cam_tripod",
+      "role": "observer"
+    },
+    {
+      "name": "cam_wrist_color",
+      "role": "vision"
+    }
+  ],
+  "agent": {
+    "context": "The two red cubes straddle the rail (front and back); 'the red cube' is ambiguous, so name front or back. There is no red bin. The OT-2 is reached only through its front opening, from rail 700. The PCR lid must be opened (pcr_open) before loading a plate.",
+    "task_ideas": [
+      "put the green cube in the green bin",
+      "put the blue cube in the blue bin",
+      "put the front red cube in the green bin",
+      "move tube_L1 into the right tube rack",
+      "push the blue bin 120 mm toward the front edge",
+      "put well plate B on the heater-shaker"
+    ]
+  }
+}
