@@ -100,7 +100,8 @@ def prompt_view(arm):
     """The arm itself when it is a twin; a SceneView of its scene otherwise."""
     if room_of(arm) is not None:
         return arm
-    return SceneView(getattr(arm, "scene_xml", None))
+    scene = getattr(arm, "scene_xml", None)
+    return SceneView(scene if isinstance(scene, (str, Path)) else None)
 
 
 # ---------------------------------------------------------------------------
