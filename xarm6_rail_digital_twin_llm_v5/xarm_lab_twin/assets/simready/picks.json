@@ -1,0 +1,31 @@
+{
+  "_comment": "SimReady assets chosen by the user (2026-10-29), pinned to one dataset revision. The importer (simready_import, spec steps 8-12) fetches exactly these; step 14's simready_demo room uses them instead of the search shortlist. Notes were taken by reading the assets' own layers at this revision.",
+  "repo_id": "nvidia/simready-assets",
+  "repo_type": "dataset",
+  "revision": "a666cb4381ba513b174fb120ed523c1566ba832c",
+  "license": "CC-BY-4.0",
+  "license_note": "Dataset card and each asset's .metadata/LICENSE.txt (identical text in all three). Commercial use allowed; attribution required.",
+  "assets": [
+    {
+      "slug": "bottled_drink_e01",
+      "folder": "food_beverage_bottledDrink_e01",
+      "root_usd": "food_beverage_bottledDrink_e01/simready_usd/sm_food_beverage_bottledDrink_e01_01.usd",
+      "download_mb": 6.55,
+      "notes": "metersPerUnit 1, Z-up. Two rigid bodies (bottle, cap) joined by a PhysicsFixedJoint: merge into one body, not an articulation. Mass from density 950 kg/m^3. Ships payloads/MuJoCo/ and instances_mujoco.usda."
+    },
+    {
+      "slug": "cucumber_a01",
+      "folder": "food_produce_cucumber_a01",
+      "root_usd": "food_produce_cucumber_a01/simready_usd/sm_food_produce_cucumber_a01_01.usda",
+      "download_mb": 18.98,
+      "notes": "metersPerUnit 1, Z-up. One rigid body, density 525 kg/m^3. Ships instances_mujoco.usda and runnables/physics/mujoco.usd(a)."
+    },
+    {
+      "slug": "cupcake_g01",
+      "folder": "food_prepared_cupcake_g01",
+      "root_usd": "food_prepared_cupcake_g01/simready_usd/sm_food_prepared_cupcake_g01_01.usd",
+      "download_mb": 34.70,
+      "notes": "Ships payloads/MuJoCo/. Physics layer not yet read."
+    }
+  ]
+}
