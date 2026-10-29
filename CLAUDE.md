@@ -418,7 +418,7 @@ read it before continuing. Twin side works and was tested live (steps 1-5);
   `MUJOCO_GL=egl python -m teleop_hand.test_gestures_twin` (graded on which body
   is welded and how far it rose, not return codes).
 
-## Rooms (IN PROGRESS, branch feat/rooms-simready)
+## Rooms and SimReady assets (branch feat/rooms-simready)
 
 `xarm_lab_twin/rooms/<id>/room.json` describes a scene: environment, robots,
 objects. `twin_rooms/` validates and builds them; see
@@ -441,8 +441,22 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
 - **Agent memory is per room** (`twin_rooms/memory.py`): the lab keeps
   `lessons.md`, `reviews.md`, `world_model.md` at the project root; other rooms
   use `memory/<id>/`.
+- **CLIs:** `python -m twin_rooms list|new|build|validate|view|export-usd`;
+  `python -m simready_import search|fetch|place|remove|list` (see
+  [`simready_import/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/simready_import/README.md)).
+  Imported assets live in `assets/simready/<slug>/` with provenance in `manifest.json`.
+  Their origin is the bbox CENTRE, because the grasp gate measures the jaws
+  against the body origin. Tall objects (the 231 mm bottle) cannot be grasped
+  from above by the weld gripper.
+- **Mesh objects:** `object_width_m` / `object_z_extent_m` bound a mesh geom by
+  its vertices (`_geom_world_bounds`). The bounding sphere made a 52 mm cucumber
+  read as 204 mm wide.
+- **Recordings** carry `room_id` / `room_hash` (see Recording format), and
+  replay rebuilds the room.
 - Tests: `python -m twin_rooms.test_schema`, `.test_robot`;
-  `MUJOCO_GL=egl python -m twin_rooms.test_builder`, `.test_sim_rooms`, `.test_prompt`.
+  `MUJOCO_GL=egl python -m twin_rooms.test_builder`, `.test_sim_rooms`, `.test_prompt`,
+  `.test_recordings`, `.test_lab_rebuilt`, `.test_entry_points`;
+  `MUJOCO_GL=egl python -m simready_import.test_importer [--network]`.
 
 ## Pose geometry helpers
 

@@ -420,6 +420,34 @@ spec doc: `../xarm6_rail_digital_twin_llm_v5.md`, "File Format Reference".
 
 ---
 
+## Rooms, robots and SimReady assets
+
+Every entry point takes `--room <id>`. **Without it, everything loads the lab
+exactly as before** (`lab_a2s2` wraps `envs/lab_scene.xml` unchanged).
+
+```bash
+python -m twin_rooms list                                # rooms and templates
+python -m twin_rooms new my_room --from empty_bench      # bench + xArm6 on its rail, nothing else
+python -m simready_import search beaker                  # NVIDIA SimReady assets (CC-BY-4.0 etc.)
+python -m simready_import fetch nvidia/simready-assets <folder>/simready_usd/<file>.usd --revision <sha>
+python -m simready_import place <slug> --room my_room --name thing --pos 0.1 -0.25   # + drop test
+python -m twin_rooms view my_room
+python scripts/run_task.py "pick up the cucumber and set it down 120 mm in -y" --room simready_demo
+```
+
+| room | what |
+|---|---|
+| `lab_a2s2` | the lab (default) |
+| `lab_a2s2_rebuilt` | the lab rebuilt in the room format, checked against `lab_a2s2` |
+| `simready_demo` | the empty bench with a SimReady cucumber, cupcake and soda bottle |
+| `basic_cubes_bins` | the manual-control project's scene (its tools' default) |
+| `_templates/empty_bench` | the starting point for new rooms |
+
+- **The room format:** [`rooms/README.md`](rooms/README.md).
+- **Robot types:** [`robots/README.md`](robots/README.md).
+- **The importer:** [`simready_import/README.md`](simready_import/README.md).
+  It needs `pip install -r requirements-simready.txt`.
+
 ## Troubleshooting
 
 | Symptom | Fix |
