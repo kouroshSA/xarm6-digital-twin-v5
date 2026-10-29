@@ -32,8 +32,11 @@ load_env()
 from recording import Recorder
 
 
-# Workspace bounds (mm) -- conservative reachable region above the bench
-# that avoids the bins (y >= 350 dropped to keep arm clear unless on a rail offset)
+# Workspace bounds (mm) -- a reachable region above the bench. It does NOT
+# avoid anything: since fde3d22 the bins sit at y=-350 and this box overlaps
+# the heater-shaker, PCR and vortex (y 130-320). That is safe because every
+# sampled move is validated (IK + collision along the path) and refused ones
+# are resampled; measured 2026-10-29: 35/40 random samples accepted.
 WORKSPACE = {
     "rail_mm": (80.0,  620.0),
     "x_mm":    (-280.0, 280.0),
