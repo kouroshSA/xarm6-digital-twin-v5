@@ -109,6 +109,13 @@ def test_real_arm_prompt_parts_equal_the_lab_twins():
     try:
         real = types.SimpleNamespace(scene_xml="envs/lab_scene.xml")
         assert prompt_parts(real) == prompt_parts(arm)
+
+        class AnswersEverything:            # agent/test_plan_gate's kind of double
+            def __getattr__(self, name):
+                return lambda *a, **k: 0
+        assert prompt_parts(AnswersEverything()) == prompt_parts(arm)
+        from twin_rooms.memory import memory_file_for, room_id_of
+        assert room_id_of(AnswersEverything()) == "lab_a2s2"
         assert isinstance(SceneView(), SceneView)
     finally:
         arm.disconnect()

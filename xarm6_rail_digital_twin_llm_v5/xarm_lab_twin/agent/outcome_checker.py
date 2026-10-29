@@ -46,7 +46,8 @@ def _scene_names(arm=None):
     red-cube task then expected a substring no outcome contains, and graded as
     a failure however it went. With `arm`, its ROOM's lists (SimXArmAPI.
     cube_bodies / bin_bodies); without, the lab's, as before rooms."""
-    if arm is not None and hasattr(arm, "cube_bodies"):
+    from twin_rooms.context import room_of
+    if room_of(arm) is not None:
         CUBE_BODIES, BIN_BODIES = arm.cube_bodies, arm.bin_bodies
     else:
         from sim.mujoco_env import BIN_BODIES, CUBE_BODIES

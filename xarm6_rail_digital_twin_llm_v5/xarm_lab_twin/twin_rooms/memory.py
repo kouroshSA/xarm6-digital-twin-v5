@@ -40,8 +40,9 @@ def memory_file(room_id: str, name: str) -> Path:
 
 def room_id_of(arm) -> str:
     """The arm's room id; an arm with no room (real hardware) is in the lab."""
-    room = getattr(arm, "room", None)
-    return getattr(room, "room_id", DEFAULT_ROOM)
+    from twin_rooms.context import room_of
+    room = room_of(arm)
+    return room.room_id if room is not None else DEFAULT_ROOM
 
 
 def memory_file_for(arm, name: str, create: bool = False) -> Path:

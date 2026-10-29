@@ -27,6 +27,7 @@ from typing import Dict, Optional
 import mujoco
 import numpy as np
 
+from twin_rooms.context import room_of
 from twin_rooms.memory import memory_file, uses_lab_memory
 
 SECTIONS = ("commands", "push_notes", "knowledge")
@@ -97,7 +98,7 @@ class SceneView:
 
 def prompt_view(arm):
     """The arm itself when it is a twin; a SceneView of its scene otherwise."""
-    if hasattr(arm, "room") and hasattr(arm, "model"):
+    if room_of(arm) is not None:
         return arm
     return SceneView(getattr(arm, "scene_xml", None))
 
@@ -237,7 +238,7 @@ def registry_for(arm):
     any other room's registry is generated from its room.json objects."""
     from agent.object_registry import (GraspConfig, LabObject, ObjectRegistry,
                                        build_default_registry)
-    if not hasattr(arm, "room") or uses_lab_memory(arm.room.room_id):
+    if room_of(arm) is None or uses_lab_memory(arm.room.room_id):
         return build_default_registry()
     reg = ObjectRegistry(registry_path=str(memory_file(arm.room.room_id, "objects.json")))
     pos = initial_positions_mm(arm)
@@ -269,7 +270,7 @@ def object_names_text(arm=None) -> str:
     file's (as before rooms) when there is no room or the room is the lab,
     otherwise the room's own movable objects, grouped by type."""
     from agent.scene_geometry import render_object_names
-    if arm is None or not hasattr(arm, "room") or uses_lab_memory(arm.room.room_id):
+    if room_of(arm) is None or uses_lab_memory(arm.room.room_id):
         return render_object_names(getattr(arm, "scene_xml", None))
     groups = {"Cubes": ("cube",), "Bins": ("bin", "container"), "Tube racks": ("rack",),
               "Falcon tubes": ("tube",), "Plates / tip racks": ("plate",)}

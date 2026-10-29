@@ -160,3 +160,11 @@ class RoomContext:
             raise RoomError(self.room_id, ["logical name clash: " + c for c in clashes]
                             + ["rename the object (names must not repeat environment "
                                "or robot names)"])
+
+
+def room_of(arm) -> Optional[RoomContext]:
+    """The arm's RoomContext, or None for an arm that is not a twin (real
+    hardware, test doubles). Checks the TYPE, not hasattr: a mock that answers
+    every attribute would otherwise pass for a twin."""
+    room = getattr(arm, "room", None) if arm is not None else None
+    return room if isinstance(room, RoomContext) else None
