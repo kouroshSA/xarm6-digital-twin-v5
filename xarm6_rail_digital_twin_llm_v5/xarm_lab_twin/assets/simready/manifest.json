@@ -1,0 +1,117 @@
+{
+  "bottled_drink_e01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "food_beverage_bottledDrink_e01/simready_usd/sm_food_beverage_bottledDrink_e01_01.usd",
+    "revision": "a666cb4381ba513b174fb120ed523c1566ba832c",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 16,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005
+    },
+    "bbox_mm": [
+      64.5,
+      64.5,
+      231.1
+    ],
+    "mass_kg": 0.25158,
+    "labels": {
+      "wikidata_class": [
+        "Plastic bottle recycling"
+      ],
+      "wikidata_qcode": [
+        "Q118976093"
+      ]
+    },
+    "files": {
+      "bottled_drink_e01.xml": "5896ad9ebbde67020f6cb725935dede05d610b589a6888df70b632a001ed1a0a",
+      "bottled_drink_e01_tex0.png": "35d113a8edfab0a59b91a421dded3fcfc0b65d87331095a394021495a6f9edf2",
+      "collision_0.obj": "4753b6ad704b40fe5c79cf6462f547e30bcdbc8bdc6bbe465a606c02fdc678e4",
+      "collision_1.obj": "822a9684f754270979042115ed67bd43daafff2de07254141779c992ae397db8",
+      "visual_0.obj": "42925c3e816569d836263f540b638f20693b6517fa250f8ad0b0bd6d8f52da67",
+      "visual_1.obj": "8281d73a0ab86bcc8fe9a10fbc178c301263e0606081acc728cc3adcef1b5161",
+      "visual_2.obj": "883018328434a6763f576d1f57d401059896f84a46bae3e7dc61bcbfb603731f"
+    },
+    "imported_at": "2026-10-29T17:33:35+00:00"
+  },
+  "cucumber_a01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "food_produce_cucumber_a01/simready_usd/sm_food_produce_cucumber_a01_01.usda",
+    "revision": "a666cb4381ba513b174fb120ed523c1566ba832c",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 16,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005
+    },
+    "bbox_mm": [
+      52.2,
+      169.9,
+      47.9
+    ],
+    "mass_kg": 0.28245,
+    "labels": {
+      "wikidata_class": [
+        "Cucumis sativus"
+      ],
+      "wikidata_qcode": [
+        "Q23425"
+      ]
+    },
+    "files": {
+      "collision_0.obj": "40c460e441225ef9594879b02a737c68fa7cd8d17f71b4072d28959e7c58a50f",
+      "cucumber_a01.xml": "0a50c6e13bf3d886cf06ef8351d8f20fd9d81f9d7654915d44145d66e2042c40",
+      "cucumber_a01_tex0.png": "ff36213adad2c25ffa901567de94009f550b94a598f850a89edee558221ed86d",
+      "visual_0.obj": "563be86b11f1d09fb9cb66fcf16fb9cffbd45f8bfad028c16374fe2d7f15e001"
+    },
+    "imported_at": "2026-10-29T17:33:38+00:00"
+  },
+  "cupcake_g01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "food_prepared_cupcake_g01/simready_usd/sm_food_prepared_cupcake_g01_01.usd",
+    "revision": "a666cb4381ba513b174fb120ed523c1566ba832c",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 16,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005
+    },
+    "bbox_mm": [
+      76.3,
+      74.7,
+      77.4
+    ],
+    "mass_kg": 0.15934,
+    "labels": {
+      "wikidata_class": [
+        "cupcake"
+      ],
+      "wikidata_qcode": [
+        "Q816851"
+      ]
+    },
+    "files": {
+      "collision_0.obj": "12247befe0af639532cecb8a737d6b666844e7e0e622586f6c5289d0a395e5d9",
+      "cupcake_g01.xml": "4c6f5dee2c3b49b29bd0d38de397bf9d369bb23863f62d94dc32fda9247edc61",
+      "cupcake_g01_tex0.png": "c62ddaf5e23a2c8259905312a3c5ab69d12eb52a5a02759b7ae45c6151ffb5ec",
+      "visual_0.obj": "7ce3e7851cbbd62770f104638721a7507d8f98ff644129bcfbe0423849767ff4",
+      "visual_1.obj": "87eabdba29248931bd8c3e8cfae17e4cf277f9464adc9f21f7396ee4f105a3a9"
+    },
+    "imported_at": "2026-10-29T17:33:43+00:00"
+  }
+}
