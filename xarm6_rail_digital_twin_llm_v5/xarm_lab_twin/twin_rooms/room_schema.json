@@ -64,7 +64,7 @@
           "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
           "source": {"type": "string",
                      "pattern": "^(scene|builtin:(cube|bin|tube_rack|tube)|mjcf:.+|simready:[a-z0-9][a-z0-9_.-]*)$",
-                     "description": "one of: scene (passthrough rooms: the body already exists), builtin:cube|bin|tube_rack|tube, mjcf:<path relative to the room folder>, simready:<slug> (lowercase letters, digits, '_', '-', '.')"},
+                     "description": "one of: scene (passthrough rooms: the body already exists), builtin:cube|bin|tube_rack|tube, mjcf:<path relative to the room folder> (a file with one top-level body), mjcf:<scene path>#<body> (one top-level body copied out of a scene at build time; pose optional), simready:<slug> (lowercase letters, digits, '_', '-', '.')"},
           "params": {"type": "object"},
           "pose": {"$ref": "#/$defs/pose"},
           "dynamic": {"type": "boolean"},

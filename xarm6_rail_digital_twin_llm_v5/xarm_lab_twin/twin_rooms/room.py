@@ -135,7 +135,8 @@ class RoomDef:
             files.append(self.dir / self.environment)
         elif isinstance(self.environment, dict):
             files.append(self.dir / self.environment["extract_from"])
-        files += [self.dir / o.source_arg for o in self.objects if o.source_kind == "mjcf"]
+        files += [self.dir / o.source_arg.partition("#")[0]
+                  for o in self.objects if o.source_kind == "mjcf"]
         if self.agent_prompt_file:
             files.append(self.dir / self.agent_prompt_file)
         return files

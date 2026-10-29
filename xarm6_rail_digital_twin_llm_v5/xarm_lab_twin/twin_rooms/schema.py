@@ -206,7 +206,8 @@ def validate_semantics(d: dict, room_dir: Path, robots_dir: Path = None) -> List
         if passthrough:
             errs.append(f"{where}.source: passthrough rooms can only describe bodies "
                         f"already in the scene ('scene'), not add {src!r}")
-        if "pose" not in o:
+        extracted = src.startswith("mjcf:") and "#" in src
+        if "pose" not in o and not extracted:
             errs.append(f"{where}: missing 'pose' (required for {src.split(':')[0]} objects)")
         if src.startswith("builtin:"):
             kind = src.split(":", 1)[1]
@@ -218,7 +219,11 @@ def validate_semantics(d: dict, room_dir: Path, robots_dir: Path = None) -> List
                 elif not isinstance(v, allowed[k]) or isinstance(v, bool):
                     errs.append(f"{where}.params.{k}: wrong type {type(v).__name__}")
         elif src.startswith("mjcf:"):
-            must_exist(src.split(":", 1)[1], f"{where}.source")
+            path, _, body = src.split(":", 1)[1].partition("#")
+            must_exist(path, f"{where}.source")
+            if body and o.get("name") != body:
+                errs.append(f"{where}.name: an object extracted from a scene keeps the "
+                            f"body's name, so it must be {body!r}")
 
     pf = (d.get("agent") or {}).get("prompt_file")
     if pf:

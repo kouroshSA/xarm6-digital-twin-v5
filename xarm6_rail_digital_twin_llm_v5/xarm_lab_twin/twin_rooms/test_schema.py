@@ -131,6 +131,9 @@ BAD = [
     ("inverted workspace", lambda d: {**d, "workspace_bounds": {"min": [0, 0, 1.0], "max": [1, 1, 0.8]}},
      "z min 1.0 is not below max 0.8"),
     ("wrong type", lambda d: {**d, "objects": {"red_cube": {}}}, "objects: expected array"),
+    ("extracted body renamed",
+     lambda d: {**d, "objects": [{"name": "pcr", "source": f"mjcf:{LAB_XML}#pcr_module"}]},
+     "must be 'pcr_module'"),
 ]
 
 
@@ -192,6 +195,12 @@ def test_unknown_room_lists_the_rooms_that_exist():
         raise AssertionError("loaded a room that does not exist")
     except RoomError as e:
         assert "lab_a2s2" in e.problems[0], e.problems
+
+
+def test_cli_validates_every_room():
+    from twin_rooms.__main__ import main
+    assert main(["validate"]) == 0
+    assert main(["build", "no_such_room"]) == 1
 
 
 TESTS = [v for k, v in dict(globals()).items() if k.startswith("test_")]

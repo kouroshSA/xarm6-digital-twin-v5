@@ -246,6 +246,31 @@ def _anonymous_context(path: Path, model: mujoco.MjModel, robots_dir) -> RoomCon
     return _build_passthrough(room, types, "file", model)[1]
 
 
+def _extract_bodies(spec: mujoco.MjSpec, room: RoomDef) -> None:
+    """Attach every `mjcf:<scene>#<body>` object. All bodies taken from one
+    scene go in ONE attach: two attaches of the same scene would each bring its
+    materials and default classes, and the names would clash (both well
+    plates use well_plate_mat). Elements keep their scene names under "obj/",
+    so code that knows the scene's names (the vortex, PCR and heater-shaker
+    drivers) knows these."""
+    by_file: Dict[str, list] = {}
+    for o in room.objects:
+        if o.source_kind == "mjcf" and "#" in o.source_arg:
+            file, _, body = o.source_arg.partition("#")
+            by_file.setdefault(file, []).append((body, o))
+    for file, items in by_file.items():
+        where = f"{room.id}: objects from {file}"
+        child = prune(load_spec(room.dir / file), [b for b, _ in items], where)
+        _strip_world(child)
+        for body, o in items:
+            free = any(j.type == mujoco.mjtJoint.mjJNT_FREE for j in child.body(body).joints)
+            if free != o.dynamic:
+                raise RoomError(where, [f"{body!r} {'has' if free else 'has no'} free joint "
+                                        f"in {file} but the object is \"dynamic\": "
+                                        f"{str(o.dynamic).lower()}"])
+        spec.attach(child, prefix=OBJ_PREFIX, frame=spec.worldbody.add_frame())
+
+
 def _object_body(spec: mujoco.MjSpec, room: RoomDef, o) -> mujoco.MjsBody:
     """Add object `o` to `spec`; returns its root body, named obj/<name>."""
     where = f"{room.id}: objects ({o.name})"
@@ -254,6 +279,8 @@ def _object_body(spec: mujoco.MjSpec, room: RoomDef, o) -> mujoco.MjsBody:
         if o.dynamic:
             body.add_freejoint(name=f"{OBJ_PREFIX}{o.name}_joint")
         return body
+    if o.source_kind == "mjcf" and "#" in o.source_arg:
+        return spec.body(OBJ_PREFIX + o.name)        # attached by _extract_bodies
     if o.source_kind == "mjcf":
         path = room.dir / o.source_arg
     elif o.source_kind == "simready":
@@ -307,11 +334,13 @@ def _build_composed(room: RoomDef, types, variant):
         frame = spec.worldbody.add_frame(pos=list(bp.pos), quat=quat_from_euler_deg(bp.euler))
         spec.attach(child, prefix=inst.prefix, frame=frame)
 
+    _extract_bodies(spec, room)
     objects: Dict[str, ObjectInstance] = {}
     for o in room.objects:
         body = _object_body(spec, room, o)
-        body.pos = list(o.pose.pos)
-        body.quat = quat_from_euler_deg(o.pose.euler)
+        if o.pose is not None:        # an extracted body without one stays put
+            body.pos = list(o.pose.pos)
+            body.quat = quat_from_euler_deg(o.pose.euler)
         welds = {}
         if o.grippable and o.dynamic:
             for inst in robots.values():
