@@ -41,6 +41,11 @@ class SessionMetadata:
     parent_session_id: str = ""
     cycle_index: int = 0
     augmentation_config: dict = field(default_factory=dict)
+    # Rooms (additive; empty in recordings made before rooms)
+    room_id: str = ""
+    room_hash: str = ""
+    room_variant: str = ""
+    robots: list = field(default_factory=list)
 
 
 class Recorder:
@@ -70,6 +75,10 @@ class Recorder:
         # logical names below to the room's MJCF names. None = this project's
         # basic scene, whose names are the logical names.
         mj = (lambda n, k: room.mjcf(n, k)) if room is not None else (lambda n, k: n)
+        self._room_fields = {}
+        if room is not None:
+            from twin_rooms.recordings import room_fields   # via rooms_bridge's path
+            self._room_fields = room_fields(room)
         self.joint_ids = [model.joint(mj(n, "joint")).id for n in JOINT_NAMES]
         self.rail_jid  = model.joint(mj("rail", "joint")).id
         self.act_ids   = [model.actuator(mj(n, "actuator")).id for n in ACT_NAMES]
@@ -110,6 +119,7 @@ class Recorder:
             interface=self.interface,
             scene_xml=self.scene_xml,
             state_hz=self.state_hz,
+            **self._room_fields,
         )
 
         self._commands_file = open(
@@ -249,6 +259,9 @@ class Recorder:
             f.attrs["n_samples"] = len(b)
             f.attrs["joint_names"] = JOINT_NAMES
             f.attrs["actuator_names"] = ACT_NAMES
+            if self._room_fields:                      # additive (rooms)
+                f.attrs["room_id"] = self._room_fields["room_id"]
+                f.attrs["room_hash"] = self._room_fields["room_hash"]
         self._state_buffer = []
 
     def _write_metadata(self):

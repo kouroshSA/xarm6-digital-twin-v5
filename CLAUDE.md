@@ -529,6 +529,17 @@ recorded is set by `Recorder(frame_cameras=...)`, defaulting to
 Pass `frame_cameras=(None,)` for the old free-orbit third-person camera, which
 is good for a human reviewing a session and useless as a policy observation.
 
+**Rooms (additive, 2026-10-29)** — `metadata.json` carries `room_id`,
+`room_hash` (sha256[:12] of the room definition: room.json, the files it
+names, its robot types), `room_variant` and `robots` (instance, type,
+end_effector, controllable); `trajectory.h5` root attrs add `room_id` and
+`room_hash`. Names in `body_names` / `eq_names` are LOGICAL (`red_cube`, not
+`obj/red_cube`). A Recorder given no room finds it from `scene_xml`, so lab
+sessions record `lab_a2s2`. `replay.py` rebuilds the recorded room
+(`twin_rooms.recordings.replay_room`), warns if its hash changed, and treats
+a session with no `room_id` as the project's default room. The lab's dataset
+names and layout are unchanged.
+
 **`gripper`** — one float32 per state sample, `1.0` when something is welded to
 the gripper (or, when the Recorder is given `gripper_fn`, whatever that returns —
 `run_kinesthetic_real.py` passes the real gripper's state, since the mirrored

@@ -77,7 +77,8 @@ def resolve_session(arg: str, sessions: list) -> Path:
     return None
 
 
-def replay_trajectory(session_dir: Path, speed: float = 1.0, loop: bool = False):
+def replay_trajectory(session_dir: Path, speed: float = 1.0, loop: bool = False,
+                      room: str = None):
     traj_path = session_dir / "trajectory.h5"
     if not traj_path.exists():
         print(f"No trajectory.h5 in {session_dir}"); return
@@ -93,10 +94,18 @@ def replay_trajectory(session_dir: Path, speed: float = 1.0, loop: bool = False)
           f"{t_wall[-1]:.1f}s, {speed}x)")
     print("  Press Esc in the viewer to stop.\n")
 
-    model = mujoco.MjModel.from_xml_path(SCENE_XML)
+    # The room the session was recorded in; sessions made before rooms have
+    # no room_id and replay in this project's default room, the basic scene.
+    from rooms_bridge import DEFAULT_ROOM
+    from twin_rooms.recordings import replay_room
+    mp = session_dir / "metadata.json"
+    meta = json.loads(mp.read_text()) if mp.exists() else {}
+    model, ctx, warnings = replay_room(meta, default_room=DEFAULT_ROOM, override=room)
+    for w in warnings:
+        print(f"[replay] WARNING: {w}")
     data  = mujoco.MjData(model)
     lock  = threading.Lock()
-    act_ids = [model.actuator(n).id for n in
+    act_ids = [model.actuator(ctx.mjcf(n, "actuator")).id for n in
                ["act_rail","act1","act2","act3","act4","act5","act6"]]
 
     def play():
@@ -152,6 +161,9 @@ def main():
     parser.add_argument("--restore",
                         help="Restore a named session from trash")
     parser.add_argument("--purge-trash", action="store_true")
+    parser.add_argument("--room", default=None, metavar="ID",
+                        help="Replay in this room instead of the one the session "
+                             "was recorded in.")
     args = parser.parse_args()
 
     if args.purge_trash:
@@ -188,7 +200,7 @@ def main():
             print("Cancelled.")
         return
 
-    replay_trajectory(target, speed=args.speed, loop=args.loop)
+    replay_trajectory(target, speed=args.speed, loop=args.loop, room=args.room)
 
     print()
     try:

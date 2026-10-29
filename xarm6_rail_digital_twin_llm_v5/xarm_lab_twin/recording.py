@@ -68,6 +68,13 @@ class SessionMetadata:
     parent_session_id: str = ""
     cycle_index: int = 0
     augmentation_config: dict = field(default_factory=dict)
+    # Rooms (additive): which room the session ran in, the hash of its
+    # definition at the time, the scene variant and the robot instances.
+    # Empty in recordings made before rooms; replay treats those as the lab.
+    room_id: str = ""
+    room_hash: str = ""
+    room_variant: str = ""
+    robots: list = field(default_factory=list)
 
 
 class Recorder:
@@ -90,6 +97,12 @@ class Recorder:
         # grip_red_cube), so a session in a built room reads like a lab session.
         # None = the model uses the lab's names directly, as before rooms.
         self.room = room
+        # What the session records about its room. A Recorder given no room
+        # (the pre-rooms call) looks it up from the scene file, so a lab
+        # session made by any tool still records room_id lab_a2s2.
+        from twin_rooms.recordings import context_for_recorder, room_fields
+        self._room_fields = room_fields(room if room is not None
+                                        else context_for_recorder(model, scene_xml))
         mj = (lambda n, k: room.mjcf(n, k)) if room is not None else (lambda n, k: n)
         logical = room.logical if room is not None else (lambda n: n)
         # Optional override for the `gripper` channel: a callable returning
@@ -213,7 +226,7 @@ class Recorder:
         self._session = SessionMetadata(
             session_id=sid, started_at_iso=datetime.now().isoformat(),
             interface=self.interface, scene_xml=self.scene_xml,
-            state_hz=self.state_hz,
+            state_hz=self.state_hz, **self._room_fields,
         )
         self._commands_file = open(self._session_dir / "commands.jsonl",
                                    "w", buffering=1)
@@ -497,6 +510,9 @@ class Recorder:
             # Body / weld metadata so consumers can pair indices with names
             f.attrs["body_names"] = self.free_body_names
             f.attrs["eq_names"]   = self.eq_names
+            # Additive: the room this trajectory belongs to (empty pre-rooms).
+            f.attrs["room_id"]   = self._room_fields["room_id"]
+            f.attrs["room_hash"] = self._room_fields["room_hash"]
 
             # Frames (only if enabled and any frames captured)
             if self.enable_frames and self._frame_buffer:
