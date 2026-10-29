@@ -18,11 +18,12 @@ SCHEMA_PATH = Path(__file__).with_name("room_schema.json")
 
 #: Parameters each builtin object kind accepts, with their types.
 BUILTIN_PARAMS = {
-    "cube": {"size": (int, float), "rgba": list, "mass": (int, float)},
+    "cube": {"size": (int, float, list), "rgba": list, "mass": (int, float)},
     "bin": {"size": list, "wall": (int, float), "rgba": list, "mass": (int, float)},
-    "tube_rack": {"rows": int, "cols": int, "pitch": (int, float), "rgba": list},
+    "tube_rack": {"rows": int, "cols": int, "pitch": (int, float), "rgba": list,
+                  "mass": (int, float)},
     "tube": {"radius": (int, float), "length": (int, float), "cap_rgba": list,
-             "rgba": list},
+             "rgba": list, "mass": (int, float)},
 }
 
 

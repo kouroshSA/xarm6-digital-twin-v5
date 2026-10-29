@@ -17,7 +17,7 @@ they run in `lab_a2s2`, which is the original lab loaded unchanged.
   labels, types, aliases, which instrument driver animates them. Nothing in
   the scene changes, so behaviour cannot change either.
 - **Composed** — `environment` + `robots` + `objects`, assembled by
-  `twin_rooms.builder` (step 3). The environment can be an MJCF fragment or
+  `twin_rooms.builder`. The environment can be an MJCF fragment or
   bodies extracted from an existing scene at build time (`extract_from`), so a
   room built on the lab bench never holds a copy of it that could drift.
 
@@ -55,3 +55,54 @@ room.definition_hash()       # covers room.json AND the files it references
 ```
 
 Tests: `python -m twin_rooms.test_schema`.
+
+## Building a room
+
+```python
+from twin_rooms.builder import build_room
+model, ctx = build_room("empty_bench")           # variant="primitive" for the box arm
+ctx.mjcf("joint1", "joint")                      # 'arm0/joint1'
+ctx.objects["red_cube"].welds                    # {'arm0': 'arm0/grip_red_cube'}
+```
+
+A passthrough room loads its scene XML unchanged, and every name maps to
+itself. A composed room is assembled with MjSpec and written to
+`<room>/build/scene.xml` (gitignored), which opens in the MuJoCo viewer on its
+own.
+
+| element | MJCF name | logical name (what code uses) |
+|---|---|---|
+| robot parts | `arm0/joint1`, `arm0/gripper`, `arm0/act_rail` | `joint1`, `gripper`, `act_rail` |
+| objects | `obj/red_cube`, `obj/red_cube_geom`, `obj/red_cube_joint` | `red_cube`, ... |
+| grasp welds | `arm0/grip_red_cube` | `grip_red_cube` |
+| environment | `bench`, `cam_overhead` | the same |
+
+The logical map covers the environment, the objects and the **controllable**
+robot. Reach other robots through `ctx.robot("arm1").mjcf(...)`. If two
+elements would share a logical name (for example an object called `gripper`),
+the build fails and names both.
+
+- **Grasp welds are generated.** Every object that is `dynamic` and
+  `grippable` (both default to true) gets a weld from each robot that has an
+  end effector. The magnetic gripper needs one weld per pair. Without it an
+  object can be seen but never picked up.
+- **Builtin objects reproduce the lab's** with default params: `cube` is
+  `green_cube`, `bin` is `green_bin`, `tube_rack` is `left_tube_rack`, and
+  `tube` is `tube_L1`. `test_builder` compares them geom by geom. `pose.pos`
+  places, by kind:
+
+  | kind | `pose.pos` is |
+  |---|---|
+  | cube | its centre (on the bench, z = 0.750 + half the size) |
+  | bin | the underside of its floor (0.750 on the bench) |
+  | tube_rack | the centre of its 10 mm base (0.755 on the bench) |
+  | tube | its centre; tube slots are at ±20 / ±60 mm in x and ±20 mm in y from the rack centre |
+- **`mjcf:` objects** must have exactly one top-level body. They are attached
+  with the prefix `obj/<name>/` and the body is renamed `obj/<name>`, so one
+  file can be placed twice.
+- **Room cameras** that give `pos` + `lookat` are added. Cameras without a
+  pose must already exist in the environment or the robot.
+- The room hash covers room.json, the files it names, and each robot type's
+  robot.json and model file.
+
+Tests: `MUJOCO_GL=egl python -m twin_rooms.test_builder`.

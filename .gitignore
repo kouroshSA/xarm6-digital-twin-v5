@@ -51,3 +51,6 @@ env/
 *.log
 *.tmp
 *.bak
+
+# --- Built rooms (twin_rooms.builder output; rebuilt on demand) ---
+**/rooms/**/build/
