@@ -278,6 +278,14 @@ class SimXArmAPI:
         self.rail_jid  = self.model.joint("rail").id
         self.ee_site   = self.model.site("end_effector").id
         self.gripper_bid = self.model.body("gripper").id
+        # Every body of the arm from its base down (links, gripper, fingers,
+        # wrist camera): what "the arm is penetrating" in _grasp_rejections
+        # means. It was read there but never assigned, so the guard fell back
+        # to an empty set and rejected a grasp over ANY deep contact in the
+        # scene, arm or not.
+        base_bid = self.model.body("xarm_base").id
+        self.arm_body_ids = [b for b in range(self.model.nbody)
+                             if self._is_descendant(b, base_bid)]
 
         # Optional finger actuators (cosmetic gripper animation). Missing on
         # scenes that haven't been migrated to the articulated-finger model;
@@ -1852,6 +1860,16 @@ class SimXArmAPI:
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
         return 0
 
+    def _is_descendant(self, bid: int, ancestor: int) -> bool:
+        while bid > 0:
+            if bid == ancestor:
+                return True
+            bid = int(self.model.body_parentid[bid])
+        return bid == ancestor
+
+    def _has_body(self, name: str) -> bool:
+        return mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, name) >= 0
+
     def object_width_m(self, name: str) -> float:
         """Width the jaws must span to take `name`, in metres.
 
@@ -2172,8 +2190,8 @@ class SimXArmAPI:
             b2 = self.model.geom_bodyid[c.geom2]
             if bid in (b1, b2):
                 continue
-            arm_bids = set(self.arm_body_ids) if hasattr(self, "arm_body_ids") else set()
-            if arm_bids and not (b1 in arm_bids or b2 in arm_bids):
+            arm_bids = set(self.arm_body_ids)
+            if not (b1 in arm_bids or b2 in arm_bids):
                 continue
             n1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1)
             n2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2)
