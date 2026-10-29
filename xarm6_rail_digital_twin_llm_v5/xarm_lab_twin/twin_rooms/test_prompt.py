@@ -163,6 +163,24 @@ def test_grader_uses_the_rooms_names():
         shutil.rmtree(tmp)
 
 
+def test_auto_play_tasks_are_asked_for_the_rooms_objects():
+    from agent.prompt_variants import EPISODE_GEN_SYSTEM_PROMPT, episode_gen_system_prompt
+    from twin_rooms import load_room, load_room_dir
+    assert episode_gen_system_prompt() is EPISODE_GEN_SYSTEM_PROMPT
+    assert episode_gen_system_prompt(load_room("lab_a2s2")) is EPISODE_GEN_SYSTEM_PROMPT
+    empty = episode_gen_system_prompt(load_room("empty_bench"))
+    assert "put the <object>" not in empty and "cube" not in empty.lower(), empty
+    assert "- go home" in empty                       # its task_ideas
+    tmp, rd = _room(OBJECTS)
+    try:
+        p = episode_gen_system_prompt(load_room_dir(rd))
+        assert "- red cube (cube, movable)" in p and "- blue bin (bin, movable)" in p
+        assert "objects: red cube; containers: blue bin" in p, p
+        assert "green" not in p
+    finally:
+        shutil.rmtree(tmp)
+
+
 TESTS = [v for k, v in dict(globals()).items() if k.startswith("test_")]
 
 if __name__ == "__main__":

@@ -87,9 +87,56 @@ Output ONLY a JSON array of strings. No prose, no markdown fences.
 """
 
 
+def episode_gen_system_prompt(room=None) -> str:
+    """The episode generator's system prompt. Without a room (or for the lab)
+    the lab prompt above, unchanged; otherwise one written from the room's own
+    objects and task ideas, so auto-play never asks for a cube a room lacks."""
+    from twin_rooms.memory import uses_lab_memory
+    if room is None or uses_lab_memory(room.id):
+        return EPISODE_GEN_SYSTEM_PROMPT
+    objs = [o for o in room.objects if o.type != "fixture"]
+    movable = [o for o in objs if o.dynamic]
+    holders = [o for o in objs if o.type in ("bin", "container")]
+    graspable = [o for o in movable if o.grippable and o not in holders]
+    lines = ["You are generating a varied script of robotic task prompts for a benchmark",
+             f"scene called \"{room.name}\". The robot is a UFACTORY xArm6 on a 700mm "
+             "linear rail.",
+             "The scene has:"]
+    lines += [f"  - {o.label} ({o.type}, {'movable' if o.dynamic else 'fixed'})"
+              for o in objs] or ["  - nothing but the robot and its bench"]
+    if room.agent_context:
+        lines += [f"Notes: {room.agent_context}"]
+    lines += ["The robot understands these high-level primitives:",
+              '  - "go home" / "reset"                       -> home pose',
+              '  - "wave goodbye N times"                    -> N side-to-side waves',
+              '  - "move the arm to <coords>"                -> direct Cartesian move']
+    if graspable and holders:
+        lines.append(f'  - "put the <object> in the <container>"    -> pick-and-place; objects: '
+                     f'{", ".join(o.label for o in graspable)}; containers: '
+                     f'{", ".join(o.label for o in holders)}')
+    if movable:
+        lines.append(f'  - "push the <object> <direction/distance>" -> push; objects: '
+                     f'{", ".join(o.label for o in movable)}')
+    if room.task_ideas:
+        lines += ["Examples of tasks that suit this room:"] + [f"  - {t}" for t in room.task_ideas]
+    lines += ["",
+              "Generate N DIVERSE natural-language task prompts that exercise these primitives.",
+              "Rules:",
+              "  1. Mix simple (one verb) and compound (two or three steps) tasks.",
+              "  2. Vary phrasing: formal, casual, terse.",
+              "  3. No two prompts should be near-duplicates.",
+              "  4. Name only objects listed above; never invent one.",
+              "  5. Keep each prompt under 25 words.",
+              "",
+              "Output ONLY a JSON array of strings. No prose, no markdown fences."]
+    return "\n".join(lines) + "\n"
+
+
 def generate_episodes(n_episodes: int,
-                      model: str = "claude-haiku-4-5-20251001") -> List[str]:
-    """Ask Claude for N diverse task prompts. Returns list of strings."""
+                      model: str = "claude-haiku-4-5-20251001",
+                      room=None) -> List[str]:
+    """Ask Claude for N diverse task prompts. Returns list of strings.
+    `room` (a twin_rooms RoomDef) writes the prompt from that room's objects."""
     client = anthropic.Anthropic()
     user_msg = (
         f"Generate exactly {n_episodes} diverse robotic task prompts. "
@@ -97,7 +144,7 @@ def generate_episodes(n_episodes: int,
     )
     response = client.messages.create(
         model=model, max_tokens=2048,
-        system=EPISODE_GEN_SYSTEM_PROMPT,
+        system=episode_gen_system_prompt(room),
         messages=[{"role": "user", "content": user_msg}],
     )
     raw = response.content[0].text

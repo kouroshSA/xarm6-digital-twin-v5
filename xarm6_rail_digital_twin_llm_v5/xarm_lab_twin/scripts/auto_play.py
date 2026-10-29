@@ -66,7 +66,12 @@ def main():
     # 1) Ask Claude for diverse task prompts
     print(f"\n[AutoPlay] Generating {args.episodes} diverse prompts via {args.model}...")
     try:
-        tasks = generate_episodes(args.episodes, model=MODELS[args.model])
+        room_def = None
+        if args.room:
+            from twin_rooms import load_room
+            room_def = load_room(args.room)
+        tasks = generate_episodes(args.episodes, model=MODELS[args.model],
+                                  room=room_def)
     except Exception as e:
         print(f"[AutoPlay] Prompt generation failed: {e}")
         sys.exit(1)
