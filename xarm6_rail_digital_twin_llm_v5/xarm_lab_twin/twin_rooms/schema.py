@@ -220,6 +220,10 @@ def validate_semantics(d: dict, room_dir: Path, robots_dir: Path = None) -> List
         elif src.startswith("mjcf:"):
             must_exist(src.split(":", 1)[1], f"{where}.source")
 
+    pf = (d.get("agent") or {}).get("prompt_file")
+    if pf:
+        must_exist(pf, "agent.prompt_file")
+
     wb = d.get("workspace_bounds")
     if wb and len(wb.get("min", [])) == 3 and len(wb.get("max", [])) == 3:
         for ax, lo, hi in zip("xyz", wb["min"], wb["max"]):

@@ -35,7 +35,7 @@ are metres and degrees.
 | `objects[]` | `name`, `source` (`scene`, `builtin:cube\|bin\|tube_rack\|tube`, `mjcf:<path>`, `simready:<slug>`), `pose`, `dynamic`, `type`, `label`, `aliases`, `grippable`, `driver`, `params` |
 | `cameras[]` | `name`, optional `pos`/`lookat`/`fovy`, `role` |
 | `workspace_bounds` | `{"min": [x,y,z], "max": [x,y,z]}`; `null` = the robot's default for that axis |
-| `agent` | `context` (notes for the LLM), `task_ideas` |
+| `agent` | `context` (short notes for the planner), `prompt_file` (longer prompt sections), `task_ideas` |
 
 Loading validates against the schema and then the rules a schema cannot state
 (the folder name, that referenced files exist, one controllable robot, unique
@@ -106,3 +106,19 @@ the build fails and names both.
   robot.json and model file.
 
 Tests: `MUJOCO_GL=egl python -m twin_rooms.test_builder`.
+
+## What the planner is told
+
+The system prompt template (`agent/llm_brain.py`) is shared; `agent/room_prompt.py`
+fills its room seams from the room the arm is in: rail length, bench extents,
+the object positions, the worked example (a cube and bin from the room), the
+object registry, and the room's knowledge -- `agent.prompt_file` sections
+(`<!-- room-prompt: commands | push_notes | knowledge -->`) followed by
+`agent.context`. Rack and PCR commands are offered only to rooms that have racks
+and tubes or a `driver: "pcr"` object. The graders (`outcome_checker`,
+`dynamic_grader`) take the room's object names from the arm.
+
+The lab's knowledge lives in `rooms/lab_a2s2/agent_prompt.md`, moved verbatim out
+of the template: the lab's prompt is byte-identical to before rooms.
+
+Tests: `MUJOCO_GL=egl python -m twin_rooms.test_prompt`.

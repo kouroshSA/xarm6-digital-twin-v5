@@ -12,7 +12,7 @@ from env_loader import load_env
 load_env()  # populate os.environ from .env before anthropic.Anthropic() reads it
 
 from agent.llm_brain import LLMBrain, prompt_model_choice, MODELS
-from agent.object_registry import build_default_registry
+from agent.room_prompt import registry_for
 from agent.lessons import append_lesson
 from recording import Recorder
 from twin_rooms.args import add_room_arg, sim_kwargs
@@ -177,7 +177,7 @@ def main():
             print("[System] Recording requires sim mode (or real-hardware state poller).")
             recorder = None
 
-    registry = build_default_registry()
+    registry = registry_for(arm)
     brain = LLMBrain(arm=arm, registry=registry, recorder=recorder,
                      model=model_short)
 
@@ -442,7 +442,7 @@ def main():
         # Grade the run before logging so lessons.md records the TASK outcome,
         # not just whether commands ran without errors.
         from agent.outcome_checker import check_outcome
-        task_success, _reason = check_outcome(args.task, physical)
+        task_success, _reason = check_outcome(args.task, physical, arm=arm)
         append_lesson(
             task_prompt=args.task,
             model_short=model_short,

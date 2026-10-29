@@ -689,12 +689,13 @@ class EpisodeRetry:
         # for a (mode, expected_substrings) spec we can use as a per-episode
         # fallback. Without this, novel task phrasings produce all-ungraded
         # sessions (no success/failure attribution).
-        if expected_outcome(task) is None:
+        if expected_outcome(task, self.arm) is None:
             print(f"[EpisodeLoop] Regex grader doesn't recognise this task -- "
                   f"consulting Haiku for success criteria...")
             try:
                 from agent.dynamic_grader import infer_criteria
-                ctx.dynamic_criteria = infer_criteria(task, registry=self.registry)
+                ctx.dynamic_criteria = infer_criteria(task, registry=self.registry,
+                                                      arm=self.arm)
             except Exception as e:
                 print(f"[EpisodeLoop] Dynamic grader unavailable (non-fatal): "
                       f"{type(e).__name__}: {e}")
@@ -864,7 +865,7 @@ class EpisodeRetry:
             else:
                 # All commands returned 0. Did the physical state match the task?
                 success, reason = check_outcome(
-                    task, physical, fallback_spec=ctx.dynamic_criteria)
+                    task, physical, fallback_spec=ctx.dynamic_criteria, arm=self.arm)
                 print(f"[EpisodeLoop] Outcome check: success={success} ({reason})")
 
                 if success is True and implausible:

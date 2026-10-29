@@ -108,7 +108,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "context": {"type": "string"},
+        "context": {"type": "string",
+                    "description": "short free-text notes for the planner, spliced into its system prompt"},
+        "prompt_file": {"type": "string",
+                        "description": "markdown file (relative to the room folder) holding longer prompt sections, marked <!-- room-prompt: commands|push_notes|knowledge -->; see agent/room_prompt.py"},
         "task_ideas": {"type": "array", "items": {"type": "string"}}
       }
     }

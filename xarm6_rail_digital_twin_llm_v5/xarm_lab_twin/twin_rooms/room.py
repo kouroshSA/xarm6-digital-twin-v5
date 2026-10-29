@@ -96,6 +96,7 @@ class RoomDef:
     workspace_bounds: Optional[dict]
     agent_context: str = ""
     task_ideas: List[str] = field(default_factory=list)
+    agent_prompt_file: Optional[str] = None
     raw: dict = field(default_factory=dict, repr=False)
 
     @property
@@ -135,6 +136,8 @@ class RoomDef:
         elif isinstance(self.environment, dict):
             files.append(self.dir / self.environment["extract_from"])
         files += [self.dir / o.source_arg for o in self.objects if o.source_kind == "mjcf"]
+        if self.agent_prompt_file:
+            files.append(self.dir / self.agent_prompt_file)
         return files
 
     def definition_hash(self) -> str:
@@ -175,6 +178,7 @@ def parse_room(d: dict, room_dir: Path) -> RoomDef:
                             c.get("fovy"), c.get("role")) for c in d.get("cameras", [])],
         workspace_bounds=d.get("workspace_bounds"),
         agent_context=ag.get("context", ""), task_ideas=list(ag.get("task_ideas", [])),
+        agent_prompt_file=ag.get("prompt_file"),
         raw=d)
 
 

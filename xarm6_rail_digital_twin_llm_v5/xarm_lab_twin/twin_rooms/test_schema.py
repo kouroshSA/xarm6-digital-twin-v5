@@ -72,10 +72,16 @@ def test_hash_follows_the_scene_file():
         rd = tmp / "rooms" / "lab_a2s2"
         rd.mkdir(parents=True)
         (rd / "room.json").write_text(json.dumps(d))
+        shutil.copy(ROOMS_DIR / "lab_a2s2" / "agent_prompt.md", rd)
         h0 = load_room_dir(rd).definition_hash()
         with open(tmp / "envs" / "lab_scene.xml", "a") as f:
             f.write("<!-- edited -->\n")
         assert load_room_dir(rd).definition_hash() != h0
+        # ...and when the prompt file does
+        h1 = load_room_dir(rd).definition_hash()
+        with open(rd / "agent_prompt.md", "a") as f:
+            f.write("\n")
+        assert load_room_dir(rd).definition_hash() != h1
     finally:
         shutil.rmtree(tmp)
 

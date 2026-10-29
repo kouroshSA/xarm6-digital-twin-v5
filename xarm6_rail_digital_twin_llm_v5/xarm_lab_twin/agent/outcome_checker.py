@@ -40,12 +40,16 @@ HELD_MARKER = "still in the gripper"
 COLORS = ("red", "green", "blue")
 
 
-def _scene_names():
+def _scene_names(arm=None):
     """(cubes_by_colour, bin_by_colour) from the sim's own body lists. These
     used to be spelled here as red_cube / red_bin, which left the scene: every
     red-cube task then expected a substring no outcome contains, and graded as
-    a failure however it went."""
-    from sim.mujoco_env import BIN_BODIES, CUBE_BODIES
+    a failure however it went. With `arm`, its ROOM's lists (SimXArmAPI.
+    cube_bodies / bin_bodies); without, the lab's, as before rooms."""
+    if arm is not None and hasattr(arm, "cube_bodies"):
+        CUBE_BODIES, BIN_BODIES = arm.cube_bodies, arm.bin_bodies
+    else:
+        from sim.mujoco_env import BIN_BODIES, CUBE_BODIES
     cubes = {c: tuple(n for n in CUBE_BODIES if n.startswith(c + "_")) for c in COLORS}
     bins = {c: next((n for n in BIN_BODIES if n == f"{c}_bin"), None) for c in COLORS}
     return cubes, bins
@@ -150,7 +154,7 @@ def _identify_dest_racks(t: str, sources: List[str]) -> List[str]:
     return []
 
 
-def expected_outcome(task: str) -> Optional[Tuple[str, List[str]]]:
+def expected_outcome(task: str, arm=None) -> Optional[Tuple[str, List[str]]]:
     """
     Parse the task into a (mode, expected_substrings) pair, or None if the
     parser doesn't recognise the task.
@@ -158,7 +162,7 @@ def expected_outcome(task: str) -> Optional[Tuple[str, List[str]]]:
     mode = "all" (all substrings required) or "any" (one substring suffices).
     """
     t = task.lower()
-    cubes, bins = _scene_names()
+    cubes, bins = _scene_names(arm)
 
     # ---- Push-off family ----
     if re.search(r"\b(push|knock|drop|shove|slide).*\b(off|edge|floor|away)\b", t):
@@ -292,7 +296,7 @@ def _matches_with_swap(physical: str, expected: str) -> bool:
 
 def check_outcome(task: str, physical: str,
                   fallback_spec: Optional[Tuple[str, List[str]]] = None,
-                  ) -> Tuple[Optional[bool], str]:
+                  arm=None) -> Tuple[Optional[bool], str]:
     """
     Compare expected outcome (from task) to actual physical_outcome() string.
 
@@ -307,7 +311,7 @@ def check_outcome(task: str, physical: str,
     agent.dynamic_grader.infer_criteria as a once-per-session Haiku call.
     The fast path stays free of LLM cost for known task patterns.
     """
-    spec = expected_outcome(task)
+    spec = expected_outcome(task, arm)
     used_fallback = False
     if spec is None and fallback_spec is not None:
         spec = fallback_spec

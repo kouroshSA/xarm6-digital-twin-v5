@@ -54,3 +54,6 @@ env/
 
 # --- Built rooms (twin_rooms.builder output; rebuilt on demand) ---
 **/rooms/**/build/
+# Per-room agent memory: the registry seed is a regenerated cache, as
+# agent/objects.json is for the lab (lessons.md is already ignored above).
+**/memory/*/objects.json

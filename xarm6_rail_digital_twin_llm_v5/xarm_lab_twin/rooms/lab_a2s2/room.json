@@ -354,7 +354,8 @@
     }
   ],
   "agent": {
-    "context": "The two red cubes straddle the rail (front and back); 'the red cube' is ambiguous, so name front or back. There is no red bin. The OT-2 is reached only through its front opening, from rail 700. The PCR lid must be opened (pcr_open) before loading a plate.",
+    "context": "",
+    "prompt_file": "agent_prompt.md",
     "task_ideas": [
       "put the green cube in the green bin",
       "put the blue cube in the blue bin",

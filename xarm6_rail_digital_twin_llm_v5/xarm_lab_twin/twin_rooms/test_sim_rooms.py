@@ -138,6 +138,10 @@ def test_pick_and_place_in_a_built_room():
         notes = arm.physical_outcome()
         assert "red_cube in blue_bin" in notes, notes
         assert "obj/" not in notes and "arm0/" not in notes, notes
+        # ...and the grader, given the room, calls that outcome a success
+        from agent.outcome_checker import check_outcome
+        ok, why = check_outcome("put the red cube in the blue bin", notes, arm=arm)
+        assert ok is True, why
     finally:
         arm.disconnect()
         shutil.rmtree(tmp)

@@ -25,7 +25,7 @@ from env_loader import load_env
 load_env()
 
 from agent.llm_brain import LLMBrain, MODELS
-from agent.object_registry import build_default_registry
+from agent.room_prompt import registry_for
 from agent.prompt_variants import generate_episodes
 from agent.lessons import append_lesson
 from agent.outcome_checker import check_outcome
@@ -78,7 +78,7 @@ def main():
     # 2) Spawn one SimXArmAPI with viewer (reused across episodes)
     from sim.mujoco_env import SimXArmAPI
     arm = SimXArmAPI(**sim_kwargs(args, "envs/lab_scene.xml"), render=True)
-    registry = build_default_registry()
+    registry = registry_for(arm)
     run_id = uuid.uuid4().hex[:8]
     print(f"\n[AutoPlay] Run ID: {run_id}  (each episode's metadata links here)")
 
@@ -126,7 +126,7 @@ def main():
 
         # Grade once per episode; reuse the verdict for both the lesson and
         # the session-context recording so they never disagree.
-        task_success, reason = check_outcome(task, physical)
+        task_success, reason = check_outcome(task, physical, arm=arm)
         print(f"  [Outcome check] success={task_success} ({reason})")
 
         # Auto-append lesson regardless of eval mode, now WITH the grader's
