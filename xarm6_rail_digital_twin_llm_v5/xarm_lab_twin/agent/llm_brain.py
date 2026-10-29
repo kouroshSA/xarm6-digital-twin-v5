@@ -8,6 +8,7 @@ from typing import Optional
 from agent.object_registry import ObjectRegistry
 from agent.lessons import read_lessons_section
 from agent.room_prompt import prompt_parts
+from twin_rooms.memory import memory_file_for
 from agent.scene_geometry import (DEFAULT_SCENE, render_geometry_section,
                                   worked_example_coords)
 from agent.world_model import (read_world_model, render_for_system_prompt,
@@ -502,8 +503,12 @@ class LLMBrain:
             llm_log = LLMSessionLog(self.recorder, self.model_full, task_prompt)
             llm_log.log_prompt()
 
-        lessons = read_lessons_section(current_task=task_prompt)
-        wm = read_world_model(scene_path=scene_path_of(self.arm))
+        # Memory is per room (twin_rooms.memory); the lab's are the files it
+        # has always used.
+        lessons = read_lessons_section(memory_file_for(self.arm, "lessons.md"),
+                                       current_task=task_prompt)
+        wm = read_world_model(memory_file_for(self.arm, "world_model.md"),
+                              scene_path=scene_path_of(self.arm))
         wm_section = render_for_system_prompt(wm, include_provisional=True)
         if wm.scene_changed and wm_section:
             wm_section = ("**Scene XML has changed since these observations "

@@ -122,3 +122,12 @@ The lab's knowledge lives in `rooms/lab_a2s2/agent_prompt.md`, moved verbatim ou
 of the template: the lab's prompt is byte-identical to before rooms.
 
 Tests: `MUJOCO_GL=egl python -m twin_rooms.test_prompt`.
+
+## Memory per room
+
+Lessons, reviews, the world model and the registry seed are kept per room
+(`twin_rooms/memory.py`). The lab -- and any scene file loaded without
+`--room` -- keeps the files it has always used (`lessons.md`, `reviews.md`,
+`world_model.md` at the project root, `agent/objects.json`); every other room
+uses `memory/<room_id>/`, created on its first write. A lesson learned on one
+bench never reaches the prompt for another.

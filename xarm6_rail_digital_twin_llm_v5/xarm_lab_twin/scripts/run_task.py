@@ -16,6 +16,7 @@ from agent.room_prompt import registry_for
 from agent.lessons import append_lesson
 from recording import Recorder
 from twin_rooms.args import add_room_arg, sim_kwargs
+from twin_rooms.memory import memory_file_for
 
 
 def _shutdown(arm, recorder=None):
@@ -451,6 +452,7 @@ def main():
             physical_outcome=physical,
             task_success=task_success,
             stringency=args.stringency,
+            lessons_file=memory_file_for(arm, "lessons.md", create=True),
         )
         print("[Lessons] Appended to lessons.md")
 

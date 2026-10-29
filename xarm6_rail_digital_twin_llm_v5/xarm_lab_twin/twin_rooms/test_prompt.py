@@ -37,9 +37,12 @@ class _Stop(Exception):
     pass
 
 
-def _system_prompt(arm, task="put the green cube in the green bin"):
-    lb.read_lessons_section = lambda **k: "STUB LESSONS"
-    lb.read_world_model = lambda **k: types.SimpleNamespace(scene_changed=False)
+_REAL_LESSONS = lb.read_lessons_section
+
+
+def _system_prompt(arm, task="put the green cube in the green bin", real_lessons=False):
+    lb.read_lessons_section = _REAL_LESSONS if real_lessons else (lambda *a, **k: "STUB LESSONS")
+    lb.read_world_model = lambda *a, **k: types.SimpleNamespace(scene_changed=False)
     lb.render_for_system_prompt = lambda wm, **k: "STUB WORLD MODEL"
     brain = lb.LLMBrain(arm=arm, registry=registry_for(arm), model="haiku")
     seen = {}
@@ -178,6 +181,55 @@ def test_auto_play_tasks_are_asked_for_the_rooms_objects():
         assert "objects: red cube; containers: blue bin" in p, p
         assert "green" not in p
     finally:
+        shutil.rmtree(tmp)
+
+
+def test_reading_a_rooms_prompt_creates_nothing():
+    """Building a prompt only READS memory; it must not leave a memory/<room>
+    folder in the project (it did, until writers were made to ask for one)."""
+    import twin_rooms.memory as mem
+    before = sorted(mem.MEMORY_DIR.iterdir()) if mem.MEMORY_DIR.exists() else []
+    arm = _arm(room="empty_bench")
+    try:
+        _system_prompt(arm, "go home", real_lessons=True)
+    finally:
+        arm.disconnect()
+    after = sorted(mem.MEMORY_DIR.iterdir()) if mem.MEMORY_DIR.exists() else []
+    assert after == before, (before, after)
+
+
+def test_memory_is_per_room():
+    """A lesson learned in one room reaches that room's prompt and not the
+    lab's; the lab keeps the files it has always used."""
+    import twin_rooms.memory as mem
+    from agent.lessons import LESSONS_FILE, REVIEWS_FILE, append_lesson
+    from agent.world_model import WORLD_MODEL_FILE
+    lab = _arm(scene_xml="envs/lab_scene.xml")
+    try:
+        assert mem.memory_file_for(lab, "lessons.md") == LESSONS_FILE
+        assert mem.memory_file_for(lab, "reviews.md") == REVIEWS_FILE
+        assert mem.memory_file_for(lab, "world_model.md") == WORLD_MODEL_FILE
+        assert mem.memory_file_for(object(), "lessons.md") == LESSONS_FILE   # real arm
+    finally:
+        lab.disconnect()
+    tmp = Path(tempfile.mkdtemp())
+    saved = mem.MEMORY_DIR
+    mem.MEMORY_DIR = tmp
+    room = _arm(room="empty_bench")
+    lab = _arm(scene_xml="envs/lab_scene.xml")
+    try:
+        f = mem.memory_file_for(room, "lessons.md", create=True)
+        assert f == tmp / "empty_bench" / "lessons.md"
+        append_lesson(task_prompt="go home ZQX-ROOM-ONLY", model_short="haiku",
+                      planned_commands=[], results=[], physical_outcome="",
+                      task_success=True, lessons_file=f)
+        assert "ZQX-ROOM-ONLY" in _system_prompt(room, "go home", real_lessons=True)
+        assert "ZQX-ROOM-ONLY" not in _system_prompt(lab, "go home", real_lessons=True)
+        assert "ZQX-ROOM-ONLY" not in LESSONS_FILE.read_text() if LESSONS_FILE.exists() else True
+    finally:
+        mem.MEMORY_DIR = saved
+        room.disconnect()
+        lab.disconnect()
         shutil.rmtree(tmp)
 
 

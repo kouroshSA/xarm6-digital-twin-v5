@@ -32,6 +32,7 @@ from agent.outcome_checker import check_outcome
 from agent.episode_loop import EpisodeContext, _maybe_run_review
 from recording import Recorder
 from twin_rooms.args import add_room_arg, sim_kwargs
+from twin_rooms.memory import memory_file_for
 
 
 def main():
@@ -144,6 +145,7 @@ def main():
             physical_outcome=physical,
             task_success=task_success,
             stringency="loose",
+            lessons_file=memory_file_for(arm, "lessons.md", create=True),
         )
 
         # Record this episode into the session context for the end-of-run

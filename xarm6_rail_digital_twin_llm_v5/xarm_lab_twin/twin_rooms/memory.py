@@ -36,3 +36,19 @@ def memory_file(room_id: str, name: str) -> Path:
     if name == "objects.json" and uses_lab_memory(room_id):
         return PROJECT_ROOT / "agent" / "objects.json"
     return memory_dir(room_id) / name
+
+
+def room_id_of(arm) -> str:
+    """The arm's room id; an arm with no room (real hardware) is in the lab."""
+    room = getattr(arm, "room", None)
+    return getattr(room, "room_id", DEFAULT_ROOM)
+
+
+def memory_file_for(arm, name: str, create: bool = False) -> Path:
+    """memory_file() for the arm's room. Writers pass create=True to make the
+    room's memory folder (never needed for the lab); readers do not, so
+    building a prompt never leaves an empty folder behind."""
+    path = memory_file(room_id_of(arm), name)
+    if create and not uses_lab_memory(room_id_of(arm)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    return path

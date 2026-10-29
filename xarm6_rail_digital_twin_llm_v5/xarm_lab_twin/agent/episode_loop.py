@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
 
+from twin_rooms.memory import memory_file_for
 from agent.outcome_checker import check_outcome, classify_task, expected_outcome
 from agent.lessons import append_lesson
 from recording import Recorder
@@ -1084,6 +1085,7 @@ class EpisodeRetry:
             try:
                 from agent.world_model import persist_constraints, scene_path_of
                 persist_constraints(ctx.learned_constraints, task_label=task,
+                                    wm_file=memory_file_for(self.arm, "world_model.md", create=True),
                                     scene_path=scene_path_of(self.arm))
                 print(f"[EpisodeLoop] Persisted {len(ctx.learned_constraints)} "
                       f"constraint(s) to world_model.md (provisional fallback).")
@@ -1169,6 +1171,8 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
         physical_outcome=physical_str,
         task_success=episode_outcome,
         stringency=stringency,
+        lessons_file=memory_file_for(getattr(brain, "arm", None), "lessons.md",
+                                     create=True),
     )
 
 
@@ -1199,12 +1203,14 @@ def _maybe_run_review(task: str, ctx: EpisodeContext,
         # Pass prior context (lessons + earlier reviews on this task family,
         # plus the existing world model) so Opus can corroborate/refine
         # rather than duplicate.
-        prior_lessons  = read_lessons_section(current_task=task)
-        prior_reviews  = read_reviews_section(current_task=task)
+        lessons_f, reviews_f, wm_f = (memory_file_for(arm, n, create=True) for n in
+                                      ("lessons.md", "reviews.md", "world_model.md"))
+        prior_lessons  = read_lessons_section(lessons_f, current_task=task)
+        prior_reviews  = read_reviews_section(reviews_f, current_task=task)
         prior_combined = "\n\n".join(p for p in (prior_lessons, prior_reviews)
                                      if p.strip())
         scene_path     = scene_path_of(arm)
-        world_model    = read_world_model(scene_path=scene_path)
+        world_model    = read_world_model(wm_f, scene_path=scene_path)
         if world_model.scene_changed:
             print(f"[EpisodeLoop] world_model.md: scene XML has changed "
                   f"since entries were recorded -- Opus will treat them "
@@ -1216,7 +1222,7 @@ def _maybe_run_review(task: str, ctx: EpisodeContext,
                                 prior_lessons=prior_combined,
                                 world_model=world_model)
 
-        append_review(task=task, review=review, model="opus-4-7")
+        append_review(task=task, review=review, model="opus-4-7", reviews_file=reviews_f)
         print(f"[EpisodeLoop] Opus review written to reviews.md")
 
         # Phase 3: merge cross-task observations into world_model.md.
@@ -1224,7 +1230,7 @@ def _maybe_run_review(task: str, ctx: EpisodeContext,
         if cross:
             log = update_from_review(world_model, cross,
                                      task_label=task)
-            write_world_model(world_model, scene_path=scene_path)
+            write_world_model(world_model, wm_f, scene_path=scene_path)
             n_new = sum(1 for L in log if L["action"] == "new")
             n_mrg = sum(1 for L in log if L["action"] == "merged")
             n_dup = sum(1 for L in log if L["action"] == "merged_duplicate")

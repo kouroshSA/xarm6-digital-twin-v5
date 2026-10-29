@@ -418,6 +418,32 @@ read it before continuing. Twin side works and was tested live (steps 1-5);
   `MUJOCO_GL=egl python -m teleop_hand.test_gestures_twin` (graded on which body
   is welded and how far it rose, not return codes).
 
+## Rooms (IN PROGRESS, branch feat/rooms-simready)
+
+`xarm_lab_twin/rooms/<id>/room.json` describes a scene: environment, robots,
+objects. `twin_rooms/` validates and builds them; see
+[`rooms/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/rooms/README.md)
+and [`robots/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/robots/README.md).
+Entry points take `--room <id>`; **without it they load exactly the scene file
+they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml`).
+
+- **Code uses LOGICAL names** (the lab's: `joint1`, `gripper`, `red_cube`). A
+  built room prefixes them (`arm0/joint1`, `obj/red_cube`). In `SimXArmAPI`,
+  look every name up through `self._mj(name, kind)`, and report names with
+  `self._logical(...)`. A bare `self.model.body("gripper")` works in the lab
+  and fails in every built room.
+- **Use the per-room lists** `self.grippable`, `cube_bodies`, `bin_bodies`,
+  `tube_bodies`, `rack_tube_groups`, not the module constants; for the lab they
+  equal the constants (asserted in `twin_rooms.test_sim_rooms`).
+- **The lab's system prompt is byte-identical to before rooms.** Its lab-only
+  text lives in `rooms/lab_a2s2/agent_prompt.md`, spliced in by
+  `agent/room_prompt.py`. Edit lab knowledge there, not in `llm_brain.py`.
+- **Agent memory is per room** (`twin_rooms/memory.py`): the lab keeps
+  `lessons.md`, `reviews.md`, `world_model.md` at the project root; other rooms
+  use `memory/<id>/`.
+- Tests: `python -m twin_rooms.test_schema`, `.test_robot`;
+  `MUJOCO_GL=egl python -m twin_rooms.test_builder`, `.test_sim_rooms`, `.test_prompt`.
+
 ## Pose geometry helpers
 
 `xarm_lab_twin/geometry/` holds SE(3) interpolation, smoothing and dwell
