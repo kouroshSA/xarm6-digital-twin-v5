@@ -8,6 +8,22 @@ from typing import Optional
 JOINT_NAMES = ["joint1","joint2","joint3","joint4","joint5","joint6"]
 
 
+def held_geoms_from_welds(model: mujoco.MjModel, gripper_body: str = "gripper") -> dict:
+    """{geom name: weld name} for every geom of every body welded to the gripper."""
+    out = {}
+    gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, gripper_body)
+    if gid < 0:
+        return out
+    held = {int(model.eq_obj2id[e]): model.equality(e).name for e in range(model.neq)
+            if model.eq_type[e] == mujoco.mjtEq.mjEQ_WELD and model.eq_obj1id[e] == gid}
+    for g in range(model.ngeom):
+        weld = held.get(int(model.geom_bodyid[g]))
+        name = model.geom(g).name
+        if weld and name:
+            out[name] = weld
+    return out
+
+
 @dataclass
 class ValidationResult:
     is_valid: bool
@@ -37,81 +53,28 @@ class FKValidator:
     # and a CURRENTLY HELD body are expected (it travels with the gripper) and
     # must be filtered out -- the FK pass updates only arm joints, not the free
     # body's qpos, so the body appears to overlap geometry that it would actually
-    # move out of. Each tube has two geoms (body + cap), so both must be listed.
-    HELD_CUBE_GEOMS = {
-        "red_cube_back_geom":  "grip_red_cube_back",
-        "red_cube_front_geom": "grip_red_cube_front",
-        "green_cube_geom": "grip_green_cube",
-        "blue_cube_geom":  "grip_blue_cube",
-        "tube_L1_body":    "grip_tube_L1",
-        "tube_L1_cap":     "grip_tube_L1",
-        "tube_L2_body":    "grip_tube_L2",
-        "tube_L2_cap":     "grip_tube_L2",
-        "tube_L3_body":    "grip_tube_L3",
-        "tube_L3_cap":     "grip_tube_L3",
-        "tube_R1_body":    "grip_tube_R1",
-        "tube_R1_cap":     "grip_tube_R1",
-        "tube_R2_body":    "grip_tube_R2",
-        "tube_R2_cap":     "grip_tube_R2",
-        "tube_R3_body":    "grip_tube_R3",
-        "tube_R3_cap":     "grip_tube_R3",
-        # Bins (each has 5 geoms: floor + 4 walls). All need to be filtered
-        # when their weld is active so the validator doesn't reject moves
-        # while the bin is being pushed. red_bin was removed from the
-        # scene.
-        "green_bin_floor":    "grip_green_bin",
-        "green_bin_w_front":  "grip_green_bin",
-        "green_bin_w_back":   "grip_green_bin",
-        "green_bin_w_left":   "grip_green_bin",
-        "green_bin_w_right":  "grip_green_bin",
-        "blue_bin_floor":    "grip_blue_bin",
-        "blue_bin_w_front":  "grip_blue_bin",
-        "blue_bin_w_back":   "grip_blue_bin",
-        "blue_bin_w_left":   "grip_blue_bin",
-        "blue_bin_w_right":  "grip_blue_bin",
-        # Tube racks (each rack has 9 geoms: 1 base + 4 outer walls + 3
-        # vertical separators + 1 horizontal separator)
-        "left_rack_base":    "grip_left_rack",
-        "L_outer_front":     "grip_left_rack",
-        "L_outer_back":      "grip_left_rack",
-        "L_outer_left":      "grip_left_rack",
-        "L_outer_right":     "grip_left_rack",
-        "L_sep_v1":          "grip_left_rack",
-        "L_sep_v2":          "grip_left_rack",
-        "L_sep_v3":          "grip_left_rack",
-        "L_sep_h1":          "grip_left_rack",
-        "right_rack_base":   "grip_right_rack",
-        "R_outer_front":     "grip_right_rack",
-        "R_outer_back":      "grip_right_rack",
-        "R_outer_left":      "grip_right_rack",
-        "R_outer_right":     "grip_right_rack",
-        "R_sep_v1":          "grip_right_rack",
-        "R_sep_v2":          "grip_right_rack",
-        "R_sep_v3":          "grip_right_rack",
-        "R_sep_h1":          "grip_right_rack",
-        # 96-well plates A + B (2 geoms each: body + cosmetic top slab)
-        "well_plate_A_body": "grip_well_plate_A",
-        "well_plate_A_top":  "grip_well_plate_A",
-        "well_plate_B_body": "grip_well_plate_B",
-        "well_plate_B_top":  "grip_well_plate_B",
-        # Opentrons tip rack (2 geoms)
-        "tip_box_body":      "grip_tip_box",
-        "tip_box_top":       "grip_tip_box",
-        # Heater-shaker module (3 geoms)
-        "heater_shaker_body":     "grip_heater_shaker",
-        "heater_shaker_platform": "grip_heater_shaker",
-        "heater_shaker_logo":     "grip_heater_shaker",
-    }
+    # move out of. Set per instance by held_geoms_from_welds(): every geom of
+    # every body the gripper has a weld to. It used to be a hand-written table of
+    # 53 geoms that had drifted from the scene -- the translucent cup's 13 geoms
+    # and the heater-shaker's 2 LEDs were missing although both bodies had welds.
+    HELD_CUBE_GEOMS: dict = {}
 
     def __init__(self, model: mujoco.MjModel,
                  data: mujoco.MjData,
-                 lock: threading.Lock):
+                 lock: threading.Lock, joint_names=None, rail_joint: str = "rail",
+                 ee_site: str = "end_effector", arm_geom_names=None,
+                 gripper_body: str = "gripper"):
+        # Names are parameters so a room can pass its robot's (prefixed) MJCF
+        # names; the defaults are the lab's. The checks themselves are unchanged.
         self.model = model
         self.data  = data
         self.lock  = lock
-        self.joint_ids = [model.joint(n).id for n in JOINT_NAMES]
-        self.rail_jid  = model.joint("rail").id
-        self.ee_site   = model.site("end_effector").id
+        self.joint_ids = [model.joint(n).id for n in (joint_names or JOINT_NAMES)]
+        self.rail_jid  = model.joint(rail_joint).id
+        self.ee_site   = model.site(ee_site).id
+        if arm_geom_names is not None:
+            self.ARM_GEOM_NAMES = set(arm_geom_names)
+        self.HELD_CUBE_GEOMS = held_geoms_from_welds(model, gripper_body)
 
     def validate(self, joint_angles_rad: np.ndarray,
                  target_pos_m: np.ndarray,

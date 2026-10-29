@@ -34,13 +34,17 @@ class IKSolver:
     """
 
     def __init__(self, model: mujoco.MjModel, data: mujoco.MjData,
-                 lock: threading.Lock):
+                 lock: threading.Lock, joint_names=None, rail_joint: str = "rail",
+                 ee_site: str = "end_effector"):
+        # Names are parameters so a room can pass its robot's (prefixed) MJCF
+        # names; the defaults are the lab's. Nothing below depends on them.
         self.model = model
         self.data  = data
         self.lock  = lock
-        self.joint_ids = [model.joint(n).id for n in JOINT_NAMES]
-        self.rail_jid  = model.joint("rail").id
-        self.ee_site   = model.site("end_effector").id
+        self.joint_ids = [model.joint(n).id for n in (joint_names or JOINT_NAMES)]
+        self.rail_jid  = model.joint(rail_joint).id
+        self.ee_site   = model.site(ee_site).id
+        self.ee_site_name = ee_site
         self.backend = "pink" if HAS_PINK else "jacobian"
 
         if HAS_PINK:
@@ -50,7 +54,7 @@ class IKSolver:
         try:
             self._pink_config = pink.Configuration(self.model, self.data)
             self._pink_task = FrameTask(
-                "end_effector",
+                self.ee_site_name,
                 position_cost=1.0,
                 orientation_cost=0.0,
             )

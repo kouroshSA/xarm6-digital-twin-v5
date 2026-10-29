@@ -543,9 +543,12 @@ file's "Recording format" section so consumers can find them.
 - **Magnetic-gripper hack.** This sim doesn't have actuated gripper fingers.
   `gripper_close` activates a MuJoCo `<weld>` constraint between the
   gripper body and the nearest cube/tube/bin/rack. If you're adding a new
-  graspable body, also add it to `GRIPPABLE_BODIES` in `sim/mujoco_env.py`
-  and `HELD_CUBE_GEOMS` in `sim/fk_validator.py`, plus an `<equality>` entry
-  in the scene XML.
+  graspable body to the LAB scene, also add it to `GRIPPABLE_BODIES` in
+  `sim/mujoco_env.py` and the lab's `rooms/lab_a2s2/room.json`, plus an
+  `<equality>` entry in the scene XML. (`FKValidator`'s held-geom table is
+  derived from the welds now -- the hand-written one had drifted.) In a
+  built room the weld is generated for every `grippable` object; see
+  `rooms/README.md`.
 - **IK fallback.** `pink` IK is preferred but its API doesn't match
   MuJoCo's types in pink≥4.2, so the iterative Jacobian solver in
   `sim/ik_solver.py` is what actually runs. The one-time warning at startup

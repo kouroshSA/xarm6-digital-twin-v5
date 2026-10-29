@@ -38,7 +38,8 @@ import numpy as np
 from twin_rooms.builtins import GENERATORS
 from twin_rooms.context import OBJ_PREFIX, ObjectInstance, RobotInstance, RoomContext
 from twin_rooms.robot import RobotType, load_robot_type
-from twin_rooms.room import ROBOTS_DIR, ROOMS_DIR, RoomDef, load_room
+from twin_rooms.room import (ROBOTS_DIR, ROOMS_DIR, RoomDef, list_rooms, load_room,
+                             load_room_dir, parse_room)
 from twin_rooms.schema import RoomError
 
 SIMREADY_DIR = Path(__file__).resolve().parent.parent / "assets" / "simready"
@@ -153,7 +154,10 @@ def build_room(room_id: str, variant: Optional[str] = None, rooms_dir: Path = No
                ) -> Tuple[mujoco.MjModel, RoomContext]:
     """Build room `room_id`. `variant` picks the scene variant of a passthrough
     room or the robot model variant of a composed one (e.g. "primitive")."""
-    room = load_room(room_id, rooms_dir, robots_dir)
+    if (Path(room_id) / "room.json").is_file():          # a room folder, e.g. a test's
+        room = load_room_dir(Path(room_id), robots_dir)
+    else:
+        room = load_room(room_id, rooms_dir, robots_dir)
     return build_room_def(room, variant, robots_dir, write)
 
 
@@ -178,9 +182,10 @@ def _robot_instances(room: RoomDef, types, prefixes: Dict[str, str]) -> Dict[str
             for r in room.robots}
 
 
-def _build_passthrough(room: RoomDef, types, variant):
+def _build_passthrough(room: RoomDef, types, variant, model=None):
     path = room.scene_path(variant)
-    model = mujoco.MjModel.from_xml_path(str(path))
+    if model is None:
+        model = mujoco.MjModel.from_xml_path(str(path))
     robots = _robot_instances(room, types, {r.instance: "" for r in room.robots})
     if len(robots) != 1:
         raise RoomError(room.id, ["a passthrough room describes exactly one robot (its scene's)"])
@@ -198,6 +203,47 @@ def _build_passthrough(room: RoomDef, types, variant):
                       robots=robots, objects=objects, variant=variant)
     ctx.index(model)
     return model, ctx
+
+
+def context_for_scene(scene_xml, model: mujoco.MjModel, rooms_dir: Path = None,
+                      robots_dir: Path = None) -> RoomContext:
+    """The context for a model loaded straight from a scene file (the pre-rooms
+    way every tool loads the lab). If a passthrough room wraps that file, its
+    context; otherwise an anonymous passthrough room ("scene:<file>") whose
+    objects are the scene's free and welded bodies, typed "other", with one
+    xarm6_rail robot and identity names."""
+    path = Path(scene_xml).resolve()
+    rooms_dir = Path(rooms_dir or ROOMS_DIR)
+    for rid in list_rooms(rooms_dir):
+        room = load_room(rid, rooms_dir, robots_dir)
+        if not room.is_passthrough:
+            continue
+        for v in room.scene["variants"]:
+            if room.scene_path(v) == path:
+                types = {r.type: load_robot_type(r.type, Path(robots_dir or ROBOTS_DIR),
+                                                 check_model=False) for r in room.robots}
+                return _build_passthrough(room, types, v, model)[1]
+    return _anonymous_context(path, model, robots_dir)
+
+
+def _anonymous_context(path: Path, model: mujoco.MjModel, robots_dir) -> RoomContext:
+    names = set()
+    for b in range(1, model.nbody):
+        j = model.body_jntadr[b]
+        if j >= 0 and model.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE:
+            names.add(model.body(b).name)
+    for e in range(model.neq):
+        if model.eq_type[e] == mujoco.mjtEq.mjEQ_WELD:
+            names.add(model.body(int(model.eq_obj2id[e])).name)
+    d = {"id": "scene_" + path.stem.lower().replace("-", "_"), "name": path.name,
+         "description": f"anonymous passthrough room for {path}",
+         "scene": {"default": "file", "variants": {"file": str(path)}},
+         "robots": [{"instance": "arm0", "type": "xarm6_rail"}],
+         "objects": [{"name": n, "source": "scene", "type": "other"} for n in sorted(names)]}
+    room = parse_room(d, path.parent)
+    types = {"xarm6_rail": load_robot_type("xarm6_rail", Path(robots_dir or ROBOTS_DIR),
+                                           check_model=False)}
+    return _build_passthrough(room, types, "file", model)[1]
 
 
 def _object_body(spec: mujoco.MjSpec, room: RoomDef, o) -> mujoco.MjsBody:
