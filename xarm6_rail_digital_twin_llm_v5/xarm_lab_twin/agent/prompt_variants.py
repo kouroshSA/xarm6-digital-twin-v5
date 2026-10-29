@@ -10,16 +10,18 @@ from typing import List
 
 VARIANT_GEN_SYSTEM_PROMPT = """\
 You are generating paraphrased variants of a robot pick-and-place command.
-The robot is an xArm6 on a linear rail in a benchmark scene with three RGB
-cubes (red, green, blue) and three matching bins.
+The robot is an xArm6 on a linear rail at a lab bench with cubes (two red --
+front and back -- plus green and blue) and two bins (green and blue).
 
 Given an original command, produce N paraphrased variants that:
 1. Preserve the EXACT task intent - same source cube, same destination bin,
-   same action verb category. "Put red cube in red bin" can become "place
-   the red block in the red container" but NOT "put green cube in red bin".
+   same action verb category. "Put the blue cube in the green bin" can become
+   "place the blue block in the green container" but NOT "put the green cube
+   in the green bin". Keep "front"/"back" when the original names a red cube
+   that way.
 2. Vary surface form - synonyms, word order, formality, contractions.
-3. Cover a range of phrasings: formal ("Could you please place the red cube
-   into the red container?") to casual ("red in red plz").
+3. Cover a range of phrasings: formal ("Could you please place the blue cube
+   into the green container?") to casual ("blue in green plz").
 4. Are distinct - no two identical, none merely punctuation-different.
 
 Output ONLY a JSON array of strings. No prose, no markdown fences.
@@ -60,15 +62,16 @@ def generate_variants(original_prompt: str, n_variants: int,
 EPISODE_GEN_SYSTEM_PROMPT = """\
 You are generating a varied script of robotic task prompts for a benchmark
 scene. The robot is a UFACTORY xArm6 on a 700mm linear rail. The scene has:
-  - Three RGB cubes (red, green, blue) on a bench
-  - Three matching bins (red, green, blue) behind the cubes
+  - Four cubes on a bench: red (front), red (back), green, blue
+  - Two bins: green and blue (there is NO red bin)
   - A gripper that can pick up cubes
 The robot understands these high-level primitives:
   - "go home" / "reset"                       -> home pose
   - "wave goodbye N times"                    -> N side-to-side waves
-  - "put the <color> cube in the <color> bin" -> pick-and-place
-  - "put all cubes in the <color> bin"        -> sort to one bin
-  - "sort the cubes by color"                 -> 3 pick-and-places
+  - "put the <cube> in the <green|blue> bin"  -> pick-and-place, where <cube> is
+                                                 "front red cube", "back red
+                                                 cube", "green cube" or "blue cube"
+  - "put all cubes in the <green|blue> bin"   -> gather into one bin
   - "move the arm to <coords>"                -> direct Cartesian move
 
 Generate N DIVERSE natural-language task prompts that exercise these primitives.
