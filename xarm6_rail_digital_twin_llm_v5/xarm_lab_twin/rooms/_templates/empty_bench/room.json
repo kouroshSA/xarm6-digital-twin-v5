@@ -1,0 +1,25 @@
+{
+  "id": "empty_bench",
+  "name": "Empty bench",
+  "description": "The lab bench (main section and the L-shaped OT-2 extension) with the xArm6 on its 700 mm rail and the rail LED strips, and nothing else on it. The bench, robot and cameras are taken from envs/lab_scene.xml at build time, so they always match the lab. The starting point for new rooms.",
+  "environment": {
+    "extract_from": "../../../envs/lab_scene.xml",
+    "bodies": ["bench", "observers"],
+    "floor": true,
+    "lights": true
+  },
+  "robots": [
+    {"instance": "arm0", "type": "xarm6_rail",
+     "base_pose": {"pos": [0, 0, 0], "euler": [0, 0, 0]},
+     "end_effector": "parallel_gripper", "controllable": true}
+  ],
+  "objects": [],
+  "cameras": [
+    {"name": "cam_overhead", "role": "vision"},
+    {"name": "cam_tripod", "role": "observer"}
+  ],
+  "agent": {
+    "context": "An empty bench: the robot and its rail only.",
+    "task_ideas": ["go home", "move the gripper 100 mm above the bench centre"]
+  }
+}

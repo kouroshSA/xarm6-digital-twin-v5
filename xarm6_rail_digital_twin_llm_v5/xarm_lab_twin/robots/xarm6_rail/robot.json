@@ -1,0 +1,69 @@
+{
+  "type": "xarm6_rail",
+  "name": "UFACTORY xArm6 on a 700 mm linear rail",
+  "description": "The lab cell's arm: xArm6 (real UFACTORY meshes at URDF kinematics) on a 700 mm rail along world +x, with the Gripper G2 / bio-gripper attachment, the D435i wrist camera and the rail's two LED strips. Extracted from the lab scene at build time.",
+  "model": {
+    "default": "meshes",
+    "variants": {
+      "meshes": "../../envs/lab_scene.xml",
+      "primitive": "../../envs/lab_scene_primitive.xml"
+    },
+    "bodies": ["rail_track", "led_strip_A", "led_strip_B"],
+    "operator_aids": ["teach_handle", "vr_head"]
+  },
+  "names": {
+    "rail_joint": "rail",
+    "rail_actuator": "act_rail",
+    "arm_joints": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+    "arm_actuators": ["act1", "act2", "act3", "act4", "act5", "act6"],
+    "ee_site": "end_effector",
+    "base_body": "xarm_base",
+    "flange_body": "link6",
+    "gripper_body": "gripper",
+    "arm_collision_geoms": ["base_link", "link1_geom", "link2_geom", "link3_geom",
+                            "link4_geom", "link5_geom", "link6_geom", "gripper_geom",
+                            "carriage_geom"],
+    "wrist_camera_body": "wrist_camera",
+    "cameras": {"wrist_color": "cam_wrist_color", "wrist_depth": "cam_wrist_depth"},
+    "led_strips": ["led_strip_A", "led_strip_B"]
+  },
+  "rail": {
+    "axis": [1, 0, 0],
+    "base_at_rail_zero_mm": {"ref": "arm_backend:SCENE_BASE_AT_RAIL_ZERO_MM"}
+  },
+  "home": {
+    "joints_deg": {"ref": "arm_backend:HOME_JOINTS_DEG"},
+    "rail_mm": {"ref": "arm_backend:HOME_RAIL_MM"},
+    "joint_speed_deg_s": {"ref": "arm_backend:HOME_JOINT_SPEED_DEG_S"},
+    "rail_speed_mm_s": {"ref": "arm_backend:HOME_RAIL_SPEED_MM_S"}
+  },
+  "ik": {
+    "solver": "sim.ik_solver:IKSolver",
+    "rail": "fixed",
+    "pos_tol_m": {"ref": "sim.mujoco_env:IK_POS_TOL_M"}
+  },
+  "end_effectors": {
+    "default": "parallel_gripper",
+    "parallel_gripper": {
+      "gripper_mode": "standard",
+      "geoms": ["gripper_geom", "finger_left_geom", "finger_right_geom"],
+      "finger_joints": ["finger_left_joint", "finger_right_joint"],
+      "finger_actuators": ["act_finger_l", "act_finger_r"],
+      "open_ctrl": {"ref": "sim.mujoco_env:GRIPPER_OPEN_CTRL_M"},
+      "closed_ctrl": {"ref": "sim.mujoco_env:GRIPPER_CLOSED_CTRL_M"},
+      "reach_m": {"ref": "sim.mujoco_env:GRIPPER_REACH_M"},
+      "aperture_m": {"ref": "sim.mujoco_env:GRASP_APERTURE_M"},
+      "note": "Fingers are cosmetic (contype 0); a weld does the carrying."
+    },
+    "bio_gripper": {
+      "gripper_mode": "bio",
+      "geoms": ["bio_gripper_body", "bio_gripper_pad_left", "bio_gripper_pad_right",
+                "bio_gripper_rubber_left", "bio_gripper_rubber_right"],
+      "materials": ["bio_gripper_body_mat", "bio_gripper_pad_mat", "bio_gripper_rubber_mat"],
+      "reach_m": {"ref": "sim.mujoco_env:GRIPPER_REACH_BIO_M"},
+      "aperture_m": {"ref": "sim.mujoco_env:GRASP_APERTURE_BIO_M"},
+      "note": "A visual swap on the same gripper body; the weld still carries."
+    }
+  },
+  "notes": "Joint and rail limits are not listed: the compiled model's jnt_range is their source, and the lab scene's ranges are generated from arm_backend.XARM6_JOINT_LIMITS_DEG (build_mesh_scene.py) and checked by the sweep."
+}

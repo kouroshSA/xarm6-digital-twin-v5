@@ -1,24 +1,32 @@
 # terminal_control.py
+import os
+import sys
+
 import mujoco
 import mujoco.viewer
 import numpy as np
 import threading
 import time
 
-SCENE_XML   = "envs/basic_scene.xml"
+from rooms_bridge import list_room_ids, load_room_model, parse_room_args
+
+ARGS        = parse_room_args("xArm6 + rail terminal control")
+ROOM        = load_room_model(ARGS.room)
+SCENE_XML   = ROOM.scene_xml
 JOINT_NAMES = ["joint1","joint2","joint3","joint4","joint5","joint6"]
 ACT_NAMES   = ["act_rail","act1","act2","act3","act4","act5","act6"]
 
-model = mujoco.MjModel.from_xml_path(SCENE_XML)
+model = ROOM.model
 data  = mujoco.MjData(model)
 lock  = threading.Lock()
 
-act_ids   = [model.actuator(n).id for n in ACT_NAMES]
-joint_ids = [model.joint(n).id for n in JOINT_NAMES]
-SITE_ID   = model.site("end_effector").id
+act_ids   = [model.actuator(ROOM.mjcf(n, "actuator")).id for n in ACT_NAMES]
+joint_ids = [model.joint(ROOM.mjcf(n, "joint")).id for n in JOINT_NAMES]
+SITE_ID   = model.site(ROOM.mjcf("end_effector", "site")).id
 
+_HOME_RAIL, _HOME_J = ROOM.home()
 PRESETS = {
-    "home":         [350,   0,   0,   0,   0,   0,   0],
+    "home":         [_HOME_RAIL, *_HOME_J],
     "red_cube":     [150,   0,  20,   0,  60,   0,  20],
     "green_cube":   [350,   0,  20,   0,  60,   0,  20],
     "blue_cube":    [550,   0,  20,   0,  60,   0,  20],
@@ -36,6 +44,8 @@ Commands:
   fk                            - Print current pose
   home                          - Home position
   presets                       - List preset names
+  rooms                         - List rooms
+  room <id>                     - Restart in another room
   help                          - Show this message
   quit                          - Exit
 """
@@ -98,6 +108,21 @@ def main():
             print(HELP)
         elif cmd == "presets":
             print(f"  Available: {', '.join(PRESETS)}")
+        elif cmd == "rooms":
+            for rid in list_room_ids():
+                mark = "  <- current" if rid.split("/")[-1] == ARGS.room else ""
+                print(f"  {rid}{mark}")
+        elif cmd == "room":
+            # A room is a different model, so switching is a restart, not a
+            # hot swap: every id and the viewer would otherwise go stale.
+            if len(parts) < 2:
+                print("  Usage: room <id>   (see `rooms`)")
+            else:
+                rid = parts[1].split("/")[-1]
+                print(f"  Restarting in room {rid!r}...")
+                sys.stdout.flush()
+                os.execv(sys.executable, [sys.executable, os.path.abspath(__file__),
+                                          "--room", rid])
         elif cmd == "home":
             apply_all(PRESETS["home"]); print("  Home.")
         elif cmd == "fk":

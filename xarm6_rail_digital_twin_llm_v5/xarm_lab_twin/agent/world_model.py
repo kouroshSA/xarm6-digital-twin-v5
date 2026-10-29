@@ -114,8 +114,20 @@ class WorldModel:
 # Scene hash
 # ---------------------------------------------------------------------------
 
+def scene_path_of(arm) -> Optional[Path]:
+    """The scene XML an arm actually loaded, for the hash. None (meaning the
+    default lab scene) for a real arm, which has no scene file. Without this
+    every caller hashed envs/lab_scene.xml whatever --scene had loaded."""
+    p = getattr(arm, "scene_xml", None)
+    if not p:
+        return None
+    p = Path(p)
+    return p if p.is_absolute() else _PROJECT_ROOT / p
+
+
 def compute_scene_hash(scene_path: Path = None) -> str:
-    """sha256 of envs/lab_scene.xml (first 12 hex chars). Empty if missing."""
+    """sha256 of the scene XML (first 12 hex chars; default envs/lab_scene.xml).
+    Empty if missing."""
     if scene_path is None:
         scene_path = SCENE_XML_PATH
     if not scene_path.exists():

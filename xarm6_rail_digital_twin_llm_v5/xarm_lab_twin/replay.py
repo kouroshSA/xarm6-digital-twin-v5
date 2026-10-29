@@ -104,7 +104,24 @@ def print_llm_session(session_dir):
     return True
 
 
-def replay_trajectory(session_dir, speed=1.0, loop=False):
+def load_replay_model(session_dir, room=None):
+    """(model, act_ids) for replaying a session: the room it was recorded in
+    (metadata room_id; sessions made before rooms -> the lab), or `room` when
+    given. A room whose definition changed since the recording is used anyway,
+    with a warning. Actuators are looked up by logical name through the room."""
+    from twin_rooms.recordings import replay_room
+    mp = Path(session_dir) / "metadata.json"
+    meta = json.loads(mp.read_text()) if mp.exists() else {}
+    model, ctx, warnings = replay_room(meta, override=room)
+    for w in warnings:
+        print(f"[replay] WARNING: {w}")
+    print(f"[replay] room: {ctx.room_id}")
+    names = [ctx.mjcf(n, "actuator") for n in
+             ["act_rail", "act1", "act2", "act3", "act4", "act5", "act6"]]
+    return model, [model.actuator(n).id for n in names]
+
+
+def replay_trajectory(session_dir, speed=1.0, loop=False, room=None):
     traj_path = session_dir / "trajectory.h5"
     if not traj_path.exists():
         print(f"No trajectory.h5 in {session_dir}"); return
@@ -119,11 +136,9 @@ def replay_trajectory(session_dir, speed=1.0, loop=False):
     print(f"\nReplaying {session_dir.name}  ({n_samples} samples, "
           f"{t_wall[-1]:.1f}s, {speed}x)\n")
 
-    model = mujoco.MjModel.from_xml_path(SCENE_XML)
+    model, act_ids = load_replay_model(session_dir, room)
     data  = mujoco.MjData(model)
     lock  = threading.Lock()
-    act_ids = [model.actuator(n).id for n in
-               ["act_rail","act1","act2","act3","act4","act5","act6"]]
 
     def play():
         while True:
@@ -172,6 +187,9 @@ def main():
     parser.add_argument("--delete", action="store_true")
     parser.add_argument("--restore")
     parser.add_argument("--purge-trash", action="store_true")
+    parser.add_argument("--room", default=None, metavar="ID",
+                        help="Replay in this room instead of the one the session "
+                             "was recorded in.")
     args = parser.parse_args()
 
     if args.purge_trash:
@@ -211,7 +229,7 @@ def main():
         return
 
     print_llm_session(target)
-    replay_trajectory(target, speed=args.speed, loop=args.loop)
+    replay_trajectory(target, speed=args.speed, loop=args.loop, room=args.room)
 
     print()
     try:

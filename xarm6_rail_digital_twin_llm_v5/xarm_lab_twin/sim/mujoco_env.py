@@ -60,6 +60,10 @@ GRIPPABLE_BODIES = {
 }
 # Backward-compat alias (older code still references GRIPPABLE_CUBES)
 GRIPPABLE_CUBES = GRIPPABLE_BODIES
+# Derived, not listed: push_object's grasp mode used to test a literal
+# ("red_cube", ...) that went stale when the red cube was split into
+# front/back, silently sending both red cubes down the flyover path.
+CUBE_BODIES = tuple(n for n in GRIPPABLE_BODIES if "_cube" in n)
 
 # How far the IK solution may miss the commanded pose before set_position
 # refuses. The solver's own fallback does not check convergence, so without this
@@ -242,12 +246,29 @@ class SimXArmAPI:
     (e.g. speed_mm_s) that don't match the SDK signature exactly.
     """
 
-    def __init__(self, scene_xml: str, render: bool = True):
+    def __init__(self, scene_xml: Optional[str] = None, render: bool = True,
+                 room=None, variant: Optional[str] = None):
+        """Load a scene file (the original way; the lab's passthrough room is
+        found automatically) or build a room: `room` is a room id, `variant`
+        picks a scene variant ("meshes"/"primitive"). With neither, the default
+        room (lab_a2s2). The rest of the class uses the LOGICAL (lab) names;
+        self._mj() maps them to the room's MJCF names, which in the lab are
+        the same names."""
+        from twin_rooms import DEFAULT_ROOM
+        from twin_rooms.builder import build_room, context_for_scene
+        if room is None and scene_xml is None:
+            room = DEFAULT_ROOM
+        if room is not None:
+            self.model, self.room = build_room(room, variant=variant)
+            scene_xml = str(self.room.model_path)
+        else:
+            self.model = mujoco.MjModel.from_xml_path(scene_xml)
+            self.room = context_for_scene(scene_xml, self.model)
         # Kept so consumers can ask which scene is loaded rather than assuming the
         # default -- the LLM prompt's geometry section is rendered from this.
         self.scene_xml = scene_xml
-        self.model = mujoco.MjModel.from_xml_path(scene_xml)
         self.data  = mujoco.MjData(self.model)
+        self.robot = self.room.controllable
         # RLock, not Lock. IKSolver.solve() must hold this while it scribbles
         # on the shared data.qpos, and some callers (set_position's retry path,
         # _ik_pos_error) already hold it when they call in. Re-entrancy makes
@@ -269,11 +290,19 @@ class SimXArmAPI:
         # construction would otherwise be lost; _launch_viewer applies these.
         self._viewer_geomgroup_requests: dict = {}
 
-        self.act_ids   = [self.model.actuator(n).id for n in ACT_NAMES]
-        self.joint_ids = [self.model.joint(n).id for n in JOINT_NAMES]
-        self.rail_jid  = self.model.joint("rail").id
-        self.ee_site   = self.model.site("end_effector").id
-        self.gripper_bid = self.model.body("gripper").id
+        self.act_ids   = [self.model.actuator(self._mj(n, "actuator")).id for n in ACT_NAMES]
+        self.joint_ids = [self.model.joint(self._mj(n, "joint")).id for n in JOINT_NAMES]
+        self.rail_jid  = self.model.joint(self._mj("rail", "joint")).id
+        self.ee_site   = self.model.site(self._mj("end_effector", "site")).id
+        self.gripper_bid = self.model.body(self._mj("gripper", "body")).id
+        # Every body of the arm from its base down (links, gripper, fingers,
+        # wrist camera): what "the arm is penetrating" in _grasp_rejections
+        # means. It was read there but never assigned, so the guard fell back
+        # to an empty set and rejected a grasp over ANY deep contact in the
+        # scene, arm or not.
+        base_bid = self.model.body(self._mj("xarm_base", "body")).id
+        self.arm_body_ids = [b for b in range(self.model.nbody)
+                             if self._is_descendant(b, base_bid)]
 
         # Optional finger actuators (cosmetic gripper animation). Missing on
         # scenes that haven't been migrated to the articulated-finger model;
@@ -281,28 +310,35 @@ class SimXArmAPI:
         self.finger_act_ids = []
         for name in FINGER_ACT_NAMES:
             try:
-                self.finger_act_ids.append(self.model.actuator(name).id)
+                self.finger_act_ids.append(self.model.actuator(self._mj(name, "actuator")).id)
             except KeyError:
                 pass
         self.finger_jids = []
         for jname in ("finger_left_joint", "finger_right_joint"):
             try:
-                self.finger_jids.append(self.model.joint(jname).id)
+                self.finger_jids.append(self.model.joint(self._mj(jname, "joint")).id)
             except KeyError:
                 pass
+        self._init_room_objects()
         self.cube_bids = {
-            body_name: self.model.body(body_name).id
-            for body_name in GRIPPABLE_BODIES
+            body_name: self.model.body(self._mj(body_name, "body")).id
+            for body_name in self.grippable
         }
         self.weld_eqids = {
             body_name: self.model.equality(weld_name).id
-            for body_name, weld_name in GRIPPABLE_BODIES.items()
+            for body_name, weld_name in self.grippable.items()
         }
 
         from sim.fk_validator import FKValidator
         from sim.ik_solver import IKSolver
-        self.validator = FKValidator(self.model, self.data, self.lock)
-        self.ik_solver = IKSolver(self.model, self.data, self.lock)
+        names = dict(joint_names=[self._mj(n, "joint") for n in JOINT_NAMES],
+                     rail_joint=self._mj("rail", "joint"),
+                     ee_site=self._mj("end_effector", "site"))
+        self.validator = FKValidator(
+            self.model, self.data, self.lock, **names,
+            arm_geom_names=[self._mj(n, "geom") for n in FKValidator.ARM_GEOM_NAMES],
+            gripper_body=self._mj("gripper", "body"))
+        self.ik_solver = IKSolver(self.model, self.data, self.lock, **names)
 
         # Vortex-Genie 2 orbital-platform actuators + body. Looked up
         # lazily so the rest of the code stays valid for scenes that
@@ -311,9 +347,9 @@ class SimXArmAPI:
         self._vortex_y_act_id = None
         self._vortex_platform_bid = None
         try:
-            self._vortex_x_act_id = self.model.actuator("act_vortex_x").id
-            self._vortex_y_act_id = self.model.actuator("act_vortex_y").id
-            self._vortex_platform_bid = self.model.body("vortex_platform").id
+            self._vortex_x_act_id = self.model.actuator(self._mj("act_vortex_x", "actuator")).id
+            self._vortex_y_act_id = self.model.actuator(self._mj("act_vortex_y", "actuator")).id
+            self._vortex_platform_bid = self.model.body(self._mj("vortex_platform", "body")).id
         except Exception:
             pass
         self._vortex_active = False
@@ -325,7 +361,7 @@ class SimXArmAPI:
         for name in ("vortex_led_front", "vortex_led_back",
                      "vortex_led_left", "vortex_led_right"):
             try:
-                self._vortex_led_gids.append(self.model.geom(name).id)
+                self._vortex_led_gids.append(self.model.geom(self._mj(name, "geom")).id)
             except Exception:
                 pass
 
@@ -339,12 +375,12 @@ class SimXArmAPI:
         self._pcr_lid_jnt_qpos_adr = None
         self._pcr_led_gids = []
         try:
-            self._pcr_module_bid = self.model.body("pcr_module").id
-            self._pcr_lid_act_id = self.model.actuator("act_pcr_lid").id
-            lid_jid = self.model.joint("pcr_lid_hinge").id
+            self._pcr_module_bid = self.model.body(self._mj("pcr_module", "body")).id
+            self._pcr_lid_act_id = self.model.actuator(self._mj("act_pcr_lid", "actuator")).id
+            lid_jid = self.model.joint(self._mj("pcr_lid_hinge", "joint")).id
             self._pcr_lid_jnt_qpos_adr = int(self.model.jnt_qposadr[lid_jid])
             for n in ("pcr_led_left", "pcr_led_right"):
-                self._pcr_led_gids.append(self.model.geom(n).id)
+                self._pcr_led_gids.append(self.model.geom(self._mj(n, "geom")).id)
         except Exception:
             pass
         self._pcr_last_state = None   # cache so we only rewrite LEDs on change
@@ -355,9 +391,9 @@ class SimXArmAPI:
         self._shaker_bid = None
         self._shaker_led_gids = []
         try:
-            self._shaker_bid = self.model.body("heater_shaker").id
+            self._shaker_bid = self.model.body(self._mj("heater_shaker", "body")).id
             for n in ("shaker_led_left", "shaker_led_right"):
-                self._shaker_led_gids.append(self.model.geom(n).id)
+                self._shaker_led_gids.append(self.model.geom(self._mj(n, "geom")).id)
         except Exception:
             pass
         self._shaker_last_state = None
@@ -372,13 +408,13 @@ class SimXArmAPI:
         for n in ("bio_gripper_body_mat", "bio_gripper_pad_mat",
                   "bio_gripper_rubber_mat"):
             try:
-                self._bio_mat_ids.append(self.model.material(n).id)
+                self._bio_mat_ids.append(self.model.material(self._mj(n, "material")).id)
             except Exception:
                 pass
         self._std_gripper_gids = []
         for n in ("gripper_geom", "finger_left_geom", "finger_right_geom"):
             try:
-                self._std_gripper_gids.append(self.model.geom(n).id)
+                self._std_gripper_gids.append(self.model.geom(self._mj(n, "geom")).id)
             except Exception:
                 pass
 
@@ -395,7 +431,7 @@ class SimXArmAPI:
         for strip_idx, prefix in enumerate(("led_A", "led_B")):
             for i in range(1, self._led_per_strip + 1):
                 try:
-                    gid = self.model.geom(f"{prefix}_{i:02d}").id
+                    gid = self.model.geom(self._mj(f"{prefix}_{i:02d}", "geom")).id
                     self._led_gids.append((strip_idx, i - 1, gid))
                 except Exception:
                     # Scene doesn't have this LED -- skip silently.
@@ -430,12 +466,12 @@ class SimXArmAPI:
             # forever -- but including it here keeps the all_positions
             # iteration uniform and lets the proximity code in
             # physical_outcome treat it like any other body.
-            for fixture in (*BIN_BODIES,
+            for fixture in (*self.bin_bodies, *self._room_fixtures,
                             "left_tube_rack", "right_tube_rack",
                             "opentrons_ot2", "heater_shaker",
                             "vortex_genie", "pcr_module"):
                 try:
-                    fbid = self.model.body(fixture).id
+                    fbid = self.model.body(self._mj(fixture, "body")).id
                 except Exception:
                     continue
                 snap[fixture] = self.data.xpos[fbid].copy()
@@ -961,7 +997,7 @@ class SimXArmAPI:
             print("[viewer] No body selected -- double-click a body first.")
             return
         try:
-            name = self.model.body(sel_bid).name
+            name = self._logical(self.model.body(sel_bid).name)
         except Exception:
             return
         rc = self.nudge_body(name, **kwargs)
@@ -1091,14 +1127,14 @@ class SimXArmAPI:
         Returns 0 on success, 1 if no tube is held / no empty slot, 2 if the
         arm couldn't reach the slot.
         """
-        if rack_name not in ("left_tube_rack", "right_tube_rack"):
+        if rack_name not in self.rack_tube_groups:
             print(f"[SimXArm] place_tube_in_rack: unknown rack '{rack_name}'")
             return 1
 
         # Which tube is currently welded?
         held = None
         with self.lock:
-            for body_name in TUBE_BODY_NAMES:
+            for body_name in self.tube_bodies:
                 eqid = self.weld_eqids[body_name]
                 if self.data.eq_active[eqid]:
                     held = body_name
@@ -1107,13 +1143,13 @@ class SimXArmAPI:
                 print("[SimXArm] place_tube_in_rack: no tube is currently held")
                 return 1
 
-            rack_bid = self.model.body(rack_name).id
+            rack_bid = self.model.body(self._mj(rack_name, "body")).id
             rack_pos = self.data.xpos[rack_bid].copy()
             # Snapshot positions of all OTHER tubes (the held one is moving with
             # the gripper and shouldn't disqualify any slot)
             other_tube_pos = {
-                n: self.data.xpos[self.model.body(n).id].copy()
-                for n in TUBE_BODY_NAMES if n != held
+                n: self.data.xpos[self.model.body(self._mj(n, "body")).id].copy()
+                for n in self.tube_bodies if n != held
             }
 
         # First empty slot wins
@@ -1151,7 +1187,7 @@ class SimXArmAPI:
 
         # Snap the tube into the slot + deactivate weld
         with self.lock:
-            bid = self.model.body(held).id
+            bid = self.model.body(self._mj(held, "body")).id
             jnt_adr = self.model.body_jntadr[bid]
             qpos_adr = self.model.jnt_qposadr[jnt_adr]
             dof_adr = self.model.jnt_dofadr[jnt_adr]
@@ -1206,7 +1242,12 @@ class SimXArmAPI:
                                    # look more like "true pushing" but knocks bins
                                    # over when the path crosses the bin row.
     PUSH_APPROACH_Z_MM = 870.0     # safer height to reach over the object first
-    PUSH_GRASP_Z_MM = 795.0        # grasp height (same as cube pick-place)
+    # Grasp height ABOVE THE CUBE'S CENTRE. This was an absolute 795 mm, which
+    # is centre+30 for a cube resting at 765; the red and blue cubes now rest
+    # at 780, where 795 sits on the cube top, the descent was refused as a
+    # collision, and the grasp closed on air 85 mm up. The push still
+    # "succeeded" because the final snap teleports the object regardless.
+    PUSH_GRASP_ABOVE_CENTRE_MM = 30.0
 
     def push_object(self, target_name: str,
                     to_x_mm: float, to_y_mm: float,
@@ -1251,14 +1292,14 @@ class SimXArmAPI:
         #     for bins/tubes because their geometry (tall walls / tall body
         #     with cap) makes a clean magnetic grasp at the heights needed
         #     unreliable under position-only IK.
-        use_grasp = (target_name in ("red_cube", "green_cube", "blue_cube"))
-        grasp_z = self.PUSH_GRASP_Z_MM
+        use_grasp = target_name in self.cube_bodies
+        grasp_z = cube_pos[2] * 1000.0 + self.PUSH_GRASP_ABOVE_CENTRE_MM
         transit_z = self.PUSH_TRANSIT_Z_MM
 
         # Position the rail roughly under the source cube. World arm-base
         # x = rail_carriage_world_x = -0.35 + rail_qpos. To align under the
         # cube, set rail = cube_world_x + 0.35.
-        rail_target_mm = float(np.clip(cx_mm + 350.0, 0.0, 700.0))
+        rail_target_mm = float(np.clip(cx_mm - self._rail_x0_mm, *self._rail_limits_mm))
         self.set_rail_position(position_mm=rail_target_mm,
                                speed_mm_s=speed_mm_s, wait=True)
 
@@ -1295,8 +1336,8 @@ class SimXArmAPI:
             # assembly moves together. Without this, dragging the rack
             # leaves the tubes behind (and the rack walls slide past them,
             # generating contact forces that launch tubes off the bench).
-            if target_name in RACK_TUBE_GROUPS:
-                for tube_name in RACK_TUBE_GROUPS[target_name]:
+            if target_name in self.rack_tube_groups:
+                for tube_name in self.rack_tube_groups[target_name]:
                     self._weld_lock(tube_name)
                     bodies_welded.append(tube_name)
             print(f"[SimXArm] push_object: weld locked on {bodies_welded} -- "
@@ -1304,7 +1345,7 @@ class SimXArmAPI:
 
         # 5) For off-bench targets, the arm may need to extend past the rail
         # workspace. Reposition the rail if needed before the final move_to.
-        rail_target_mm = float(np.clip(to_x_mm + 350.0, 0.0, 700.0))
+        rail_target_mm = float(np.clip(to_x_mm - self._rail_x0_mm, *self._rail_limits_mm))
         self.set_rail_position(position_mm=rail_target_mm,
                                speed_mm_s=speed_mm_s, wait=True)
 
@@ -1326,7 +1367,7 @@ class SimXArmAPI:
         # relative to the rack's new position, so they end up "in" the rack
         # instead of left behind at the original rack location.
         tube_slot_offsets = {}  # tube_name -> (dx, dy) in rack frame
-        if target_name in RACK_TUBE_GROUPS:
+        if target_name in self.rack_tube_groups:
             # Initial (XML) layout for each tube relative to its rack
             INITIAL_TUBE_OFFSETS = {
                 "tube_L1": (-0.060, -0.020), "tube_L2": (-0.020, +0.020),
@@ -1334,7 +1375,7 @@ class SimXArmAPI:
                 "tube_R1": (-0.060, +0.020), "tube_R2": (+0.020, -0.020),
                 "tube_R3": (+0.060, +0.020),
             }
-            for tn in RACK_TUBE_GROUPS[target_name]:
+            for tn in self.rack_tube_groups[target_name]:
                 tube_slot_offsets[tn] = INITIAL_TUBE_OFFSETS[tn]
         # For ON-bench: snap to bench-top z (0.765 m), zero velocity -- object
         #   settles cleanly at the destination.
@@ -1737,7 +1778,7 @@ class SimXArmAPI:
         Returns (1, None) if the body name is not in the model.
         """
         try:
-            bid = self.model.body(name).id
+            bid = self.model.body(self._mj(name, "body")).id
         except (KeyError, ValueError):
             return 1, None
         with self.lock:
@@ -1767,7 +1808,7 @@ class SimXArmAPI:
         gripper) will fight the constraint until released.
         """
         try:
-            self.model.body(name).id
+            self.model.body(self._mj(name, "body")).id
         except (KeyError, ValueError):
             print(f"[SimXArm] nudge_body: '{name}' not in scene")
             return 1
@@ -1775,7 +1816,7 @@ class SimXArmAPI:
         # convention used everywhere in lab_scene.xml for graspable bodies.
         joint_name = f"{name}_joint"
         try:
-            jid = self.model.joint(joint_name).id
+            jid = self.model.joint(self._mj(joint_name, "joint")).id
         except (KeyError, ValueError):
             print(f"[SimXArm] nudge_body: '{name}' has no free joint "
                   f"'{joint_name}' (welded or static)")
@@ -1843,6 +1884,137 @@ class SimXArmAPI:
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
         return 0
 
+    # ---- rooms -------------------------------------------------------------
+    def _mj(self, name, kind: str = "body"):
+        """Logical (lab) name -> this room's MJCF name. Ids and names the room
+        does not know pass through unchanged, so a missing element still raises
+        where it is looked up, exactly as before rooms."""
+        if not isinstance(name, str):
+            return name
+        return self.room.names.get(kind, {}).get(name, name)
+
+    def _logical(self, mjcf_name):
+        return self.room.logical(mjcf_name) if mjcf_name else mjcf_name
+
+    def _init_room_objects(self) -> None:
+        """Per-room object lists, used in place of the lab's module constants.
+
+        From the room's objects by `type`. Objects typed "other" (a scene file
+        no room describes) fall back to the lab constants by name, which is
+        what every scene got before rooms. For the lab room these equal the
+        constants exactly; twin_rooms.test_sim_rooms asserts it.
+        """
+        inst = self.robot.instance
+        objs = self.room.objects.values()
+
+        def lab_order(names, const):
+            # The lab's names keep the constants' order: physical_outcome
+            # reports, and gripper_close breaks distance ties, in this order.
+            const = list(const)
+            return tuple(sorted(names, key=lambda n: (const.index(n) if n in const
+                                                      else len(const), )))
+
+        def typed(t, const):
+            return lab_order([o.name for o in objs if o.spec.type == t
+                              or (o.spec.type == "other" and o.name in const)], const)
+        self.grippable = {n: self.room.objects[n].welds[inst] for n in lab_order(
+            [o.name for o in objs if inst in o.welds], GRIPPABLE_BODIES)}
+        self.cube_bodies = tuple(n for n in typed("cube", CUBE_BODIES) if n in self.grippable)
+        self.bin_bodies = lab_order([o.name for o in objs if o.spec.type in ("bin", "container")
+                                     or (o.spec.type == "other" and o.name in BIN_BODIES)],
+                                    BIN_BODIES)
+        self.tube_bodies = tuple(n for n in typed("tube", TUBE_BODY_NAMES) if n in self.grippable)
+        racks = typed("rack", RACK_TUBE_GROUPS)
+        # Which tubes travel with which rack is the lab's layout; a room's
+        # racks start empty unless their names and tubes are the lab's.
+        self.rack_tube_groups = {
+            r: tuple(t for t in RACK_TUBE_GROUPS.get(r, ()) if t in self.tube_bodies)
+            for r in racks}
+        # Static room objects that are not already listed: proximity reference
+        # points in physical_outcome. Fixtures (LED strips) are not.
+        lab_static = {"opentrons_ot2", "heater_shaker", "vortex_genie", "pcr_module"}
+        self._room_fixtures = tuple(
+            o.name for o in objs if not o.spec.dynamic and o.spec.type != "fixture"
+            and o.name not in lab_static and o.name not in self.bin_bodies
+            and o.name not in self.rack_tube_groups)
+
+        # Rail geometry, measured rather than assumed: world x of the base at
+        # rail 0 (-350 mm in the lab) and the rail's range.
+        rj = self.model.joint(self._mj("rail", "joint"))
+        lo, hi = (float(v) * 1000.0 for v in self.model.jnt_range[rj.id])
+        self._rail_limits_mm = (lo, hi)
+        d = mujoco.MjData(self.model)
+        d.qpos[rj.qposadr[0]] = 0.0
+        mujoco.mj_kinematics(self.model, d)
+        base = self.model.body(self._mj("xarm_base", "body")).id
+        self._rail_x0_mm = float(d.xpos[base][0]) * 1000.0
+        at0 = d.xpos[base].copy()
+        d.qpos[rj.qposadr[0]] = 0.1
+        mujoco.mj_kinematics(self.model, d)
+        # The primitives convert world x to a rail position, so the rail must
+        # run along world +x. A robot placed with a yaw would silently go to
+        # the wrong place; refuse it here instead.
+        delta = (d.xpos[base] - at0) / 0.1
+        if not np.allclose(delta, [1.0, 0.0, 0.0], atol=1e-6):
+            raise ValueError(f"room {self.room.room_id!r}: the controllable robot's rail "
+                             f"runs along {np.round(delta, 3).tolist()}, not world +x; "
+                             "SimXArmAPI's motion primitives assume +x (base_pose yaw 0)")
+        # IKSolver and FKValidator index qpos by joint id. True when the
+        # controllable robot's joints come first in the model, as in the lab
+        # and in every built room (robots are attached before objects).
+        for n in ["rail"] + JOINT_NAMES:
+            j = self.model.joint(self._mj(n, "joint"))
+            if j.qposadr[0] != j.id or j.dofadr[0] != j.id:
+                raise ValueError(f"room {self.room.room_id!r}: joint {n} has qpos address "
+                                 f"{j.qposadr[0]} but id {j.id}; the IK solver needs the "
+                                 "controllable robot's joints first in the model")
+
+        # Home from the robot type (for xarm6_rail these are refs to the same
+        # arm_backend constants the class attributes hold).
+        rt = self.robot.type
+        self.HOME_JOINTS_RAD = tuple(np.deg2rad(a) for a in rt.value("home.joints_deg"))
+        self.HOME_RAIL_M = rt.value("home.rail_mm") / 1000.0
+
+    def _is_descendant(self, bid: int, ancestor: int) -> bool:
+        while bid > 0:
+            if bid == ancestor:
+                return True
+            bid = int(self.model.body_parentid[bid])
+        return bid == ancestor
+
+    def _has_body(self, name: str) -> bool:
+        return mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY,
+                                 self._mj(name, "body")) >= 0
+
+    def _geom_world_bounds(self, g: int):
+        """World axis-aligned (lo, hi) of geom g, from the live pose. Caller
+        holds the lock. mjGEOM size fields mean different things per type (for
+        a cylinder size[1] is HALF-LENGTH, not a radius), so each type is
+        converted here, once. A mesh is bounded by its own vertices: its
+        bounding SPHERE (rbound) made a 48 mm cucumber read as 204 mm wide and
+        the grasp gate refuse it."""
+        import numpy as _np
+        t = int(self.model.geom_type[g])
+        sz = self.model.geom_size[g]
+        R = self.data.geom_xmat[g].reshape(3, 3)
+        c = self.data.geom_xpos[g]
+        if t == int(mujoco.mjtGeom.mjGEOM_MESH):
+            mid = int(self.model.geom_dataid[g])
+            a = int(self.model.mesh_vertadr[mid])
+            v = self.model.mesh_vert[a:a + int(self.model.mesh_vertnum[mid])] @ R.T + c
+            return v.min(axis=0), v.max(axis=0)
+        if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
+            half = _np.array([sz[0], sz[0], sz[0]])
+        elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER), int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
+            half = _np.array([sz[0], sz[0], sz[1]])
+        elif t in (int(mujoco.mjtGeom.mjGEOM_BOX), int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
+            half = _np.array([sz[0], sz[1], sz[2]])
+        else:
+            r = float(self.model.geom_rbound[g])
+            half = _np.array([r, r, r])
+        ext = _np.abs(R) @ half
+        return c - ext, c + ext
+
     def object_width_m(self, name: str) -> float:
         """Width the jaws must span to take `name`, in metres.
 
@@ -1860,28 +2032,14 @@ class SimXArmAPI:
         disagree.
         """
         import numpy as _np
-        bid = self.model.body(name).id
+        bid = self.model.body(self._mj(name, "body")).id
         width = 0.0
         with self.lock:
             for g in range(self.model.ngeom):
                 if self.model.geom_bodyid[g] != bid:
                     continue
-                t = int(self.model.geom_type[g])
-                sz = self.model.geom_size[g]
-                if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
-                    half = _np.array([sz[0], sz[0], sz[0]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
-                           int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
-                    half = _np.array([sz[0], sz[0], sz[1]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
-                           int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
-                    half = _np.array([sz[0], sz[1], sz[2]])
-                else:
-                    r = float(self.model.geom_rbound[g])
-                    half = _np.array([r, r, r])
-                R = self.data.geom_xmat[g].reshape(3, 3)
-                ext_x = float(_np.abs(R[0, :]) @ half)
-                ext_y = float(_np.abs(R[1, :]) @ half)
+                lo, hi = self._geom_world_bounds(g)
+                ext_x, ext_y = float(hi[0] - lo[0]) / 2, float(hi[1] - lo[1]) / 2
                 width = max(width, 2.0 * min(ext_x, ext_y))
         return width
 
@@ -1898,29 +2056,14 @@ class SimXArmAPI:
         horizontal plane.
         """
         import numpy as _np
-        bid = self.model.body(name).id
+        bid = self.model.body(self._mj(name, "body")).id
         lo, hi = float("inf"), float("-inf")
         with self.lock:
             for g in range(self.model.ngeom):
                 if self.model.geom_bodyid[g] != bid:
                     continue
-                t = int(self.model.geom_type[g])
-                sz = self.model.geom_size[g]
-                if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
-                    half = _np.array([sz[0], sz[0], sz[0]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
-                           int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
-                    half = _np.array([sz[0], sz[0], sz[1]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
-                           int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
-                    half = _np.array([sz[0], sz[1], sz[2]])
-                else:
-                    r = float(self.model.geom_rbound[g])
-                    half = _np.array([r, r, r])
-                R = self.data.geom_xmat[g].reshape(3, 3)
-                half_z = float(_np.abs(R[2, :]) @ half)
-                cz = float(self.data.geom_xpos[g][2])
-                lo, hi = min(lo, cz - half_z), max(hi, cz + half_z)
+                glo, ghi = self._geom_world_bounds(g)
+                lo, hi = min(lo, float(glo[2])), max(hi, float(ghi[2]))
         if lo == float("inf"):
             raise ValueError(f"{name} has no geoms")
         return lo, hi
@@ -2015,8 +2158,8 @@ class SimXArmAPI:
                         other = g2 if g1 in held_geoms else g1
                         if other in held_geoms:
                             continue
-                        oname = mujoco.mj_id2name(
-                            self.model, mujoco.mjtObj.mjOBJ_GEOM, other) or ""
+                        oname = self._logical(mujoco.mj_id2name(
+                            self.model, mujoco.mjtObj.mjOBJ_GEOM, other) or "")
                         # The gripper holding it is not a collision.
                         if oname in arm_names:
                             continue
@@ -2163,11 +2306,11 @@ class SimXArmAPI:
             b2 = self.model.geom_bodyid[c.geom2]
             if bid in (b1, b2):
                 continue
-            arm_bids = set(self.arm_body_ids) if hasattr(self, "arm_body_ids") else set()
-            if arm_bids and not (b1 in arm_bids or b2 in arm_bids):
+            arm_bids = set(self.arm_body_ids)
+            if not (b1 in arm_bids or b2 in arm_bids):
                 continue
-            n1 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1)
-            n2 = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2)
+            n1 = self._logical(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom1))
+            n2 = self._logical(mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, c.geom2))
             reasons.append(f"arm is penetrating {n1}/{n2} by "
                            f"{-c.dist*1000:.1f} mm at the grasp pose")
             break
@@ -2359,13 +2502,15 @@ class SimXArmAPI:
                 name: int(self.data.eq_active[eqid])
                 for name, eqid in self.weld_eqids.items()
             }
+            # Only containers this scene actually has: an unguarded lookup
+            # raised in any scene without all of them.
             bin_positions = {
-                name: self.data.xpos[self.model.body(name).id].copy()
-                for name in BIN_BODIES
+                name: self.data.xpos[self.model.body(self._mj(name, "body")).id].copy()
+                for name in self.bin_bodies if self._has_body(name)
             }
             rack_positions = {
-                name: self.data.xpos[self.model.body(name).id].copy()
-                for name in RACK_TUBE_GROUPS
+                name: self.data.xpos[self.model.body(self._mj(name, "body")).id].copy()
+                for name in self.rack_tube_groups if self._has_body(name)
             }
             # Static fixtures we still want as proximity reference points.
             # Lookup is wrapped so a future scene that doesn't include
@@ -2375,7 +2520,7 @@ class SimXArmAPI:
             for fx in ("opentrons_ot2", "heater_shaker", "vortex_genie",
                        "pcr_module"):
                 try:
-                    fbid = self.model.body(fx).id
+                    fbid = self.model.body(self._mj(fx, "body")).id
                     static_positions[fx] = self.data.xpos[fbid].copy()
                 except Exception:
                     pass
@@ -2385,7 +2530,7 @@ class SimXArmAPI:
 
         # Reverse the RACK_TUBE_GROUPS mapping for quick home-rack lookup.
         tube_home_rack = {
-            tube: rack for rack, tubes in RACK_TUBE_GROUPS.items() for tube in tubes
+            tube: rack for rack, tubes in self.rack_tube_groups.items() for tube in tubes
         }
 
         def _tube_seated_in_rack(tube_pos, rack_pos) -> bool:

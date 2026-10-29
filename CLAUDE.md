@@ -418,6 +418,46 @@ read it before continuing. Twin side works and was tested live (steps 1-5);
   `MUJOCO_GL=egl python -m teleop_hand.test_gestures_twin` (graded on which body
   is welded and how far it rose, not return codes).
 
+## Rooms and SimReady assets (branch feat/rooms-simready)
+
+`xarm_lab_twin/rooms/<id>/room.json` describes a scene: environment, robots,
+objects. `twin_rooms/` validates and builds them; see
+[`rooms/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/rooms/README.md)
+and [`robots/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/robots/README.md).
+Entry points take `--room <id>`; **without it they load exactly the scene file
+they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml`).
+
+- **Code uses LOGICAL names** (the lab's: `joint1`, `gripper`, `red_cube`). A
+  built room prefixes them (`arm0/joint1`, `obj/red_cube`). In `SimXArmAPI`,
+  look every name up through `self._mj(name, kind)`, and report names with
+  `self._logical(...)`. A bare `self.model.body("gripper")` works in the lab
+  and fails in every built room.
+- **Use the per-room lists** `self.grippable`, `cube_bodies`, `bin_bodies`,
+  `tube_bodies`, `rack_tube_groups`, not the module constants; for the lab they
+  equal the constants (asserted in `twin_rooms.test_sim_rooms`).
+- **The lab's system prompt is byte-identical to before rooms.** Its lab-only
+  text lives in `rooms/lab_a2s2/agent_prompt.md`, spliced in by
+  `agent/room_prompt.py`. Edit lab knowledge there, not in `llm_brain.py`.
+- **Agent memory is per room** (`twin_rooms/memory.py`): the lab keeps
+  `lessons.md`, `reviews.md`, `world_model.md` at the project root; other rooms
+  use `memory/<id>/`.
+- **CLIs:** `python -m twin_rooms list|new|build|validate|view|export-usd`;
+  `python -m simready_import search|fetch|place|remove|list` (see
+  [`simready_import/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/simready_import/README.md)).
+  Imported assets live in `assets/simready/<slug>/` with provenance in `manifest.json`.
+  Their origin is the bbox CENTRE, because the grasp gate measures the jaws
+  against the body origin. Tall objects (the 231 mm bottle) cannot be grasped
+  from above by the weld gripper.
+- **Mesh objects:** `object_width_m` / `object_z_extent_m` bound a mesh geom by
+  its vertices (`_geom_world_bounds`). The bounding sphere made a 52 mm cucumber
+  read as 204 mm wide.
+- **Recordings** carry `room_id` / `room_hash` (see Recording format), and
+  replay rebuilds the room.
+- Tests: `python -m twin_rooms.test_schema`, `.test_robot`;
+  `MUJOCO_GL=egl python -m twin_rooms.test_builder`, `.test_sim_rooms`, `.test_prompt`,
+  `.test_recordings`, `.test_lab_rebuilt`, `.test_entry_points`;
+  `MUJOCO_GL=egl python -m simready_import.test_importer [--network]`.
+
 ## Pose geometry helpers
 
 `xarm_lab_twin/geometry/` holds SE(3) interpolation, smoothing and dwell
@@ -503,6 +543,17 @@ recorded is set by `Recorder(frame_cameras=...)`, defaulting to
 Pass `frame_cameras=(None,)` for the old free-orbit third-person camera, which
 is good for a human reviewing a session and useless as a policy observation.
 
+**Rooms (additive, 2026-10-29)** — `metadata.json` carries `room_id`,
+`room_hash` (sha256[:12] of the room definition: room.json, the files it
+names, its robot types), `room_variant` and `robots` (instance, type,
+end_effector, controllable); `trajectory.h5` root attrs add `room_id` and
+`room_hash`. Names in `body_names` / `eq_names` are LOGICAL (`red_cube`, not
+`obj/red_cube`). A Recorder given no room finds it from `scene_xml`, so lab
+sessions record `lab_a2s2`. `replay.py` rebuilds the recorded room
+(`twin_rooms.recordings.replay_room`), warns if its hash changed, and treats
+a session with no `room_id` as the project's default room. The lab's dataset
+names and layout are unchanged.
+
 **`gripper`** — one float32 per state sample, `1.0` when something is welded to
 the gripper (or, when the Recorder is given `gripper_fn`, whatever that returns —
 `run_kinesthetic_real.py` passes the real gripper's state, since the mirrored
@@ -543,9 +594,12 @@ file's "Recording format" section so consumers can find them.
 - **Magnetic-gripper hack.** This sim doesn't have actuated gripper fingers.
   `gripper_close` activates a MuJoCo `<weld>` constraint between the
   gripper body and the nearest cube/tube/bin/rack. If you're adding a new
-  graspable body, also add it to `GRIPPABLE_BODIES` in `sim/mujoco_env.py`
-  and `HELD_CUBE_GEOMS` in `sim/fk_validator.py`, plus an `<equality>` entry
-  in the scene XML.
+  graspable body to the LAB scene, also add it to `GRIPPABLE_BODIES` in
+  `sim/mujoco_env.py` and the lab's `rooms/lab_a2s2/room.json`, plus an
+  `<equality>` entry in the scene XML. (`FKValidator`'s held-geom table is
+  derived from the welds now -- the hand-written one had drifted.) In a
+  built room the weld is generated for every `grippable` object; see
+  `rooms/README.md`.
 - **IK fallback.** `pink` IK is preferred but its API doesn't match
   MuJoCo's types in pink≥4.2, so the iterative Jacobian solver in
   `sim/ik_solver.py` is what actually runs. The one-time warning at startup

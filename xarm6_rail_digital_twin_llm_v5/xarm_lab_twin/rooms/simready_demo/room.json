@@ -1,0 +1,114 @@
+{
+  "id": "simready_demo",
+  "name": "SimReady demo bench",
+  "description": "The empty bench with three NVIDIA SimReady food items imported by simready_import (nvidia/simready-assets@a666cb43, CC-BY-4.0): a cucumber, a cupcake and a green soda bottle. Each passed a 2 s drop test when placed.",
+  "environment": {
+    "extract_from": "../../envs/lab_scene.xml",
+    "bodies": [
+      "bench",
+      "observers"
+    ],
+    "floor": true,
+    "lights": true
+  },
+  "robots": [
+    {
+      "instance": "arm0",
+      "type": "xarm6_rail",
+      "base_pose": {
+        "pos": [
+          0,
+          0,
+          0
+        ],
+        "euler": [
+          0,
+          0,
+          0
+        ]
+      },
+      "end_effector": "parallel_gripper",
+      "controllable": true
+    }
+  ],
+  "objects": [
+    {
+      "name": "cucumber",
+      "source": "simready:cucumber_a01",
+      "pose": {
+        "pos": [
+          -0.1,
+          -0.25,
+          0.775
+        ],
+        "euler": [
+          0.0,
+          0.0,
+          90.0
+        ]
+      },
+      "dynamic": true,
+      "type": "other",
+      "label": "cucumber",
+      "grippable": true,
+      "aliases": [
+        "Cucumis sativus"
+      ]
+    },
+    {
+      "name": "cupcake",
+      "source": "simready:cupcake_g01",
+      "pose": {
+        "pos": [
+          0.12,
+          -0.25,
+          0.7897
+        ]
+      },
+      "dynamic": true,
+      "type": "other",
+      "label": "cupcake",
+      "grippable": true,
+      "aliases": [
+        "cupcake"
+      ]
+    },
+    {
+      "name": "bottle",
+      "source": "simready:bottled_drink_e01",
+      "pose": {
+        "pos": [
+          0.32,
+          -0.28,
+          0.8666
+        ]
+      },
+      "dynamic": true,
+      "type": "other",
+      "label": "green soda bottle",
+      "grippable": true,
+      "aliases": [
+        "Plastic bottle recycling"
+      ]
+    }
+  ],
+  "cameras": [
+    {
+      "name": "cam_overhead",
+      "role": "vision"
+    },
+    {
+      "name": "cam_tripod",
+      "role": "observer"
+    }
+  ],
+  "agent": {
+    "context": "Three food items stand on the bench in front of the rail: a cucumber (52 x 170 x 48 mm, lying along x), a cupcake (75 mm across, at the standard gripper's 75 mm limit) and a green soda bottle (64 mm across, 231 mm tall). The bottle is too tall to grasp from above with this gripper; push it instead. The cucumber is the easiest to pick: grasp it at its centre from above.",
+    "task_ideas": [
+      "pick up the cucumber and put it down 150 mm to the right",
+      "push the bottle 100 mm toward the back of the bench",
+      "lift the cucumber 100 mm and hold it there",
+      "move the cupcake 80 mm to the left"
+    ]
+  }
+}

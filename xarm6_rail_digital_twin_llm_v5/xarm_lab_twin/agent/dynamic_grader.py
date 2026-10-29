@@ -119,7 +119,7 @@ Do not wrap the JSON in markdown fences. Do not add prose around it.
 _OBJECT_NAMES_MARKER = "@@OBJECT_NAMES@@"
 
 
-def _render_system_prompt() -> str:
+def _render_system_prompt(arm=None) -> str:
     """Inject the scene's real object names into the grader prompt.
 
     The list used to be hardcoded and still advertised `red_bin`, deleted from
@@ -128,8 +128,8 @@ def _render_system_prompt() -> str:
     against them fails for a reason that has nothing to do with the robot.
     """
     try:
-        from agent.scene_geometry import render_object_names
-        return SYSTEM_PROMPT.replace(_OBJECT_NAMES_MARKER, render_object_names())
+        from agent.room_prompt import object_names_text
+        return SYSTEM_PROMPT.replace(_OBJECT_NAMES_MARKER, object_names_text(arm))
     except Exception as exc:  # noqa: BLE001 - grader is non-fatal by design
         print(f"[DynamicGrader] could not read scene object names ({exc}); "
               f"falling back to an unpopulated list")
@@ -362,7 +362,7 @@ def _parse_criteria(raw: str) -> Optional[Tuple[str, List[str]]]:
 def infer_criteria(task: str, registry=None,
                    model: str = GRADER_MODEL_DEFAULT,
                    client: Optional[anthropic.Anthropic] = None,
-                   ) -> Optional[Tuple[str, List[str]]]:
+                   arm=None) -> Optional[Tuple[str, List[str]]]:
     """Ask Haiku what physical-outcome substrings indicate this task succeeded.
 
     Returns the same (mode, substrings) tuple shape that
@@ -393,7 +393,7 @@ def infer_criteria(task: str, registry=None,
         response = client.messages.create(
             model=model,
             max_tokens=512,
-            system=_render_system_prompt(),
+            system=_render_system_prompt(arm),
             messages=[{"role": "user", "content": user_msg}],
         )
     except Exception as e:

@@ -12,9 +12,11 @@ from env_loader import load_env
 load_env()  # populate os.environ from .env before anthropic.Anthropic() reads it
 
 from agent.llm_brain import LLMBrain, prompt_model_choice, MODELS
-from agent.object_registry import build_default_registry
+from agent.room_prompt import registry_for
 from agent.lessons import append_lesson
 from recording import Recorder
+from twin_rooms.args import add_room_arg, sim_kwargs
+from twin_rooms.memory import memory_file_for
 
 
 def _shutdown(arm, recorder=None):
@@ -129,6 +131,7 @@ def main():
                              "(envs/lab_scene_primitive.xml). Both are validated "
                              "for the full task suite (IK, gripper, pick/place/"
                              "push); 'meshes' is the higher-fidelity default.")
+    add_room_arg(parser)
     args = parser.parse_args()
 
     scene_path = {
@@ -140,9 +143,10 @@ def main():
 
     if args.mode == "sim":
         from sim.mujoco_env import SimXArmAPI
-        arm = SimXArmAPI(scene_xml=scene_path,
+        arm = SimXArmAPI(**sim_kwargs(args, scene_path, variant=args.scene),
                          render=not args.no_render)
-        print("[System] SIMULATION mode")
+        scene_path = arm.scene_xml
+        print(f"[System] SIMULATION mode (room {arm.room.room_id})")
     elif args.mode == "dryrun":
         # Same backend code path as --mode real, pointed at the containerised
         # controller instead of the bench. Nothing can move; this exercises
@@ -166,7 +170,7 @@ def main():
             data=arm.data if hasattr(arm, "data") else None,
             lock=arm.lock if hasattr(arm, "lock") else threading.Lock(),
             interface="llm_brain", scene_xml=scene_path,
-            enable_frames=args.save_frames,
+            enable_frames=args.save_frames, room=getattr(arm, "room", None),
         )
         if hasattr(arm, "model"):
             recorder.start()
@@ -174,7 +178,7 @@ def main():
             print("[System] Recording requires sim mode (or real-hardware state poller).")
             recorder = None
 
-    registry = build_default_registry()
+    registry = registry_for(arm)
     brain = LLMBrain(arm=arm, registry=registry, recorder=recorder,
                      model=model_short)
 
@@ -343,7 +347,7 @@ def main():
             return Recorder(
                 model=arm.model, data=arm.data, lock=arm.lock,
                 interface="episode_loop", scene_xml=scene_path,
-                enable_frames=args.save_frames,
+                enable_frames=args.save_frames, room=getattr(arm, "room", None),
             )
 
         def _prepare_task(original_task, feedback):
@@ -439,7 +443,7 @@ def main():
         # Grade the run before logging so lessons.md records the TASK outcome,
         # not just whether commands ran without errors.
         from agent.outcome_checker import check_outcome
-        task_success, _reason = check_outcome(args.task, physical)
+        task_success, _reason = check_outcome(args.task, physical, arm=arm)
         append_lesson(
             task_prompt=args.task,
             model_short=model_short,
@@ -448,6 +452,7 @@ def main():
             physical_outcome=physical,
             task_success=task_success,
             stringency=args.stringency,
+            lessons_file=memory_file_for(arm, "lessons.md", create=True),
         )
         print("[Lessons] Appended to lessons.md")
 

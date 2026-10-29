@@ -30,10 +30,14 @@ from env_loader import load_env
 load_env()
 
 from recording import Recorder
+from twin_rooms.args import add_room_arg, sim_kwargs
 
 
-# Workspace bounds (mm) -- conservative reachable region above the bench
-# that avoids the bins (y >= 350 dropped to keep arm clear unless on a rail offset)
+# Workspace bounds (mm) -- a reachable region above the bench. It does NOT
+# avoid anything: since fde3d22 the bins sit at y=-350 and this box overlaps
+# the heater-shaker, PCR and vortex (y 130-320). That is safe because every
+# sampled move is validated (IK + collision along the path) and refused ones
+# are resampled; measured 2026-10-29: 35/40 random samples accepted.
 WORKSPACE = {
     "rail_mm": (80.0,  620.0),
     "x_mm":    (-280.0, 280.0),
@@ -112,6 +116,7 @@ def main():
                         help="Seed for the random sampler (reproducible runs)")
     parser.add_argument("--save-frames", action="store_true",
                         help="Record image frames at 10Hz per episode (off by default).")
+    add_room_arg(parser)
     args = parser.parse_args()
 
     base_seed = args.seed if args.seed is not None else int(time.time())
@@ -122,7 +127,7 @@ def main():
           f"x={WORKSPACE['x_mm']}, y={WORKSPACE['y_mm']}, z={WORKSPACE['z_mm']}")
 
     from sim.mujoco_env import SimXArmAPI
-    arm = SimXArmAPI(scene_xml="envs/lab_scene.xml", render=True)
+    arm = SimXArmAPI(**sim_kwargs(args, "envs/lab_scene.xml"), render=True)
     run_id = uuid.uuid4().hex[:8]
     print(f"[RandomPlay] Run ID: {run_id}")
 
@@ -136,8 +141,8 @@ def main():
         recorder = Recorder(
             arm.model, arm.data, arm.lock,
             interface="random_play",
-            scene_xml="envs/lab_scene.xml",
-            enable_frames=args.save_frames,
+            scene_xml=arm.scene_xml,
+            enable_frames=args.save_frames, room=arm.room,
         )
         recorder.start()
         recorder.session.parent_session_id = run_id

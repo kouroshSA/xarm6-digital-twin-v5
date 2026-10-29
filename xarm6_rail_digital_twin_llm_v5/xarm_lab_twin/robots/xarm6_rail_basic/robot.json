@@ -1,0 +1,29 @@
+{
+  "type": "xarm6_rail_basic",
+  "name": "Primitive xArm6 on a 700 mm rail (manual-control project)",
+  "description": "The older box-and-cylinder arm in the manual-control project's basic_scene.xml. Same names as xarm6_rail, but a different model: simplified joint ranges, rail base 57 mm lower, no fingers, no wrist camera, no weld grasping. Kept as its own type so nothing assumes the lab arm's limits or gripper here.",
+  "model": {
+    "default": "primitive",
+    "variants": {
+      "primitive": "../../../../xarm6_rail_sim_interactive_basic_v5/xarm_lab_twin/envs/basic_scene.xml"
+    },
+    "bodies": ["rail_track"]
+  },
+  "names": {
+    "rail_joint": "rail",
+    "rail_actuator": "act_rail",
+    "arm_joints": ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"],
+    "arm_actuators": ["act1", "act2", "act3", "act4", "act5", "act6"],
+    "ee_site": "end_effector",
+    "base_body": "xarm_base",
+    "flange_body": "link6",
+    "gripper_body": "gripper"
+  },
+  "rail": {"axis": [1, 0, 0]},
+  "home": {
+    "joints_deg": [0, 0, 0, 0, 0, 0],
+    "rail_mm": 350
+  },
+  "end_effectors": {"default": "none"},
+  "notes": "Home is what the basic tools use today (realtime_keyboard.py, control_panel.py and terminal_control.py each hold a copy); step 4 points them here."
+}

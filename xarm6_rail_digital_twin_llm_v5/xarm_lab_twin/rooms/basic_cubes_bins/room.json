@@ -1,0 +1,26 @@
+{
+  "id": "basic_cubes_bins",
+  "name": "Basic cubes-and-bins bench",
+  "description": "The manual-control project's original benchmark scene: a primitive xArm6 on a 700 mm rail, three cubes and three matching bins, no gripper welds. Passthrough to xarm6_rail_sim_interactive_basic_v5/xarm_lab_twin/envs/basic_scene.xml, loaded unchanged.",
+  "scene": {
+    "default": "primitive",
+    "variants": {
+      "primitive": "../../../../xarm6_rail_sim_interactive_basic_v5/xarm_lab_twin/envs/basic_scene.xml"
+    }
+  },
+  "robots": [
+    {"instance": "arm0", "type": "xarm6_rail_basic", "end_effector": "none", "controllable": true}
+  ],
+  "objects": [
+    {"name": "red_cube", "source": "scene", "dynamic": true, "type": "cube", "label": "red cube"},
+    {"name": "green_cube", "source": "scene", "dynamic": true, "type": "cube", "label": "green cube"},
+    {"name": "blue_cube", "source": "scene", "dynamic": true, "type": "cube", "label": "blue cube"},
+    {"name": "red_bin", "source": "scene", "dynamic": false, "type": "bin", "label": "red bin", "grippable": false},
+    {"name": "green_bin", "source": "scene", "dynamic": false, "type": "bin", "label": "green bin", "grippable": false},
+    {"name": "blue_bin", "source": "scene", "dynamic": false, "type": "bin", "label": "blue bin", "grippable": false}
+  ],
+  "agent": {
+    "context": "Joint-space manual control only: no IK, no gripper. Cubes can be pushed but not grasped.",
+    "task_ideas": ["push the red cube toward the red bin"]
+  }
+}

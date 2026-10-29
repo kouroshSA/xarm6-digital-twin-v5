@@ -25,12 +25,14 @@ from env_loader import load_env
 load_env()
 
 from agent.llm_brain import LLMBrain, MODELS
-from agent.object_registry import build_default_registry
+from agent.room_prompt import registry_for
 from agent.prompt_variants import generate_episodes
 from agent.lessons import append_lesson
 from agent.outcome_checker import check_outcome
 from agent.episode_loop import EpisodeContext, _maybe_run_review
 from recording import Recorder
+from twin_rooms.args import add_room_arg, sim_kwargs
+from twin_rooms.memory import memory_file_for
 
 
 def main():
@@ -59,12 +61,18 @@ def main():
                         help="TURN OFF the rainbow LED strips beside the rail "
                              "for every task in this run. LEDs are ON by "
                              "default; pass --led to disable.")
+    add_room_arg(parser)
     args = parser.parse_args()
 
     # 1) Ask Claude for diverse task prompts
     print(f"\n[AutoPlay] Generating {args.episodes} diverse prompts via {args.model}...")
     try:
-        tasks = generate_episodes(args.episodes, model=MODELS[args.model])
+        room_def = None
+        if args.room:
+            from twin_rooms import load_room
+            room_def = load_room(args.room)
+        tasks = generate_episodes(args.episodes, model=MODELS[args.model],
+                                  room=room_def)
     except Exception as e:
         print(f"[AutoPlay] Prompt generation failed: {e}")
         sys.exit(1)
@@ -75,8 +83,8 @@ def main():
 
     # 2) Spawn one SimXArmAPI with viewer (reused across episodes)
     from sim.mujoco_env import SimXArmAPI
-    arm = SimXArmAPI(scene_xml="envs/lab_scene.xml", render=True)
-    registry = build_default_registry()
+    arm = SimXArmAPI(**sim_kwargs(args, "envs/lab_scene.xml"), render=True)
+    registry = registry_for(arm)
     run_id = uuid.uuid4().hex[:8]
     print(f"\n[AutoPlay] Run ID: {run_id}  (each episode's metadata links here)")
 
@@ -97,8 +105,8 @@ def main():
         recorder = Recorder(
             arm.model, arm.data, arm.lock,
             interface="auto_play",
-            scene_xml="envs/lab_scene.xml",
-            enable_frames=args.save_frames,
+            scene_xml=arm.scene_xml,
+            enable_frames=args.save_frames, room=arm.room,
         )
         recorder.start()
         recorder.session.parent_session_id = run_id
@@ -124,7 +132,7 @@ def main():
 
         # Grade once per episode; reuse the verdict for both the lesson and
         # the session-context recording so they never disagree.
-        task_success, reason = check_outcome(task, physical)
+        task_success, reason = check_outcome(task, physical, arm=arm)
         print(f"  [Outcome check] success={task_success} ({reason})")
 
         # Auto-append lesson regardless of eval mode, now WITH the grader's
@@ -137,6 +145,7 @@ def main():
             physical_outcome=physical,
             task_success=task_success,
             stringency="loose",
+            lessons_file=memory_file_for(arm, "lessons.md", create=True),
         )
 
         # Record this episode into the session context for the end-of-run

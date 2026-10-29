@@ -15,6 +15,7 @@ except ImportError:
     print("[Warning] pip install transforms3d for RPY readout")
 
 from recording import Recorder
+from rooms_bridge import DEFAULT_ROOM, load_room_model, parse_room_args
 
 SCENE_XML = "envs/basic_scene.xml"
 
@@ -30,7 +31,7 @@ DOF_LABELS = [
 ]
 
 PRESETS = {
-    "Home":            [350,   0,   0,   0,   0,   0,   0],
+    "Home":            None,   # the room robot's home; set in main()
     "Above red cube":  [150,   0,  20,   0,  60,   0,  20],
     "Above green cube":[350,   0,  20,   0,  60,   0,  20],
     "Above blue cube": [550,   0,  20,   0,  60,   0,  20],
@@ -51,13 +52,15 @@ def ctrl_to_dof(dof_idx, c):
 
 
 class SimController:
-    def __init__(self, scene_xml: str):
-        self.model = mujoco.MjModel.from_xml_path(scene_xml)
+    def __init__(self, room_id: str = DEFAULT_ROOM):
+        self.room  = load_room_model(room_id)
+        self.model = self.room.model
         self.data  = mujoco.MjData(self.model)
         self.lock  = threading.Lock()
         self._running = True
-        self.act_ids = [self.model.actuator(n).id for n in ACT_NAMES]
-        self.ee_site = self.model.site("end_effector").id
+        self.act_ids = [self.model.actuator(self.room.mjcf(n, "actuator")).id
+                        for n in ACT_NAMES]
+        self.ee_site = self.model.site(self.room.mjcf("end_effector", "site")).id
         threading.Thread(target=self._sim_loop, daemon=True).start()
 
     def _sim_loop(self):
@@ -102,7 +105,8 @@ class ControlPanel:
         self.ctrl = controller
         self.recorder = Recorder(
             controller.model, controller.data, controller.lock,
-            interface="control_panel", scene_xml=SCENE_XML
+            interface="control_panel", scene_xml=controller.room.scene_xml,
+            room=controller.room.ctx,
         )
         self.root = tk.Tk()
         self.root.title("xArm6 + Rail Sim - Manual Control")
@@ -284,7 +288,10 @@ class ControlPanel:
 
 
 def main():
-    controller = SimController(SCENE_XML)
+    args = parse_room_args("xArm6 + rail manual control panel")
+    controller = SimController(args.room)
+    rail_mm, joints_deg = controller.room.home()
+    PRESETS["Home"] = [rail_mm, *joints_deg]       # the room robot's home
 
     def launch_viewer():
         with mujoco.viewer.launch_passive(

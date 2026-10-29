@@ -11,8 +11,12 @@ Best-effort parser. Recognised task templates:
   - "put/place/pick <tube-ref> in/into <rack-ref>"       -> "<tube> in <rack>"
 
 Targets the parser recognises (matched against physical_outcome() strings):
-  - cubes: red_cube, green_cube, blue_cube
-  - bins:  red_bin, green_bin, blue_bin
+  - cubes and bins: whatever the scene has, by colour -- read from
+    sim.mujoco_env (CUBE_BODIES, BIN_BODIES), not listed here. The lab has
+    red_cube_front/_back, green_cube, blue_cube and green_bin, blue_bin; a
+    plain "red cube" therefore means either red cube ("any"), and a task
+    naming a bin the scene does not have is not recognised (None), since no
+    end state could satisfy it.
   - racks: left_tube_rack, right_tube_rack
   - tubes: tube_L1..L3, tube_R1..R3 (by name, by cap color, or by source rack)
 
@@ -34,6 +38,31 @@ from typing import Optional, List, Tuple
 HELD_MARKER = "still in the gripper"
 
 COLORS = ("red", "green", "blue")
+
+
+def _scene_names(arm=None):
+    """(cubes_by_colour, bin_by_colour) from the sim's own body lists. These
+    used to be spelled here as red_cube / red_bin, which left the scene: every
+    red-cube task then expected a substring no outcome contains, and graded as
+    a failure however it went. With `arm`, its ROOM's lists (SimXArmAPI.
+    cube_bodies / bin_bodies); without, the lab's, as before rooms."""
+    from twin_rooms.context import room_of
+    if room_of(arm) is not None:
+        CUBE_BODIES, BIN_BODIES = arm.cube_bodies, arm.bin_bodies
+    else:
+        from sim.mujoco_env import BIN_BODIES, CUBE_BODIES
+    cubes = {c: tuple(n for n in CUBE_BODIES if n.startswith(c + "_")) for c in COLORS}
+    bins = {c: next((n for n in BIN_BODIES if n == f"{c}_bin"), None) for c in COLORS}
+    return cubes, bins
+
+
+def _cubes_named(t: str, colour: str, cubes) -> List[str]:
+    """The scene's cubes of this colour, narrowed by a front/back qualifier."""
+    names = list(cubes[colour])
+    for side, words in (("front", r"front"), ("back", r"back|rear")):
+        if len(names) > 1 and re.search(rf"\b({words})\b|_{side}\b", t):
+            names = [n for n in names if n.endswith("_" + side)] or names
+    return names
 
 ALL_TUBES   = ("tube_L1", "tube_L2", "tube_L3",
                "tube_R1", "tube_R2", "tube_R3")
@@ -126,7 +155,7 @@ def _identify_dest_racks(t: str, sources: List[str]) -> List[str]:
     return []
 
 
-def expected_outcome(task: str) -> Optional[Tuple[str, List[str]]]:
+def expected_outcome(task: str, arm=None) -> Optional[Tuple[str, List[str]]]:
     """
     Parse the task into a (mode, expected_substrings) pair, or None if the
     parser doesn't recognise the task.
@@ -134,18 +163,21 @@ def expected_outcome(task: str) -> Optional[Tuple[str, List[str]]]:
     mode = "all" (all substrings required) or "any" (one substring suffices).
     """
     t = task.lower()
+    cubes, bins = _scene_names(arm)
 
     # ---- Push-off family ----
     if re.search(r"\b(push|knock|drop|shove|slide).*\b(off|edge|floor|away)\b", t):
         # Cube targets
         for color in COLORS:
-            if f"{color} cube" in t or f"{color}_cube" in t:
-                return ("any", _off_bench_terms([f"{color}_cube"]))
+            if re.search(rf"\b{color}[\s_](cube|block)", t) and cubes[color]:
+                return ("any", _off_bench_terms(_cubes_named(t, color, cubes)))
 
         # Bin targets
         for color in COLORS:
             if f"{color} bin" in t or f"{color}_bin" in t:
-                return ("any", _off_bench_terms([f"{color}_bin"]))
+                if bins[color] is None:
+                    return None
+                return ("any", _off_bench_terms([bins[color]]))
 
         # Specific tube target
         m = re.search(r"\btube[_\s-]?([lr])[_\s-]?([123])\b", t)
@@ -211,22 +243,34 @@ def expected_outcome(task: str) -> Optional[Tuple[str, List[str]]]:
                 return ("any", expected)
 
     # "put/place all cubes in <color> bin" -> all three cubes in that bin
+    all_cubes = [n for c in COLORS for n in cubes[c]]
     if re.search(r"\b(all|every|each).*\bcubes?\b", t):
         for color in COLORS:
             if f"{color} bin" in t:
-                return ("all", [f"{c}_cube in {color}_bin" for c in COLORS])
+                if bins[color] is None:
+                    return None
+                return ("all", [f"{n} in {bins[color]}" for n in all_cubes])
         return None
 
-    # "sort the cubes [by color]" -> each in its matching bin
+    # "sort the cubes [by color]" -> each in its matching bin. Only definable
+    # when every cube colour present has a bin of its own (the lab has no red
+    # bin, so there it is not recognised and falls to the dynamic grader).
     if re.search(r"\bsort.*cubes?\b", t):
-        return ("all", [f"{c}_cube in {c}_bin" for c in COLORS])
+        if any(cubes[c] and bins[c] is None for c in COLORS):
+            return None
+        return ("all", [f"{n} in {bins[c]}" for c in COLORS for n in cubes[c]])
 
     # "put/place/move <color> cube in <color> bin" (canonical pick-and-place)
-    m = re.search(r"\b(red|green|blue)\s*(cube|block)\b.*\b(red|green|blue)\b.*\b(bin|container|box)\b", t)
+    m = re.search(r"\b(red|green|blue)[\s_]*(cube|block)\w*\b.*\b(red|green|blue)\b.*\b(bin|container|box)\b", t)
     if m:
         src = m.group(1)
         dst = m.group(3)
-        return ("all", [f"{src}_cube in {dst}_bin"])
+        if not cubes[src] or bins[dst] is None:
+            return None
+        names = _cubes_named(t, src, cubes)
+        # Either red cube satisfies "the red cube" when the task names neither.
+        return ("all" if len(names) == 1 else "any",
+                [f"{n} in {bins[dst]}" for n in names])
 
     return None  # Unknown task pattern
 
@@ -253,7 +297,7 @@ def _matches_with_swap(physical: str, expected: str) -> bool:
 
 def check_outcome(task: str, physical: str,
                   fallback_spec: Optional[Tuple[str, List[str]]] = None,
-                  ) -> Tuple[Optional[bool], str]:
+                  arm=None) -> Tuple[Optional[bool], str]:
     """
     Compare expected outcome (from task) to actual physical_outcome() string.
 
@@ -268,7 +312,7 @@ def check_outcome(task: str, physical: str,
     agent.dynamic_grader.infer_criteria as a once-per-session Haiku call.
     The fast path stays free of LLM cost for known task patterns.
     """
-    spec = expected_outcome(task)
+    spec = expected_outcome(task, arm)
     used_fallback = False
     if spec is None and fallback_spec is not None:
         spec = fallback_spec

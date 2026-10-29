@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "twin_rooms/room_schema.json",
+  "title": "room.json",
+  "description": "A room: its environment, robots and objects. Units are SI throughout: metres, and degrees for angles. A room is either PASSTHROUGH (`scene` names an existing scene XML, loaded unchanged; objects describe bodies already in it) or COMPOSED (`environment` + `robots` + `objects` are assembled by twin_rooms.builder). Exactly one of `scene` / `environment` must be given.",
+  "type": "object",
+  "required": ["id", "name", "description", "robots", "objects"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$",
+           "description": "lowercase letters, digits and '_', starting with a letter; must equal the room's folder name"},
+    "name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "scene": {
+      "description": "PASSTHROUGH rooms: scene XML variants, paths relative to the room folder. `default` names the variant used without --scene.",
+      "type": "object",
+      "required": ["default", "variants"],
+      "additionalProperties": false,
+      "properties": {
+        "default": {"type": "string"},
+        "variants": {"type": "object", "minProperties": 1,
+                     "additionalProperties": {"type": "string"}}
+      }
+    },
+    "environment": {
+      "description": "COMPOSED rooms: an MJCF fragment path (relative to the room folder), or bodies extracted from an existing scene at build time (so they cannot drift from it).",
+      "anyOf": [
+        {"type": "string"},
+        {"type": "object",
+         "required": ["extract_from", "bodies"],
+         "additionalProperties": false,
+         "properties": {
+           "extract_from": {"type": "string"},
+           "bodies": {"type": "array", "items": {"type": "string"}},
+           "floor": {"type": "boolean"},
+           "lights": {"type": "boolean"}
+         }}
+      ]
+    },
+    "robots": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["instance", "type"],
+        "additionalProperties": false,
+        "properties": {
+          "instance": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$",
+                   "description": "A folder under robots/."},
+          "base_pose": {"$ref": "#/$defs/pose"},
+          "end_effector": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$",
+                           "description": "one of the robot type's end_effectors (robots/<type>/robot.json), or 'none'; omit for the type's default"},
+          "controllable": {"type": "boolean"}
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "source"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$"},
+          "source": {"type": "string",
+                     "pattern": "^(scene|builtin:(cube|bin|tube_rack|tube)|mjcf:.+|simready:[a-z0-9][a-z0-9_.-]*)$",
+                     "description": "one of: scene (passthrough rooms: the body already exists), builtin:cube|bin|tube_rack|tube, mjcf:<path relative to the room folder> (a file with one top-level body), mjcf:<scene path>#<body> (one top-level body copied out of a scene at build time; pose optional), simready:<slug> (lowercase letters, digits, '_', '-', '.')"},
+          "params": {"type": "object"},
+          "pose": {"$ref": "#/$defs/pose"},
+          "dynamic": {"type": "boolean"},
+          "type": {"type": "string",
+                   "enum": ["cube", "bin", "container", "rack", "tube", "plate",
+                            "instrument", "fixture", "other"]},
+          "label": {"type": "string"},
+          "aliases": {"type": "array", "items": {"type": "string"}},
+          "grippable": {"type": "boolean"},
+          "driver": {"type": "string",
+                     "description": "Name of the SimXArmAPI behaviour that animates this object (vortex, pcr, heater_shaker, rail_leds)."}
+        }
+      }
+    },
+    "cameras": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string"},
+          "pos": {"$ref": "#/$defs/vec3"},
+          "lookat": {"$ref": "#/$defs/vec3"},
+          "fovy": {"type": "number", "minimum": 1, "maximum": 179},
+          "role": {"type": "string", "enum": ["viewer", "observer", "vision"]}
+        }
+      }
+    },
+    "workspace_bounds": {
+      "description": "Commanded-pose bounds in world metres. A null entry means the robot type's default for that axis. Omit to use the robot's defaults entirely.",
+      "type": "object",
+      "required": ["min", "max"],
+      "additionalProperties": false,
+      "properties": {
+        "min": {"$ref": "#/$defs/vec3_or_null"},
+        "max": {"$ref": "#/$defs/vec3_or_null"}
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "context": {"type": "string",
+                    "description": "short free-text notes for the planner, spliced into its system prompt"},
+        "prompt_file": {"type": "string",
+                        "description": "markdown file (relative to the room folder) holding longer prompt sections, marked <!-- room-prompt: commands|push_notes|knowledge -->; see agent/room_prompt.py"},
+        "task_ideas": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  },
+  "$defs": {
+    "vec3": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+    "vec3_or_null": {"type": "array", "items": {"type": ["number", "null"]},
+                     "minItems": 3, "maxItems": 3},
+    "pose": {
+      "type": "object",
+      "required": ["pos"],
+      "additionalProperties": false,
+      "properties": {
+        "pos": {"$ref": "#/$defs/vec3"},
+        "euler": {"$ref": "#/$defs/vec3",
+                  "description": "Degrees, MuJoCo's default xyz sequence."}
+      }
+    }
+  }
+}
