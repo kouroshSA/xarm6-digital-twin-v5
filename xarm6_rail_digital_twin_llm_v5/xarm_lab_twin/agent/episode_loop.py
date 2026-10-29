@@ -1072,7 +1072,7 @@ class EpisodeRetry:
         # caught and logged; the session result is returned regardless.
         review_result = None
         if total >= 3:
-            review_result = _maybe_run_review(task, ctx)
+            review_result = _maybe_run_review(task, ctx, self.arm)
 
         # Deterministic fallback: if the Opus review didn't run (or failed)
         # but we still learned constraints this session, persist them as
@@ -1081,8 +1081,9 @@ class EpisodeRetry:
         # budget pressure; only later corroboration graduates them.
         if (review_result is None) and ctx.learned_constraints:
             try:
-                from agent.world_model import persist_constraints
-                persist_constraints(ctx.learned_constraints, task_label=task)
+                from agent.world_model import persist_constraints, scene_path_of
+                persist_constraints(ctx.learned_constraints, task_label=task,
+                                    scene_path=scene_path_of(self.arm))
                 print(f"[EpisodeLoop] Persisted {len(ctx.learned_constraints)} "
                       f"constraint(s) to world_model.md (provisional fallback).")
             except Exception as e:
@@ -1170,7 +1171,8 @@ def _record_lesson(task: str, brain, result: Dict[str, Any],
     )
 
 
-def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]]:
+def _maybe_run_review(task: str, ctx: EpisodeContext,
+                      arm=None) -> Optional[Dict[str, Any]]:
     """Run the Phase-2 Opus review pass; never propagate failures.
 
     Returns the parsed review dict on success (also written to reviews.md,
@@ -1190,8 +1192,8 @@ def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]
         from agent.review_session import review_session
         from agent.lessons import (read_lessons_section, read_reviews_section,
                                    append_review)
-        from agent.world_model import (read_world_model, update_from_review,
-                                       write_world_model)
+        from agent.world_model import (read_world_model, scene_path_of,
+                                       update_from_review, write_world_model)
 
         # Pass prior context (lessons + earlier reviews on this task family,
         # plus the existing world model) so Opus can corroborate/refine
@@ -1200,7 +1202,8 @@ def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]
         prior_reviews  = read_reviews_section(current_task=task)
         prior_combined = "\n\n".join(p for p in (prior_lessons, prior_reviews)
                                      if p.strip())
-        world_model    = read_world_model()
+        scene_path     = scene_path_of(arm)
+        world_model    = read_world_model(scene_path=scene_path)
         if world_model.scene_changed:
             print(f"[EpisodeLoop] world_model.md: scene XML has changed "
                   f"since entries were recorded -- Opus will treat them "
@@ -1220,7 +1223,7 @@ def _maybe_run_review(task: str, ctx: EpisodeContext) -> Optional[Dict[str, Any]
         if cross:
             log = update_from_review(world_model, cross,
                                      task_label=task)
-            write_world_model(world_model)
+            write_world_model(world_model, scene_path=scene_path)
             n_new = sum(1 for L in log if L["action"] == "new")
             n_mrg = sum(1 for L in log if L["action"] == "merged")
             n_dup = sum(1 for L in log if L["action"] == "merged_duplicate")

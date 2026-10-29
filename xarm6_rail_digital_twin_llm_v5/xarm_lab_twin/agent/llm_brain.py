@@ -9,7 +9,8 @@ from agent.object_registry import ObjectRegistry
 from agent.lessons import read_lessons_section
 from agent.scene_geometry import (DEFAULT_SCENE, render_geometry_section,
                                   worked_example_coords)
-from agent.world_model import read_world_model, render_for_system_prompt
+from agent.world_model import (read_world_model, render_for_system_prompt,
+                               scene_path_of)
 from agent.skills import load_skills, render_skills_section
 from recording import Recorder, LLMSessionLog
 
@@ -634,7 +635,7 @@ class LLMBrain:
             llm_log.log_prompt()
 
         lessons = read_lessons_section(current_task=task_prompt)
-        wm = read_world_model()
+        wm = read_world_model(scene_path=scene_path_of(self.arm))
         wm_section = render_for_system_prompt(wm, include_provisional=True)
         if wm.scene_changed and wm_section:
             wm_section = ("**Scene XML has changed since these observations "
