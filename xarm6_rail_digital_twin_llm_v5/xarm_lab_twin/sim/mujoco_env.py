@@ -2386,13 +2386,15 @@ class SimXArmAPI:
                 name: int(self.data.eq_active[eqid])
                 for name, eqid in self.weld_eqids.items()
             }
+            # Only containers this scene actually has: an unguarded lookup
+            # raised in any scene without all of them.
             bin_positions = {
                 name: self.data.xpos[self.model.body(name).id].copy()
-                for name in BIN_BODIES
+                for name in BIN_BODIES if self._has_body(name)
             }
             rack_positions = {
                 name: self.data.xpos[self.model.body(name).id].copy()
-                for name in RACK_TUBE_GROUPS
+                for name in RACK_TUBE_GROUPS if self._has_body(name)
             }
             # Static fixtures we still want as proximity reference points.
             # Lookup is wrapped so a future scene that doesn't include
