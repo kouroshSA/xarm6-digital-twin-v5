@@ -83,8 +83,15 @@ class Recorder:
                  frame_camera_distance: float = 2.8,
                  frame_camera_azimuth: float = 135.0,
                  frame_camera_elevation: float = -20.0,
-                 gripper_fn=None):
+                 gripper_fn=None, room=None):
         self.model = model; self.data = data; self.lock = lock
+        # The room the model was built from (twin_rooms RoomContext). Names are
+        # looked up through it and RECORDED as logical names (joint1, red_cube,
+        # grip_red_cube), so a session in a built room reads like a lab session.
+        # None = the model uses the lab's names directly, as before rooms.
+        self.room = room
+        mj = (lambda n, k: room.mjcf(n, k)) if room is not None else (lambda n, k: n)
+        logical = room.logical if room is not None else (lambda n: n)
         # Optional override for the `gripper` channel: a callable returning
         # 1.0 (holding/closed) or 0.0, read once per state sample, OUTSIDE the
         # sim lock. None (the default) keeps the weld-activation source below.
@@ -96,10 +103,10 @@ class Recorder:
         self.gripper_fn = gripper_fn
         self.interface = interface; self.scene_xml = scene_xml
         self.state_hz = state_hz
-        self.joint_ids = [model.joint(n).id for n in JOINT_NAMES]
-        self.rail_jid  = model.joint("rail").id
-        self.act_ids   = [model.actuator(n).id for n in ACT_NAMES]
-        self.ee_site   = model.site("end_effector").id
+        self.joint_ids = [model.joint(mj(n, "joint")).id for n in JOINT_NAMES]
+        self.rail_jid  = model.joint(mj("rail", "joint")).id
+        self.act_ids   = [model.actuator(mj(n, "actuator")).id for n in ACT_NAMES]
+        self.ee_site   = model.site(mj("end_effector", "site")).id
 
         # Auto-discover free bodies (cubes + tubes etc.) so the recorder
         # works on any scene without hardcoding object names.
@@ -110,14 +117,14 @@ class Recorder:
             if jnt_adr >= 0 and model.jnt_type[jnt_adr] == mujoco.mjtJoint.mjJNT_FREE:
                 self.free_body_ids.append(i)
                 self.free_body_names.append(
-                    mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
+                    logical(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i))
                 )
 
         # Equality constraints (welds) — capture activation over time so the
         # downstream pipeline knows when something was being grasped.
         self.eq_ids = list(range(model.neq))
         self.eq_names = [
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_EQUALITY, i)
+            logical(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_EQUALITY, i))
             for i in self.eq_ids
         ]
 
@@ -168,13 +175,13 @@ class Recorder:
                         self._cam_handles["free"] = None   # resolved per-thread
                         continue
                     try:
-                        model.camera(cam)          # raises if the name is absent
+                        model.camera(mj(cam, "camera"))   # raises if the name is absent
                     except KeyError as exc:
                         raise RuntimeError(
                             f"frame camera {cam!r} is not in the scene; available: "
                             f"{[mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_CAMERA, i) for i in range(model.ncam)]}"
                         ) from exc
-                    self._cam_handles[cam] = cam
+                    self._cam_handles[cam] = mj(cam, "camera")   # stored under the logical name
             except Exception as e:
                 print(f"[Recorder] Frame camera setup failed ({e}) -- frames disabled.")
                 print("[Recorder] Tip: on Linux, try setting MUJOCO_GL=egl or "

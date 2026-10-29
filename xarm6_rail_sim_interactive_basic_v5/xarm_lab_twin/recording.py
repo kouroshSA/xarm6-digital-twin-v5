@@ -57,6 +57,7 @@ class Recorder:
         interface: str,
         scene_xml: str = "envs/basic_scene.xml",
         state_hz: float = DEFAULT_STATE_HZ,
+        room=None,
     ):
         self.model = model
         self.data  = data
@@ -65,10 +66,14 @@ class Recorder:
         self.scene_xml = scene_xml
         self.state_hz  = state_hz
 
-        self.joint_ids = [model.joint(n).id for n in JOINT_NAMES]
-        self.rail_jid  = model.joint("rail").id
-        self.act_ids   = [model.actuator(n).id for n in ACT_NAMES]
-        self.ee_site   = model.site("end_effector").id
+        # `room` (a twin_rooms RoomContext, see rooms_bridge.py) maps the
+        # logical names below to the room's MJCF names. None = this project's
+        # basic scene, whose names are the logical names.
+        mj = (lambda n, k: room.mjcf(n, k)) if room is not None else (lambda n, k: n)
+        self.joint_ids = [model.joint(mj(n, "joint")).id for n in JOINT_NAMES]
+        self.rail_jid  = model.joint(mj("rail", "joint")).id
+        self.act_ids   = [model.actuator(mj(n, "actuator")).id for n in ACT_NAMES]
+        self.ee_site   = model.site(mj("end_effector", "site")).id
 
         self._recording = False
         self._session: Optional[SessionMetadata] = None

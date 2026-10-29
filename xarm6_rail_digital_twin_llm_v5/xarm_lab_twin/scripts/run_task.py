@@ -15,6 +15,7 @@ from agent.llm_brain import LLMBrain, prompt_model_choice, MODELS
 from agent.object_registry import build_default_registry
 from agent.lessons import append_lesson
 from recording import Recorder
+from twin_rooms.args import add_room_arg, sim_kwargs
 
 
 def _shutdown(arm, recorder=None):
@@ -129,6 +130,7 @@ def main():
                              "(envs/lab_scene_primitive.xml). Both are validated "
                              "for the full task suite (IK, gripper, pick/place/"
                              "push); 'meshes' is the higher-fidelity default.")
+    add_room_arg(parser)
     args = parser.parse_args()
 
     scene_path = {
@@ -140,9 +142,10 @@ def main():
 
     if args.mode == "sim":
         from sim.mujoco_env import SimXArmAPI
-        arm = SimXArmAPI(scene_xml=scene_path,
+        arm = SimXArmAPI(**sim_kwargs(args, scene_path, variant=args.scene),
                          render=not args.no_render)
-        print("[System] SIMULATION mode")
+        scene_path = arm.scene_xml
+        print(f"[System] SIMULATION mode (room {arm.room.room_id})")
     elif args.mode == "dryrun":
         # Same backend code path as --mode real, pointed at the containerised
         # controller instead of the bench. Nothing can move; this exercises
@@ -166,7 +169,7 @@ def main():
             data=arm.data if hasattr(arm, "data") else None,
             lock=arm.lock if hasattr(arm, "lock") else threading.Lock(),
             interface="llm_brain", scene_xml=scene_path,
-            enable_frames=args.save_frames,
+            enable_frames=args.save_frames, room=getattr(arm, "room", None),
         )
         if hasattr(arm, "model"):
             recorder.start()
@@ -343,7 +346,7 @@ def main():
             return Recorder(
                 model=arm.model, data=arm.data, lock=arm.lock,
                 interface="episode_loop", scene_xml=scene_path,
-                enable_frames=args.save_frames,
+                enable_frames=args.save_frames, room=getattr(arm, "room", None),
             )
 
         def _prepare_task(original_task, feedback):

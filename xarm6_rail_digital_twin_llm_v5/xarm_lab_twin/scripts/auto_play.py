@@ -31,6 +31,7 @@ from agent.lessons import append_lesson
 from agent.outcome_checker import check_outcome
 from agent.episode_loop import EpisodeContext, _maybe_run_review
 from recording import Recorder
+from twin_rooms.args import add_room_arg, sim_kwargs
 
 
 def main():
@@ -59,6 +60,7 @@ def main():
                         help="TURN OFF the rainbow LED strips beside the rail "
                              "for every task in this run. LEDs are ON by "
                              "default; pass --led to disable.")
+    add_room_arg(parser)
     args = parser.parse_args()
 
     # 1) Ask Claude for diverse task prompts
@@ -75,7 +77,7 @@ def main():
 
     # 2) Spawn one SimXArmAPI with viewer (reused across episodes)
     from sim.mujoco_env import SimXArmAPI
-    arm = SimXArmAPI(scene_xml="envs/lab_scene.xml", render=True)
+    arm = SimXArmAPI(**sim_kwargs(args, "envs/lab_scene.xml"), render=True)
     registry = build_default_registry()
     run_id = uuid.uuid4().hex[:8]
     print(f"\n[AutoPlay] Run ID: {run_id}  (each episode's metadata links here)")
@@ -97,8 +99,8 @@ def main():
         recorder = Recorder(
             arm.model, arm.data, arm.lock,
             interface="auto_play",
-            scene_xml="envs/lab_scene.xml",
-            enable_frames=args.save_frames,
+            scene_xml=arm.scene_xml,
+            enable_frames=args.save_frames, room=arm.room,
         )
         recorder.start()
         recorder.session.parent_session_id = run_id

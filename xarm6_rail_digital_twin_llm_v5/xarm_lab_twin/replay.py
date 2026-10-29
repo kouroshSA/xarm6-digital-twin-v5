@@ -104,7 +104,21 @@ def print_llm_session(session_dir):
     return True
 
 
-def replay_trajectory(session_dir, speed=1.0, loop=False):
+def load_replay_model(room=None):
+    """(model, act_ids) for replay: the lab scene, or `room` when given.
+    Actuators are looked up by their logical names through the room."""
+    if room:
+        from twin_rooms.builder import build_room
+        model, ctx = build_room(room)
+        names = [ctx.mjcf(n, "actuator") for n in
+                 ["act_rail", "act1", "act2", "act3", "act4", "act5", "act6"]]
+    else:
+        model = mujoco.MjModel.from_xml_path(SCENE_XML)
+        names = ["act_rail", "act1", "act2", "act3", "act4", "act5", "act6"]
+    return model, [model.actuator(n).id for n in names]
+
+
+def replay_trajectory(session_dir, speed=1.0, loop=False, room=None):
     traj_path = session_dir / "trajectory.h5"
     if not traj_path.exists():
         print(f"No trajectory.h5 in {session_dir}"); return
@@ -119,11 +133,9 @@ def replay_trajectory(session_dir, speed=1.0, loop=False):
     print(f"\nReplaying {session_dir.name}  ({n_samples} samples, "
           f"{t_wall[-1]:.1f}s, {speed}x)\n")
 
-    model = mujoco.MjModel.from_xml_path(SCENE_XML)
+    model, act_ids = load_replay_model(room)
     data  = mujoco.MjData(model)
     lock  = threading.Lock()
-    act_ids = [model.actuator(n).id for n in
-               ["act_rail","act1","act2","act3","act4","act5","act6"]]
 
     def play():
         while True:
@@ -172,6 +184,8 @@ def main():
     parser.add_argument("--delete", action="store_true")
     parser.add_argument("--restore")
     parser.add_argument("--purge-trash", action="store_true")
+    parser.add_argument("--room", default=None, metavar="ID",
+                        help="Replay in this room instead of the lab scene.")
     args = parser.parse_args()
 
     if args.purge_trash:
@@ -211,7 +225,7 @@ def main():
         return
 
     print_llm_session(target)
-    replay_trajectory(target, speed=args.speed, loop=args.loop)
+    replay_trajectory(target, speed=args.speed, loop=args.loop, room=args.room)
 
     print()
     try:

@@ -9,6 +9,7 @@ import numpy as np
 from pynput import keyboard
 
 from recording import Recorder, JOINT_NAMES, ACT_NAMES
+from rooms_bridge import DEFAULT_ROOM, load_room_model, parse_room_args
 
 SCENE_XML = "envs/basic_scene.xml"
 
@@ -41,15 +42,17 @@ class KeyState:
 
 class RealtimeKeyboardController:
 
-    def __init__(self):
-        self.model = mujoco.MjModel.from_xml_path(SCENE_XML)
+    def __init__(self, room_id: str = DEFAULT_ROOM):
+        self.room  = load_room_model(room_id)
+        self.model = self.room.model
         self.data  = mujoco.MjData(self.model)
         self.lock  = threading.Lock()
         self._running = True
 
-        self.joint_ids = [self.model.joint(n).id for n in JOINT_NAMES]
-        self.rail_jid  = self.model.joint("rail").id
-        self.act_ids   = [self.model.actuator(n).id for n in ACT_NAMES]
+        self.joint_ids = [self.model.joint(self.room.mjcf(n, "joint")).id for n in JOINT_NAMES]
+        self.rail_jid  = self.model.joint(self.room.mjcf("rail", "joint")).id
+        self.act_ids   = [self.model.actuator(self.room.mjcf(n, "actuator")).id
+                          for n in ACT_NAMES]
 
         self.keys = KeyState()
         self.speed_level = DEFAULT_SPEED_LEVEL
@@ -60,14 +63,15 @@ class RealtimeKeyboardController:
         self.recorder = Recorder(
             self.model, self.data, self.lock,
             interface="realtime_keyboard",
-            scene_xml=SCENE_XML,
+            scene_xml=self.room.scene_xml, room=self.room.ctx,
         )
 
-        # Home: rail at 350mm, joints at zero
+        # Home, from the room's robot type (basic scene: rail 350 mm, joints 0)
+        rail_mm, joints_deg = self.room.home()
         with self.lock:
-            self.data.ctrl[self.act_ids[0]] = 0.35
+            self.data.ctrl[self.act_ids[0]] = rail_mm / 1000.0
             for i in range(6):
-                self.data.ctrl[self.act_ids[1 + i]] = 0.0
+                self.data.ctrl[self.act_ids[1 + i]] = np.deg2rad(joints_deg[i])
 
         threading.Thread(target=self._sim_loop, daemon=True).start()
         threading.Thread(target=self._control_loop, daemon=True).start()
@@ -199,11 +203,12 @@ class RealtimeKeyboardController:
             self.recorder.log_command("rail_release", {}); return
 
     def _go_home(self):
-        print("  [home] rail -> 350mm, all joints -> zero")
+        rail_mm, joints_deg = self.room.home()
+        print(f"  [home] rail -> {rail_mm:.0f}mm, joints -> {joints_deg}")
         with self.lock:
-            self.data.ctrl[self.act_ids[0]] = 0.35
+            self.data.ctrl[self.act_ids[0]] = rail_mm / 1000.0
             for i in range(6):
-                self.data.ctrl[self.act_ids[1 + i]] = 0.0
+                self.data.ctrl[self.act_ids[1 + i]] = np.deg2rad(joints_deg[i])
         self.recorder.log_command("home", {})
 
     def _all_stop(self):
@@ -258,7 +263,8 @@ class RealtimeKeyboardController:
 
 
 def main():
-    ctrl = RealtimeKeyboardController()
+    args = parse_room_args("xArm6 + rail real-time keyboard control")
+    ctrl = RealtimeKeyboardController(args.room)
     ctrl.run()
     print("\n[realtime_keyboard] Done.")
 
