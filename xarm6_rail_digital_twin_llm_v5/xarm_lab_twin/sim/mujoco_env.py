@@ -1986,6 +1986,35 @@ class SimXArmAPI:
         return mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY,
                                  self._mj(name, "body")) >= 0
 
+    def _geom_world_bounds(self, g: int):
+        """World axis-aligned (lo, hi) of geom g, from the live pose. Caller
+        holds the lock. mjGEOM size fields mean different things per type (for
+        a cylinder size[1] is HALF-LENGTH, not a radius), so each type is
+        converted here, once. A mesh is bounded by its own vertices: its
+        bounding SPHERE (rbound) made a 48 mm cucumber read as 204 mm wide and
+        the grasp gate refuse it."""
+        import numpy as _np
+        t = int(self.model.geom_type[g])
+        sz = self.model.geom_size[g]
+        R = self.data.geom_xmat[g].reshape(3, 3)
+        c = self.data.geom_xpos[g]
+        if t == int(mujoco.mjtGeom.mjGEOM_MESH):
+            mid = int(self.model.geom_dataid[g])
+            a = int(self.model.mesh_vertadr[mid])
+            v = self.model.mesh_vert[a:a + int(self.model.mesh_vertnum[mid])] @ R.T + c
+            return v.min(axis=0), v.max(axis=0)
+        if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
+            half = _np.array([sz[0], sz[0], sz[0]])
+        elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER), int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
+            half = _np.array([sz[0], sz[0], sz[1]])
+        elif t in (int(mujoco.mjtGeom.mjGEOM_BOX), int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
+            half = _np.array([sz[0], sz[1], sz[2]])
+        else:
+            r = float(self.model.geom_rbound[g])
+            half = _np.array([r, r, r])
+        ext = _np.abs(R) @ half
+        return c - ext, c + ext
+
     def object_width_m(self, name: str) -> float:
         """Width the jaws must span to take `name`, in metres.
 
@@ -2009,22 +2038,8 @@ class SimXArmAPI:
             for g in range(self.model.ngeom):
                 if self.model.geom_bodyid[g] != bid:
                     continue
-                t = int(self.model.geom_type[g])
-                sz = self.model.geom_size[g]
-                if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
-                    half = _np.array([sz[0], sz[0], sz[0]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
-                           int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
-                    half = _np.array([sz[0], sz[0], sz[1]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
-                           int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
-                    half = _np.array([sz[0], sz[1], sz[2]])
-                else:
-                    r = float(self.model.geom_rbound[g])
-                    half = _np.array([r, r, r])
-                R = self.data.geom_xmat[g].reshape(3, 3)
-                ext_x = float(_np.abs(R[0, :]) @ half)
-                ext_y = float(_np.abs(R[1, :]) @ half)
+                lo, hi = self._geom_world_bounds(g)
+                ext_x, ext_y = float(hi[0] - lo[0]) / 2, float(hi[1] - lo[1]) / 2
                 width = max(width, 2.0 * min(ext_x, ext_y))
         return width
 
@@ -2047,23 +2062,8 @@ class SimXArmAPI:
             for g in range(self.model.ngeom):
                 if self.model.geom_bodyid[g] != bid:
                     continue
-                t = int(self.model.geom_type[g])
-                sz = self.model.geom_size[g]
-                if t == int(mujoco.mjtGeom.mjGEOM_SPHERE):
-                    half = _np.array([sz[0], sz[0], sz[0]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER),
-                           int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
-                    half = _np.array([sz[0], sz[0], sz[1]])
-                elif t in (int(mujoco.mjtGeom.mjGEOM_BOX),
-                           int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
-                    half = _np.array([sz[0], sz[1], sz[2]])
-                else:
-                    r = float(self.model.geom_rbound[g])
-                    half = _np.array([r, r, r])
-                R = self.data.geom_xmat[g].reshape(3, 3)
-                half_z = float(_np.abs(R[2, :]) @ half)
-                cz = float(self.data.geom_xpos[g][2])
-                lo, hi = min(lo, cz - half_z), max(hi, cz + half_z)
+                glo, ghi = self._geom_world_bounds(g)
+                lo, hi = min(lo, float(glo[2])), max(hi, float(ghi[2]))
         if lo == float("inf"):
             raise ValueError(f"{name} has no geoms")
         return lo, hi
