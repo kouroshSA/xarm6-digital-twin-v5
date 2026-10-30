@@ -229,12 +229,20 @@ SLOT_OCCUPIED_TOL_M = 0.020   # cube/tube center within +/- this from slot xy
 #   sideways won't count as seated. Loose disables this check entirely.
 STRINGENCY_LEVELS = {
     "loose":  {"rack_xy_tol_m": 0.020, "rack_z_tol_m": 0.030,
-               "bin_xy_tol_m": 0.040, "tilt_deg_max": 90.0},
+               "bin_xy_tol_m": 0.040, "tilt_deg_max": 90.0,
+               "drop_tol_m": None},
     "normal": {"rack_xy_tol_m": 0.012, "rack_z_tol_m": 0.015,
-               "bin_xy_tol_m": 0.030, "tilt_deg_max": 30.0},
+               "bin_xy_tol_m": 0.030, "tilt_deg_max": 30.0,
+               "drop_tol_m": 0.030},
     "strict": {"rack_xy_tol_m": 0.006, "rack_z_tol_m": 0.006,
-               "bin_xy_tol_m": 0.020, "tilt_deg_max": 10.0},
+               "bin_xy_tol_m": 0.020, "tilt_deg_max": 10.0,
+               "drop_tol_m": 0.015},
 }
+# drop_tol_m: an object let go further than this above what lies under it
+# (not a bin or container, where releasing from above IS the placement) is
+# reported "<name> dropped from N mm" -- a drop, not a placement. A live run
+# "put the cucumber down 150 mm to the right" passed three times by letting
+# go 70 mm up beside the cupcake. None (loose) keeps the old vocabulary.
 DEFAULT_STRINGENCY = "loose"
 
 # When push_object operates on a rack, these tubes are welded too so the
@@ -485,7 +493,9 @@ class SimXArmAPI:
         """Record current world-frame positions of every tracked body.
         Used by physical_outcome() as the baseline for displacement +
         proximity facts. Safe to call any time -- overwrites the prior
-        snapshot."""
+        snapshot. Also starts a fresh release record (_release_gaps), the
+        other per-episode baseline physical_outcome() reads."""
+        self._release_gaps = {}
         with self.lock:
             mujoco.mj_forward(self.model, self.data)
             snap = {}
@@ -1927,9 +1937,60 @@ class SimXArmAPI:
                 if self.data.eq_active[h["eqid"]]:
                     self.data.eq_active[h["eqid"]] = 0
                     released.append(f"{name} handle")
+            for name in released:
+                if name in self.cube_bids:
+                    self._release_gaps[name] = self._release_gap(name)
             self._set_finger_ctrl(GRIPPER_OPEN_CTRL_M)
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
+        for name, (gap, under) in self._release_gaps.items():
+            if name in released and gap is not None and gap > 0.015 and not under[1]:
+                print(f"[SimXArm]   {name} let go {gap * 1000:.0f} mm above {under[0]}")
         return 0
+
+    def _release_gap(self, name: str):
+        """(gap m, (surface, is_container)) under a just-released object: how
+        far its lowest point is above whatever a ray straight down from its
+        footprint centre meets first. Rays see what the cameras see
+        (ray_geomgroup), skipping the object itself and the robot -- the jaws
+        can reach below a small object. gap is None when nothing is hit.
+        Caller holds the lock."""
+        from sim.render_options import ray_geomgroup
+        bid = self.cube_bids[name]
+        gs = [g for g in range(self.model.ngeom) if self.model.geom_bodyid[g] == bid
+              and (self.model.geom_contype[g] or self.model.geom_conaffinity[g])]
+        if not gs:
+            return None, ("nothing", False)
+        bounds = [self._geom_world_bounds(g) for g in gs]
+        lo = np.min([b[0] for b in bounds], axis=0)
+        hi = np.max([b[1] for b in bounds], axis=0)
+        robot = self._mj("xarm_base", "body")
+        robot_root = self.model.body(robot).id
+        # Start 5 mm INSIDE the object (the ray skips its body): an object at
+        # rest sits a hair into the surface, and a ray starting inside the
+        # bench passes through it and reported a cube on the bench as 749 mm
+        # above the floor.
+        start_in = 0.005
+        pnt = np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2] + start_in])
+        mask = np.asarray(ray_geomgroup(), dtype=np.uint8)
+        gid = np.zeros(1, dtype=np.int32)
+        travelled = 0.0
+        for _ in range(8):
+            dist = mujoco.mj_ray(self.model, self.data, pnt, np.array([0.0, 0.0, -1.0]),
+                                 mask, 1, bid, gid)
+            if dist < 0:
+                return None, ("nothing", False)
+            hit_body = int(self.model.geom_bodyid[gid[0]])
+            if not self._is_descendant(hit_body, robot_root):
+                surface = self._logical(self.model.body(hit_body).name)
+                bins = {self.model.body(self._mj(b, "body")).id for b in self.bin_bodies}
+                hit_pt = pnt + np.array([0.0, 0.0, -dist])
+                container = (hit_body in bins or any(
+                    self._is_descendant(hit_body, bb) for bb in bins)
+                    or self._container_part_of(name, hit_pt) is not None)
+                return max(0.0, travelled + dist - start_in), (surface, container)
+            travelled += dist + 1e-3
+            pnt = pnt + np.array([0.0, 0.0, -(dist + 1e-3)])
+        return None, ("nothing", False)
 
     # ---- articulated objects (doors, drawers) ------------------------------
     def _init_handles(self) -> None:
@@ -2790,6 +2851,7 @@ class SimXArmAPI:
             rel_quat = np.zeros(4)
             mujoco.mju_mulQuat(rel_quat, gq_inv, cq)
             eqid = self.weld_eqids[nearest]
+            self._release_gaps.pop(nearest, None)   # picked up again
             # eq_data layout for weld in MuJoCo 3.8.1:
             #   [0:3]   anchor (body1 frame)
             #   [3:6]   relpose translation (body2 in body1 frame)
@@ -2881,6 +2943,8 @@ class SimXArmAPI:
                               -- the loop only cares about state changes)
           - "off bench"     : object xy is outside bench bounds but still elevated
                               (mid-air or in-flight)
+          - "dropped from N mm" : (normal/strict) let go N mm above the surface
+                              under it, not over a bin/container (drop_tol_m)
         Anything else (resting loose on the bench or in its home rack) isn't called out.
 
         `stringency` selects how tight the rack-seated / bin-placed thresholds
@@ -3153,6 +3217,12 @@ class SimXArmAPI:
                     notes.append(f"{a} closer to {b}")
                 else:
                     notes.append(f"{a} farther from {b}")
+
+        drop_tol = cfg.get("drop_tol_m")
+        if drop_tol is not None:
+            for name, (gap, (_surface, container)) in self._release_gaps.items():
+                if gap is not None and not container and gap > drop_tol:
+                    notes.append(f"{name} dropped from {gap * 1000:.0f} mm")
 
         notes += self._part_states()
         return "; ".join(notes) if notes else "no objects displaced"

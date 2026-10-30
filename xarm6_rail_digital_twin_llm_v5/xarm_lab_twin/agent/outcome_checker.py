@@ -36,6 +36,7 @@ from typing import Optional, List, Tuple
 #: physical_outcome()'s word for "the arm stopped while still holding this".
 #: Spelled once, here, and imported by anything that needs to recognise it.
 HELD_MARKER = "still in the gripper"
+DROPPED_MARKER = "dropped from"
 
 COLORS = ("red", "green", "blue")
 
@@ -338,6 +339,15 @@ def check_outcome(task: str, physical: str,
                 for seg in phys.split(";") if HELD_MARKER in seg]
         return (False, f"Arm halted still holding {', '.join(held) or 'an object'}"
                        f"{src}; nothing was set down. Physical: {phys}")
+
+    # A drop is not a placement. "<name> dropped from N mm" is only reported at
+    # normal/strict stringency (sim STRINGENCY_LEVELS drop_tol_m), so loose
+    # grading is unchanged. Tasks whose goal IS a fall keep their verdict.
+    if DROPPED_MARKER in phys and not any("fell" in e or "off bench" in e
+                                          for e in expected):
+        dropped = [seg.strip() for seg in phys.split(";") if DROPPED_MARKER in seg]
+        return (False, f"Let go above the surface: {', '.join(dropped)}{src}; "
+                       f"dropped, not placed. Physical: {phys}")
 
     if mode == "any":
         if any(_matches_with_swap(phys, e) for e in expected):

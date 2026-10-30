@@ -155,6 +155,11 @@ Categorical events (exclusive per object -- only one per object per call):
                                     slot (tubes still in their home rack
                                     are NOT reported)
   - `<object> off bench`         -- xy is past the bench edge, still elevated
+  - `<object> dropped from N mm` -- (normal/strict stringency only) it was
+                                    let go N mm above the surface below it,
+                                    not over a bin: a drop, not a placement.
+                                    Always a FAILURE unless the task is to
+                                    make it fall.
   - `<object> still in the gripper`
                                  -- the arm halted while holding it. This is
                                     almost always a FAILURE, including for a

@@ -82,6 +82,7 @@ Given an operator's instruction, return JSON with these fields:
               drawn from what the named class of object needs
   question    when status is "needs_clarification", the single question that
               would resolve it; otherwise ""
+  why         when status is "rejected", one sentence saying why; otherwise ""
 
 Rules:
 - Constraints describe REQUIREMENTS ("the tube must stay upright", "approach
@@ -92,6 +93,17 @@ Rules:
 - Use "needs_clarification" when the instruction could mean materially
   different things, and "rejected" when it is impossible or meaningless.
   Otherwise "ok".
+- You are not told which room the robot is in or what it holds. Rooms contain
+  more than labware -- food, household items, furniture. Never reject because
+  an object is unfamiliar or is not lab equipment: whether it exists and can be
+  grasped is checked later, against the scene. Softness, fragility or an odd
+  shape are not grounds either -- if handling needs care, state it as a
+  constraint. Relative moves ("80 mm to the left", "lift it 100 mm and hold
+  it there") are ordinary: the planner works out the positions and the arm
+  keeps its grasp until told to release. "rejected" is ONLY for instructions
+  no robot arm could carry out (physically impossible, self-contradictory) or
+  that make no sense as stated. When no skill below covers the object, add no
+  class constraints for it.
 - If the instruction is already clear, return it unchanged with status "ok".
 - You may be shown what happened on PREVIOUS attempts: what the arm was asked
   to do and what physically resulted. Use it to state the goal more precisely
@@ -111,8 +123,9 @@ class IntakeResult:
     components: list = field(default_factory=list)
     constraints: list = field(default_factory=list)
     question: str = ""
+    why: str = ""                 # the model's reason for a rejection
     used: bool = False
-    reason: str = ""
+    reason: str = ""              # why intake's output was or was not used
 
     @property
     def blocked(self) -> bool:
@@ -130,6 +143,8 @@ class IntakeResult:
             out += [f"          - {c}" for c in self.constraints]
         if self.question:
             out.append(f"[Layer0] question for the operator: {self.question}")
+        if self.why:
+            out.append(f"[Layer0] rejected because: {self.why}")
         return "\n".join(out)
 
     def to_task_prompt(self) -> str:
@@ -164,6 +179,11 @@ def check_contract(original: str, data: dict, feedback=None) -> tuple:
         return False, "status ok but no task returned"
     if status == STATUS_ASK and not (data.get("question") or "").strip():
         return False, "needs_clarification without a question"
+    # A refusal nobody can read is a refusal nobody can act on: the operator
+    # saw a bare "REJECTED" for a cucumber, the reason lost in prose after the
+    # JSON. Unexplained, it does not get to block the task.
+    if status == STATUS_REJECT and not (data.get("why") or "").strip():
+        return False, "rejected without saying why"
 
     blob = " ".join([task] + list(data.get("constraints") or [])
                     + list(data.get("components") or [])).lower()
@@ -266,6 +286,7 @@ def intake(task: str, model: str = INTAKE_MODEL_DEFAULT,
         components=list(data.get("components") or []),
         constraints=list(data.get("constraints") or []),
         question=(data.get("question") or "").strip(),
+        why=(data.get("why") or "").strip(),
         used=True,
         reason=reason,
     )
@@ -302,6 +323,13 @@ def self_test() -> int:
         ("a rewrite that loses the instruction is rejected", {
             "status": "ok", "task": "Do the thing.",
             "components": [], "constraints": [], "question": ""}, False),
+        ("a rejection that says why is accepted", {
+            "status": "rejected", "task": "", "components": [],
+            "constraints": [], "question": "",
+            "why": "A tube cannot be placed inside itself."}, True),
+        ("a rejection without a reason is not", {
+            "status": "rejected", "task": "", "components": [],
+            "constraints": [], "question": "", "why": ""}, False),
     ]
     for label, data, expect in cases:
         ok, reason = check_contract(orig, data)
@@ -330,7 +358,16 @@ def self_test() -> int:
     fails += 0 if good3 else 1
     print(f"  [{'PASS' if good3 else 'FAIL'}] {'a clarification request blocks the run':48} blocked={r3.blocked}")
 
-    total = len(cases) + 3
+    # The consumer is run_task, which prints render() above "Not proceeding":
+    # the reason must be in that text, not only on the object.
+    r4 = intake(orig, call_model=lambda s, u: json.dumps({
+        "status": "rejected", "task": "", "components": [], "constraints": [],
+        "question": "", "why": "A tube cannot be placed inside itself."}))
+    good4 = r4.blocked and "cannot be placed inside itself" in r4.render()
+    fails += 0 if good4 else 1
+    print(f"  [{'PASS' if good4 else 'FAIL'}] {'a rejection prints its reason':48} blocked={r4.blocked}")
+
+    total = len(cases) + 4
     print(f"\n  {total - fails} PASS  {fails} FAIL")
     return 1 if fails else 0
 

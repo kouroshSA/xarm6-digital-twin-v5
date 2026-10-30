@@ -63,6 +63,13 @@ When extending the loop:
   a deterministic starting state. If your change requires preserving state
   across episodes, that's a different feature (multi-objective episodes,
   not yet implemented).
+- **A drop is not a placement.** At `--stringency normal|strict` the gripper's
+  release is measured: an object let go more than 30 / 15 mm above the surface
+  under it (not over a bin or container) is reported `<name> dropped from N mm`,
+  and `check_outcome` fails it unless the task is to make something fall. Loose
+  (the default) reports nothing new. A live loop "succeeded" three times by
+  letting a cucumber fall 70 mm because the failure analyser said "lift z"; a
+  refusal to set a held object DOWN now says the spot is occupied instead.
 
 ## Learning architecture (Phases 1/2/3 + grader fallback)
 

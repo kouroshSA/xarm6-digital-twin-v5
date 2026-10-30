@@ -220,6 +220,40 @@ avoid repeating mistakes (e.g. a height that previously caused a collision).
 """
 
 
+def extract_command_list(raw: str):
+    """The plan's JSON command list from a model reply, or None.
+
+    Tried in order, so a reply that parsed before parses the same way now:
+    the whole reply; the span from the first "[" to the last "]"; then each
+    "[" in turn, keeping the LAST list of {"action": ...} objects that decodes.
+    The third step is new: a model that reasons before its plan writes "spans
+    [25, 77]" in the prose, the greedy span then starts there, and a valid plan
+    was thrown away as "Extra data" -- two episodes of a live loop run lost.
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"(\[.*\])", raw, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+    dec, found = json.JSONDecoder(), None
+    for i, ch in enumerate(raw):
+        if ch != "[":
+            continue
+        try:
+            val, _ = dec.raw_decode(raw, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(val, list) and val and all(
+                isinstance(c, dict) and "action" in c for c in val):
+            found = val
+    return found
+
+
 class LLMBrain:
 
     def __init__(self, arm, registry: ObjectRegistry,
@@ -556,17 +590,12 @@ class LLMBrain:
               f"({in_tok}->{out_tok} tokens)")
         self.history.append({"role": "assistant", "content": raw})
 
-        try:
-            commands = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r"(\[.*\])", raw, re.DOTALL)
-            if m:
-                commands = json.loads(m.group(1))
-            else:
-                if llm_log:
-                    llm_log.log_parse_error(f"No JSON array:\n{raw}")
-                    llm_log.close()
-                raise ValueError(f"LLM returned non-JSON:\n{raw}")
+        commands = extract_command_list(raw)
+        if commands is None:
+            if llm_log:
+                llm_log.log_parse_error(f"No JSON array:\n{raw}")
+                llm_log.close()
+            raise ValueError(f"LLM returned non-JSON:\n{raw}")
         if llm_log:
             llm_log.log_parsed(commands)
 

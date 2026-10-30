@@ -532,7 +532,9 @@ def main():
 
     _exit_code = 0
     if loop_summary is not None:
-        if not loop_summary.get("any_success", False):
+        # EpisodeRetry.run reports this as "success" (it prints "any_success=");
+        # reading "any_success" made every --loop run exit 1, successes included.
+        if not loop_summary.get("success", False):
             _exit_code = 1
     elif not args.dry_run and "task_success" in dir():
         pass
