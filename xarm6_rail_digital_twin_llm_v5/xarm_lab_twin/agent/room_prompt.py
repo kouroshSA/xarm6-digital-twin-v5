@@ -227,7 +227,40 @@ def _generated_commands(arm) -> str:
         lines += ["- pcr_open       params: {}  — open the PCR Thermocycler lid. MUST be called "
                   "before loading or removing a plate from the PCR.",
                   "- pcr_close      params: {}  — close the PCR Thermocycler lid."]
+    parts = _operable_parts(arm)
+    if parts:
+        names = "; ".join(parts)
+        lines.append(
+            '- operate_part   params: {"part": "<object>.<part>", "opening": <0.0-1.0>}  — '
+            "grasp the named door/drawer/lever by its handle and swing or slide it to "
+            "`opening` (fraction of its travel: 0 = closed, 1 = fully open), then let go "
+            "and back off. ONE action: do not move_to the handle or gripper_close yourself. "
+            "A part behind a closed door (a shelf) needs that door opened first. Afterwards "
+            "the scene reports '<object> <part> open N deg|mm'. Parts in this room: "
+            f"{names}.")
     return "\n".join(lines)
+
+
+def _operable_parts(arm) -> list:
+    """`object.part (hinged door, 0-105 deg)` for every handle the arm can
+    grasp, from the arm's own handle table -- the names operate_part takes."""
+    handles = getattr(arm, "handles", None) or {}
+    out = []
+    for name, h in sorted(handles.items()):
+        if h.get("jid") is None:
+            continue
+        m = arm.model
+        if m.jnt_stiffness[h["jid"]] > 0:
+            # Spring-return (the toaster lever): it cannot be LEFT open, so
+            # offering it would hand the planner an action that always fails.
+            continue
+        lo, hi = m.jnt_range[h["jid"]]
+        if m.jnt_type[h["jid"]] == mujoco.mjtJoint.mjJNT_HINGE:
+            span = f"hinged, {abs(np.degrees(hi - lo)):.0f} deg"
+        else:
+            span = f"sliding, {abs(hi - lo) * 1000:.0f} mm"
+        out.append(f"{name} ({span})")
+    return out
 
 
 # ---------------------------------------------------------------------------

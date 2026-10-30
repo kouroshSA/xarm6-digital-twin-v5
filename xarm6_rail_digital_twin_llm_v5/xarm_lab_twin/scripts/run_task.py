@@ -246,7 +246,7 @@ def main():
                     _pre = _vt(args.task, registry, arm).warnings
                 except Exception:  # noqa: BLE001
                     _pre = []
-            r0 = intake(args.task, feedback=_pre or None)
+            r0 = intake(args.task, screen=_pre or None)
             rendered = r0.render()
             if rendered:
                 print(rendered)

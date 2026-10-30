@@ -256,7 +256,7 @@
     }
   ],
   "agent": {
-    "context": "Objects on the bench in front of the rail: cucumber (52 x 170 x 48 mm, lying along y), cupcake (75 mm across), green soda bottle (64 mm across, 231 mm tall: push it, too tall to grasp from above), lab bottle (66 x 60 x 143 mm), keyboard (442 mm wide: push only), toaster (307 mm long: push only) and a desk alarm clock (120 x 68 x 162 mm). Behind the bench stands a laboratory incubator and at the bench's left end a low file cabinet; their doors are closed, and there is no planner action to open them yet, so do not plan to reach inside.",
+    "context": "Objects on the bench in front of the rail: cucumber (52 x 170 x 48 mm, lying along y), cupcake (75 mm across), green soda bottle (64 mm across, 231 mm tall: push it, too tall to grasp from above), lab bottle (66 x 60 x 143 mm), keyboard (442 mm wide: push only), toaster (307 mm long: push only) and a desk alarm clock (120 x 68 x 162 mm). Behind the bench stands a laboratory incubator and at the bench's left end a low file cabinet; their doors start closed. Open or close them with operate_part (the incubator's shelves are behind its door, so open the door first); the parts are listed with that action.",
     "task_ideas": [
       "pick up the cucumber and put it down 150 mm to the right",
       "push the keyboard 100 mm toward the back of the bench",

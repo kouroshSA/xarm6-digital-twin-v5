@@ -77,7 +77,12 @@ IGNORED = {"gripper_open", "gripper_close", "done", "wait", "get_pose",
 # the failure mode this module's docstring warns about, and silence here would
 # be exactly that.
 DEFERRED = {"locate_object", "move_to_object", "grasp_object",
-            "survey_scene"}
+            "survey_scene",
+            # Same shape, not vision: operate_part reads the handle and the
+            # joint at dispatch and validates every step of the hinge arc or
+            # slide itself (set_position refuses a bad one, the part is
+            # released where it got to). Twin-only; the real arm refuses it.
+            "operate_part"}
 
 
 def scene_limits(scene_xml: str = "envs/lab_scene.xml"):

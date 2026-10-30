@@ -885,6 +885,33 @@ class LLMBrain:
               f"rail: {obj.optimal_rail_mm}mm")
         return 0
 
+    def _operate_part(self, p):
+        """Open or close a door/drawer by its handle (SimXArmAPI.operate_part).
+
+        Self-contained like the vision actions, and for the same reason: the
+        poses (approach, grasp, every step along the hinge arc or slide) exist
+        only once the handle and joint are read at dispatch, so the plan gate
+        lists it in DEFERRED rather than pretending to have checked them.
+        """
+        part = p.get("part")
+        if not part:
+            self.arm.last_refusal = "operate_part needs a 'part', e.g. \"incubator.Door\""
+            print(f"[Agent] {self.arm.last_refusal}")
+            return 1
+        if not hasattr(self.arm, "operate_part"):
+            # The real arm has no handle model to drive a door along.
+            self.arm.last_refusal = "operate_part is twin-only; this arm cannot run it"
+            print(f"[Agent] {self.arm.last_refusal}")
+            return 1
+        try:
+            opening = min(1.0, max(0.0, float(p.get("opening", 1.0))))
+        except (TypeError, ValueError):
+            self.arm.last_refusal = f"operate_part: opening {p.get('opening')!r} is not a number"
+            print(f"[Agent] {self.arm.last_refusal}")
+            return 1
+        speed = self._effective_speed_mm_s(p.get("speed_tier"), default=60.0)
+        return self.arm.operate_part(part, opening, speed=speed)
+
     def _dispatch(self, action, params):
         d = {
             "home":             lambda p: self.arm.go_home(wait=p.get("wait", True)),
@@ -914,6 +941,7 @@ class LLMBrain:
             "locate_object":    self._locate_object,
             "move_to_object":   self._move_to_object,
             "grasp_object":     self._grasp_object,
+            "operate_part":     self._operate_part,
         }
         h = d.get(action)
         if h is None:
