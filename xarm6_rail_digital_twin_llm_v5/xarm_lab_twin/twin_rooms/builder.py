@@ -36,7 +36,8 @@ import mujoco
 import numpy as np
 
 from twin_rooms.builtins import GENERATORS
-from twin_rooms.context import OBJ_PREFIX, ObjectInstance, RobotInstance, RoomContext
+from twin_rooms.context import (OBJ_PREFIX, HandleInstance, ObjectInstance, RobotInstance,
+                                RoomContext)
 from twin_rooms.robot import RobotType, load_robot_type
 from twin_rooms.room import (ROBOTS_DIR, ROOMS_DIR, RoomDef, list_rooms, load_room,
                              load_room_dir, parse_room)
@@ -301,7 +302,12 @@ def _object_body(spec: mujoco.MjSpec, room: RoomDef, o) -> mujoco.MjsBody:
     frame = spec.worldbody.add_frame()
     spec.attach(child, prefix=f"{OBJ_PREFIX}{o.name}/", frame=frame)
     body = spec.body(f"{OBJ_PREFIX}{o.name}/{root}")
-    body.name = f"{OBJ_PREFIX}{o.name}"
+    old_name, body.name = body.name, f"{OBJ_PREFIX}{o.name}"
+    for ex in spec.excludes:          # an articulated asset's <contact><exclude> names its root
+        if ex.bodyname1 == old_name:
+            ex.bodyname1 = body.name
+        if ex.bodyname2 == old_name:
+            ex.bodyname2 = body.name
     free = [j for j in body.joints if j.type == mujoco.mjtJoint.mjJNT_FREE]
     if o.dynamic and not free:
         body.add_freejoint(name=f"{OBJ_PREFIX}{o.name}_joint")
@@ -309,6 +315,34 @@ def _object_body(spec: mujoco.MjSpec, room: RoomDef, o) -> mujoco.MjsBody:
         raise RoomError(where, [f"{path.name}'s body has a free joint but the object is "
                                 "\"dynamic\": false"])
     return body
+
+
+def _handle_connects(spec: mujoco.MjSpec, o, body, robots) -> Dict[str, HandleInstance]:
+    """One disabled CONNECT "<instance>/grip_<object>__<link>" per handle site
+    ("<link>_handle", written by simready_import --handle) per gripper-carrying
+    robot. SimXArmAPI stamps both anchors when it grasps, so the constraint
+    pins the tool point to the handle without snapping either body."""
+    handles: Dict[str, HandleInstance] = {}
+    for site in body.find_all(mujoco.mjtObj.mjOBJ_SITE):
+        if not site.name.endswith("_handle"):
+            continue
+        link = site.parent
+        lname = site.name[len(f"{OBJ_PREFIX}{o.name}/"):-len("_handle")]
+        joints = [j for j in link.joints if j.type in (mujoco.mjtJoint.mjJNT_HINGE,
+                                                       mujoco.mjtJoint.mjJNT_SLIDE)]
+        connects = {}
+        for inst in robots.values():
+            if not inst.end_effector:
+                continue
+            name = f"{inst.prefix}grip_{o.name}__{lname}"
+            spec.add_equality(name=name, type=mujoco.mjtEq.mjEQ_CONNECT,
+                              objtype=mujoco.mjtObj.mjOBJ_BODY, active=False,
+                              name1=inst.mjcf(inst.type.names["gripper_body"]),
+                              name2=link.name, data=[0.0] * 11)
+            connects[inst.spec.instance] = name
+        handles[lname] = HandleInstance(lname, link.name, site.name,
+                                        joints[0].name if joints else None, connects)
+    return handles
 
 
 def _build_composed(room: RoomDef, types, variant):
@@ -352,7 +386,8 @@ def _build_composed(room: RoomDef, types, variant):
                                   name1=inst.mjcf(inst.type.names["gripper_body"]),
                                   name2=body.name)
                 welds[inst.spec.instance] = name
-        objects[o.name] = ObjectInstance(o, body.name, welds)
+        objects[o.name] = ObjectInstance(o, body.name, welds,
+                                         _handle_connects(spec, o, body, robots))
 
     for c in room.cameras:
         if c.pos is None:

@@ -74,10 +74,24 @@ class RobotInstance:
 
 
 @dataclass
+class HandleInstance:
+    """A grip segment on one moving link of an articulated object (a fridge
+    door, a drawer). The gripper holds it with a CONNECT constraint -- a
+    point, not a weld -- so the link can turn under a gripper that keeps its
+    own orientation."""
+    link: str                     # link name in the asset (door_01)
+    body: str                     # MJCF body of the link
+    site: str                     # MJCF capsule site: the segment
+    joint: Optional[str]          # MJCF joint that moves the link
+    connects: Dict[str, str]      # robot instance -> MJCF name of its connect
+
+
+@dataclass
 class ObjectInstance:
     spec: ObjectSpec
     body: str                     # MJCF body name
     welds: Dict[str, str]         # robot instance -> MJCF name of its grasp weld
+    handles: Dict[str, HandleInstance] = field(default_factory=dict)   # link -> handle
 
     @property
     def name(self) -> str:

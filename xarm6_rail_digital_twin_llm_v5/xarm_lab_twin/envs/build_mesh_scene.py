@@ -56,6 +56,7 @@ DST = HERE / "lab_scene.xml"
 import sys as _sys
 _sys.path.insert(0, str(HERE.parent))
 from arm_backend import XARM6_JOINT_LIMITS_DEG as _LIM
+from sim.tool import TCP_FROM_FLANGE_M
 import math as _math
 
 def _rng(j: int) -> str:
@@ -122,8 +123,9 @@ def _new_arm_subtree(gripper_block: str) -> str:
                       <joint name="joint6" axis="0 0 1" range="{_rng(6)}" damping="3"/>
                       <geom name="link6_geom" type="mesh" mesh="xarm6_link6" mass="0.1096"
                             material="xarm6_link_mat" class="arm_link"/>
-                      <!-- IK target marker, at the tool flange (+z out of link6). -->
-                      <site name="end_effector" pos="0 0 0.09"
+                      <!-- IK target marker = the TCP, {TCP_FROM_FLANGE_M * 1000:.1f} mm out of the
+                           flange: F/T sensor + camera adapter + xArm Gripper (sim/tool.py). -->
+                      <site name="end_effector" pos="0 0 {TCP_FROM_FLANGE_M:.4f}"
                             size="0.005" rgba="1 0.3 0.3 0.5" type="sphere"/>
 {g}
                     </body>

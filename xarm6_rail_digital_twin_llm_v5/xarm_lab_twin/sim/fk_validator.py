@@ -36,6 +36,23 @@ class ValidationResult:
     contacts: tuple = ()
 
 
+def held_link_geoms_from_connects(model: mujoco.MjModel, gripper_body: str = "gripper") -> dict:
+    """{geom name: connect name} for every geom of every link (a door, a
+    drawer) the gripper has a handle CONNECT to."""
+    out = {}
+    gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, gripper_body)
+    if gid < 0:
+        return out
+    held = {int(model.eq_obj2id[e]): model.equality(e).name for e in range(model.neq)
+            if model.eq_type[e] == mujoco.mjtEq.mjEQ_CONNECT and model.eq_obj1id[e] == gid}
+    for g in range(model.ngeom):
+        con = held.get(int(model.geom_bodyid[g]))
+        name = model.geom(g).name
+        if con and name:
+            out[name] = con
+    return out
+
+
 class FKValidator:
     """
     Validates against the LIVE sim state - shares model + data + lock.
@@ -58,6 +75,10 @@ class FKValidator:
     # 53 geoms that had drifted from the scene -- the translucent cup's 13 geoms
     # and the heater-shaker's 2 LEDs were missing although both bodies had welds.
     HELD_CUBE_GEOMS: dict = {}
+    # The same for a door or drawer held by its handle, but only against the
+    # GRIPPER's geoms: the jaws touch the link they hold, while the elbow
+    # passing through a held door is still a collision.
+    HELD_LINK_GEOMS: dict = {}
 
     def __init__(self, model: mujoco.MjModel,
                  data: mujoco.MjData,
@@ -75,6 +96,11 @@ class FKValidator:
         if arm_geom_names is not None:
             self.ARM_GEOM_NAMES = set(arm_geom_names)
         self.HELD_CUBE_GEOMS = held_geoms_from_welds(model, gripper_body)
+        self.HELD_LINK_GEOMS = held_link_geoms_from_connects(model, gripper_body)
+        self._gripper_geoms = {model.geom(g).name for g in range(model.ngeom)
+                               if model.geom_bodyid[g] == mujoco.mj_name2id(
+                                   model, mujoco.mjtObj.mjOBJ_BODY, gripper_body)
+                               or "finger" in model.geom(g).name}
 
     def validate(self, joint_angles_rad: np.ndarray,
                  target_pos_m: np.ndarray,
@@ -150,6 +176,10 @@ class FKValidator:
                                         continue
                                 except KeyError:
                                     pass
+                            con_name = self.HELD_LINK_GEOMS.get(other)
+                            if con_name is not None and ({g1, g2} & self._gripper_geoms):
+                                if self.data.eq_active[self.model.equality(con_name).id]:
+                                    continue
                             arm_hits.append((g1, g2))
                     if arm_hits:
                         return ValidationResult(

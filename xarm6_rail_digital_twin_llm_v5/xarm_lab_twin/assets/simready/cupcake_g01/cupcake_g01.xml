@@ -13,8 +13,8 @@
   <worldbody>
     <body name="cupcake_g01">
       <inertial pos="-0.000547 0.000050 0.003250" mass="0.159339" fullinertia="9.47110791e-05 9.58931815e-05 8.69219083e-05 1.63940667e-07 1.76899309e-07 -1.12621468e-07"/>
-      <geom name="cupcake_g01_visual0" type="mesh" mesh="cupcake_g01_visual0" material="cupcake_g01_mat0" contype="0" conaffinity="0" group="2" density="0"/>
-      <geom name="cupcake_g01_visual1" type="mesh" mesh="cupcake_g01_visual1" material="cupcake_g01_mat1" contype="0" conaffinity="0" group="2" density="0"/>
+      <geom name="cupcake_g01_visual0" type="mesh" mesh="cupcake_g01_visual0" material="cupcake_g01_mat0" contype="0" conaffinity="0" group="1" density="0"/>
+      <geom name="cupcake_g01_visual1" type="mesh" mesh="cupcake_g01_visual1" material="cupcake_g01_mat1" contype="0" conaffinity="0" group="1" density="0"/>
       <geom name="cupcake_g01_collision0" type="mesh" mesh="cupcake_g01_collision0" group="3" rgba="0.5 0.5 0.5 0" density="0" condim="6" friction="0.350 0.005 0.005"/>
     </body>
   </worldbody>

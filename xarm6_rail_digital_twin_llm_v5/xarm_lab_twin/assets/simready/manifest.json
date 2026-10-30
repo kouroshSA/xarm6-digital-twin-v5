@@ -1,4 +1,47 @@
 {
+  "bottle_laboratory_a01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "bottle_laboratory_a01/simready_usd/sm_bottle_laboratory_a01_01.usd",
+    "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 16,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005
+    },
+    "bbox_mm": [
+      60.4,
+      66.1,
+      142.8
+    ],
+    "mass_kg": 0.71059,
+    "labels": {
+      "wikidata_class": [
+        "bottle"
+      ],
+      "wikidata_qcode": [
+        "Q80228"
+      ]
+    },
+    "files": {
+      "bottle_laboratory_a01.xml": "b680528293783117c97ac4ce83dd9bf3865c5feac74528a7eebd6178e2bbc2a7",
+      "bottle_laboratory_a01_tex0.png": "a40d3bce868e89cb57a417bb6150e892155159ceb2602835d363d0d5eda26da2",
+      "bottle_laboratory_a01_tex1.png": "977b3a9ed4663ab58f20264b0145a5014032652c0e54bae16db97610b9ab27d2",
+      "collision_0.obj": "1332bbb9f5c6e6cad78f586043e75b0bd61ebe7382216a006875c695e72476c7",
+      "collision_1.obj": "37454e6796d060bc4568ac454ea388083830ea55ced20c1b230ea1d45fe15f05",
+      "collision_2.obj": "dc7b4e8ac705f98ba27ffd543060c0394e2a18d2ce56ecf85c9922627ac382da",
+      "visual_0.obj": "b4af6a357f3081cfe946ecfc5b354e398df5f337e43b01ac4ee1f7736a630a8e",
+      "visual_1.obj": "cbb3878255b428c37f5265c0bf09e310444aa8aa9b2d940b03656342771ad28d",
+      "visual_2.obj": "d6e13653497ea6e279e27d62cc5ce1c97574ed4180ec79a9d1f5b86969e144e1",
+      "visual_3.obj": "1edcc123a0936ed636f235030baf18171f5897548c39b32bbf390f21a2ac2c23"
+    },
+    "imported_at": "2026-10-30T10:34:22+00:00"
+  },
   "bottled_drink_e01": {
     "repo_id": "nvidia/simready-assets",
     "path_in_repo": "food_beverage_bottledDrink_e01/simready_usd/sm_food_beverage_bottledDrink_e01_01.usd",
@@ -29,7 +72,7 @@
       ]
     },
     "files": {
-      "bottled_drink_e01.xml": "5896ad9ebbde67020f6cb725935dede05d610b589a6888df70b632a001ed1a0a",
+      "bottled_drink_e01.xml": "41220ad3e99157ebd517b143f7dca4de45d080eb49749cb99e2a3a5f51f9ea13",
       "bottled_drink_e01_tex0.png": "35d113a8edfab0a59b91a421dded3fcfc0b65d87331095a394021495a6f9edf2",
       "collision_0.obj": "4753b6ad704b40fe5c79cf6462f547e30bcdbc8bdc6bbe465a606c02fdc678e4",
       "collision_1.obj": "822a9684f754270979042115ed67bd43daafff2de07254141779c992ae397db8",
@@ -37,7 +80,520 @@
       "visual_1.obj": "8281d73a0ab86bcc8fe9a10fbc178c301263e0606081acc728cc3adcef1b5161",
       "visual_2.obj": "883018328434a6763f576d1f57d401059896f84a46bae3e7dc61bcbfb603731f"
     },
-    "imported_at": "2026-10-29T17:33:35+00:00"
+    "imported_at": "2026-10-30T12:36:31+00:00"
+  },
+  "cabinet_file_a03": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "cabinet_file_a03/simready_usd/sm_cabinet_file_a03_01.usd",
+    "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 32,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005,
+      "articulated": true,
+      "handles": {
+        "door_01": [
+          [
+            0.185,
+            -0.03,
+            0.6
+          ],
+          [
+            0.185,
+            -0.03,
+            1.4
+          ]
+        ],
+        "door_02": [
+          [
+            0.185,
+            0.03,
+            0.6
+          ],
+          [
+            0.185,
+            0.03,
+            1.4
+          ]
+        ]
+      }
+    },
+    "bbox_mm": [
+      372.8,
+      825.9,
+      2000.3
+    ],
+    "mass_kg": 92.0,
+    "labels": {
+      "wikidata_class": [
+        "cabinet"
+      ],
+      "wikidata_qcode": [
+        "Q640506"
+      ]
+    },
+    "links": {
+      "door_02": {
+        "parent": "body_01",
+        "joint": "door_02_joint",
+        "kind": "hinge",
+        "range": [
+          0.0,
+          1.5707963267948966
+        ],
+        "authored_damping": 0.10000000149011612,
+        "mass_kg": 6.0,
+        "handle": true
+      },
+      "door_01": {
+        "parent": "body_01",
+        "joint": "door_01_joint",
+        "kind": "hinge",
+        "range": [
+          -1.5707963267948966,
+          0.0
+        ],
+        "authored_damping": 0.10000000149011612,
+        "mass_kg": 6.0,
+        "handle": true
+      }
+    },
+    "files": {
+      "cabinet_file_a03.xml": "baca9f935ef920b88b452122c8b95a8c13d71c4b8152b27d2dfef734f7bfb159",
+      "cabinet_file_a03_tex0.png": "79d350259b76f2ff1ddec37df65f7768eac3b623ae8abe10232cc13a6a9c14aa",
+      "cabinet_file_a03_tex1.png": "4c06b24584e14d037d156a3cf27f96f141abab41c3c3ed2481ca440780b9fe72",
+      "collision_0.obj": "81dec23cb7fd805866b5d4e7f5c0e880ba9d3dbb07bbee80dacc16c42bb6ba32",
+      "collision_1.obj": "64b0a5cd658c0fe2b7e7173ae13b1d2b7f39b7e279b2afa50dfbb285c88e0c0c",
+      "collision_10.obj": "014929dbf1dd9bc3bca767c50483e7c895f3933816cf13489c6c99913f4e5695",
+      "collision_11.obj": "ea24223213fa6f34448719c312e4e2d0269ff5c052e15bcaa21fb4c5d6c4fcd5",
+      "collision_12.obj": "9a986af67bc1704c22b8932c611722c09733626f05bf8add4464d660476b5081",
+      "collision_13.obj": "b6f5790be45df4669093be7626fe3eb39383e4a1f4c97174a421c313cb524f61",
+      "collision_14.obj": "f2a03de608cf0e5ee5a18c50f567fa815da50f75c36bb2c2f505f63c8eb87d50",
+      "collision_15.obj": "bb83427378fa1dc4422488826665b2327d27a9e8ad2f73e2cf51bafa31e63b09",
+      "collision_16.obj": "acd540f8f3369b8692d7545c34a78167fbda6286c06030eaf06f0fc72d2c882c",
+      "collision_17.obj": "a469082a06450c2e6d8b39220835a116f4affc847d94f5a9254dace617e92dea",
+      "collision_18.obj": "e8c39abc4e0be5f93b07934217a8f7578bb74586ceb3a549ed25ee2e1c8e96e1",
+      "collision_19.obj": "740461f4e0aaac33019d84e79e5bab41cbbf41e53db1721db25574c462c69e50",
+      "collision_2.obj": "cd9707036730d5c9566a683530a6201097440ce5014d818a9aa6688139b8de8f",
+      "collision_20.obj": "e7ea62c1c324bea65d84b6c26cd3749bea3bf8ecec65269b810813bdae77cd34",
+      "collision_21.obj": "611fa1e949fe97f9a1d36a090267cbe521199eeaa2f7c930c0a00125e5414555",
+      "collision_22.obj": "a5f8184325ba5afd645979e2d6abb64b00ccf1b4be71642c5f39d0be8d127062",
+      "collision_23.obj": "a30b00165f648d971550b01fd39182c3047c58ec99968dc41bcb98244dd3becb",
+      "collision_24.obj": "4e5825e8a75a9d1a73c45cf6fc365fdfef7268fb52fea93cf689da0437d07299",
+      "collision_25.obj": "ea3ecdad6b9ec3b00449836452894f319362bc51d546fc57fd6141ec820de117",
+      "collision_26.obj": "c3134f2e85a1f22db9e5148e9725a27d3c16fcbd7e9eaef17c3b055027c05cae",
+      "collision_27.obj": "1a8f17706ecce97abae51e51cf8d2be7e0663e4e6fa5257cf817d926a44d44b5",
+      "collision_28.obj": "3e1e68e064f4c3b521fdb1c476bdc069185d834123718520d3812647015cfee4",
+      "collision_29.obj": "020b210a1476a8fdd7f2a6678acc9636c672a6c9b82f8d842bd39335a68ebfe2",
+      "collision_3.obj": "93929fbe159aeab9eac3b1ab6cf83182812605a942523273b791add45394ef00",
+      "collision_30.obj": "096e2b50a0101d2667d059f28849af7f269ac98c04282b08c08485e988fc1a5b",
+      "collision_31.obj": "de60383a00a169baf747f8be8a20c85f76d1923ea329039031cbf8f5e1fa85bd",
+      "collision_32.obj": "46c0ae7cfce80550baff32f9c3b81f4f5512cc9fae5647b448f63d3cb35ed880",
+      "collision_33.obj": "76ea80bd16dd6a2f5d0086e59ff0099d0c9093c05066fdd412578a7c59bddee3",
+      "collision_34.obj": "e1606eb09244117ef55c84a4c1e10c98825cc4b3681de621cb133e2c8d38cd39",
+      "collision_35.obj": "a882d363ef932268e59d2e9688e5fe558609b224fff16df6b940481113d2ad2a",
+      "collision_36.obj": "f2f3f08ab93db36fb5a97515280eed040e0efbc5756abb1e6e7d6f2330533fa1",
+      "collision_4.obj": "d82f627e9547a199c68c1feaffc0d9036cad9af68f4125cfa296c5ad2744fe48",
+      "collision_5.obj": "adc075ef72f8b3c20cffa907f5c00c23ad045797ce5c347946699d2401ff7483",
+      "collision_6.obj": "9d468ed4b2cf92e5bccc8fe8c4c1f0477727f8062b415f180a513b451f5ee35e",
+      "collision_7.obj": "c1cad75db2e716bb517a819ef95a42eee1339f338b045e20b6148d019818cae9",
+      "collision_8.obj": "1b0d995e79ebc11556f1bce297f119ec5c0e16ab41626b5e84aa6d0ea77c2f30",
+      "collision_9.obj": "a39c7d1150cca9a190dc80d0109c5401f3c4c6b7778886f966b1b008d0dd3262",
+      "visual_0.obj": "9561a012c5cb0a332c98f0529d218a5c55edd6b4fa0ac9aae2f27f1632b589bb",
+      "visual_1.obj": "fc2f5c68effe9165b471c548d92fb46344e83fa02dbec0731abdeb8d26e3f714",
+      "visual_2.obj": "f09c096ef40defe607febd4a4fcfdba8c704d8bae29257ef93e2d3150e55f766",
+      "visual_3.obj": "76d3723555281b2bf1f3abc304e0eb3b520aa23baec44025d7b1ab6c19a93b7b",
+      "visual_4.obj": "872606d3ffa13eb80bb0ad48e1ee2f0a3b1d9c497461d2e29a55c6aacf5bdd67",
+      "visual_5.obj": "501e43557b8eae43704ded306ca81d239f9d3f3e0de8d9b346a2d9f838a728bd",
+      "visual_6.obj": "8a2f9f887dc794cebbcfc8c3f2ad61ec7f90bb8329ec0cbdf95a8f354b76d4c8",
+      "visual_7.obj": "c9c51d0ec9127fe910f98f6c34fd12dd4a8c9fff0cf195394db31ef5aba99f25"
+    },
+    "imported_at": "2026-10-30T12:34:15+00:00"
+  },
+  "cabinet_file_c01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "cabinet_file_c01/simready_usd/sm_cabinet_file_c01_01.usd",
+    "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 32,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005,
+      "articulated": true,
+      "handles": {
+        "door_01": [
+          [
+            0.19,
+            -0.046,
+            0.61
+          ],
+          [
+            0.19,
+            -0.046,
+            0.74
+          ],
+          [
+            1,
+            0,
+            0
+          ]
+        ],
+        "door_02": [
+          [
+            0.19,
+            0.046,
+            0.61
+          ],
+          [
+            0.19,
+            0.046,
+            0.74
+          ],
+          [
+            1,
+            0,
+            0
+          ]
+        ]
+      }
+    },
+    "bbox_mm": [
+      375.0,
+      825.9,
+      877.0
+    ],
+    "mass_kg": 84.0,
+    "labels": {
+      "wikidata_class": [
+        "cabinet"
+      ],
+      "wikidata_qcode": [
+        "Q2741056"
+      ]
+    },
+    "links": {
+      "door_01": {
+        "parent": "body_01",
+        "joint": "door_01_joint",
+        "kind": "hinge",
+        "range": [
+          -1.5707963267948966,
+          0.0
+        ],
+        "authored_damping": 0.009999999776482582,
+        "mass_kg": 2.0,
+        "handle": true
+      },
+      "door_02": {
+        "parent": "body_01",
+        "joint": "door_02_joint",
+        "kind": "hinge",
+        "range": [
+          0.0,
+          1.5707963267948966
+        ],
+        "authored_damping": 0.009999999776482582,
+        "mass_kg": 2.0,
+        "handle": true
+      }
+    },
+    "files": {
+      "cabinet_file_c01.xml": "62f8e909a04a81c2cbe2b30284e2e67c73c5ade9ddd0ec24f84f92849af95c5f",
+      "cabinet_file_c01_tex0.png": "4c06b24584e14d037d156a3cf27f96f141abab41c3c3ed2481ca440780b9fe72",
+      "cabinet_file_c01_tex1.png": "79d350259b76f2ff1ddec37df65f7768eac3b623ae8abe10232cc13a6a9c14aa",
+      "cabinet_file_c01_tex2.png": "e0b649eac4b200d1fbb785fd38700be74df4f92b805d258f81232bab19dea659",
+      "collision_0.obj": "4bcc717caa13d9cd845fd603ee9e31e1c9731f36ab8dae0086b70d4eb76f7947",
+      "collision_1.obj": "4817b5d8e8b0b57a65b42b417f7f92aa9b2789860367449acf18b965323259c5",
+      "collision_10.obj": "6668bec94fc9a420c3992d3b1494dd96c95b267ff2ccc572fdaf59da54f10018",
+      "collision_11.obj": "b5f7ee74f03e75cf10c0aea688c6344f60be14b67a003fc0f94bb725ee331f3c",
+      "collision_12.obj": "962f1a2a3efc00c2eb5b422a5719996add91da57e2ad14682d591fda098404be",
+      "collision_13.obj": "b82b841bd4a7efddcf14ee1007b834521c9bf914151018ef03673a82f27c27cd",
+      "collision_14.obj": "868e40c183b6aa1bcc9697435f343e475b0768e190a85d718771c8bcad9a0950",
+      "collision_15.obj": "7049e233aadceb513356917b3cd197710486265857c2f755ea8a5389875b3623",
+      "collision_16.obj": "87e5a4e60e1d5e67cac05742f447e3d003ee9efbf48b5001f4629dcfe1508a2d",
+      "collision_17.obj": "0eaf66446beead7c305929b300b9958badde790e5f122c410ff22d6720a97893",
+      "collision_18.obj": "7579a7b9e23dbe58de1ff5c65d48e2d83a58494a024eaa06089a1ad42c631e87",
+      "collision_19.obj": "1c723533bef6773adbedbb61a19ea09356e9eaa54b4e768ea66e1b62e748d037",
+      "collision_2.obj": "dc8cc1a2adeeebb90bf82e84548352cfc039d146fda8b0b22e97dc5bbd5d85e1",
+      "collision_20.obj": "2c62f2ca16c6358a1253918fb708611af4ba5d497db111ed0b923bf8be6cd599",
+      "collision_21.obj": "9457e7940dd673908a01efe828c0719bfbd2e975479278f6f3b6b9cdb14cbdce",
+      "collision_22.obj": "c7f30dda0010912b14b381bd1ce4b3f3630b1a98374ce04efc4ae6a48c67f35d",
+      "collision_23.obj": "c5b8495a9dda5c47ceae83923dfa7a32b059ce80a91288360715b0662d2bcebb",
+      "collision_24.obj": "90956fcf4797a6aa5c2d35489967d81919681b354e6dccf443e3f3aacec3347b",
+      "collision_25.obj": "95dd63e4a26e22be7efbb4e3708676885eda4ddf10a1a6800b32a1ca20d5fb48",
+      "collision_26.obj": "b1200c9f63ad2ffac37ce4437b80002185573316036fa30a037afa8d279775f5",
+      "collision_27.obj": "e8c6b29bbbfc48b9496c6c8664fd333edc10268ea7ea503ca976b1fc0e42e607",
+      "collision_28.obj": "097e6d48ab2898ba944da69617917d3d5761a71d944f8168957f791ea893cf12",
+      "collision_29.obj": "665b375e94d0ab2a9bcedf850141a6c2f32f46920e598c3cfb818ac1440bdf3e",
+      "collision_3.obj": "4538bfc1f207c8d178bb8a8cff7864a2ce123c003b274752db817979c5b3099e",
+      "collision_30.obj": "cfd331922eff4db15948c5fa717c3f6b54c069275c0f2108334d7704eec0dd34",
+      "collision_31.obj": "d65fe8143a7c75add07e52d458fba21fc1a059b7ca4656793261ee4ba30d1c66",
+      "collision_32.obj": "22ae16f8e4e2dbf48b11ff3e7e6bc844276eb99807fce9688a41743511b45327",
+      "collision_33.obj": "8dff207cec5311f7f8897b9830f95a7b043e66826ce1a42a41d2d8e08793940d",
+      "collision_34.obj": "d914b508e10c3db24df72420c303a7f05d48dfcb47bad445187a49c3f92245da",
+      "collision_35.obj": "df08a2feb98f61f0eb9909454cd28d6530ffe4d04daa8d5c613c6d66c891c13a",
+      "collision_36.obj": "0f7d395d62e8e8c60d4fb603f6d92a6ad95c809755f800dd9a43935e5ee7df02",
+      "collision_37.obj": "b5cb64343e2c50a15a3b171bb5b5b0a61ae6f7f8dba4d093eaa1276b216e5232",
+      "collision_38.obj": "1c30779f45e3a955dd16d77266de56c6b5be33ee1820c0559c74dbba2664d9fd",
+      "collision_39.obj": "c84207d7839380494ed88b7701cb5bef1c3f84c441ba8c082d3d16684230973b",
+      "collision_4.obj": "53969666f39312d71edbc8a81f65a68723b13c89b14d61384a319ad6892dcb9c",
+      "collision_40.obj": "92623161818c02b86095f4293033cf8fbd6f2b24a97554edb4fa46e2ffbdb9cc",
+      "collision_5.obj": "9602b3a29d8da1559df9551dc5080548207a465e9b494e2937a6ce5c34280e38",
+      "collision_6.obj": "4b9e14028100f9ea04ea492855e5c5e811a728b4fceb464c211057646cfb682a",
+      "collision_7.obj": "868e0b6f624d06a06be3e9194e91c5092728f6e6c4ad15bafd3319143483d820",
+      "collision_8.obj": "adf123b0c0e81feea595bbc7b70a9b4c3d61dc1dc2fdf0695c0d385d3746eabb",
+      "collision_9.obj": "38ab00205d0bc64401aad5d366077d60acb41493c2bdacf108b3ad903285c371",
+      "visual_0.obj": "ed174b38559bed396d50a2e1da7b6bc22035e0bf50f84bda859bbafa9782a368",
+      "visual_1.obj": "b647da6a92b34008439e14e5aa0466120ec917d98e00ff923f70088770579456",
+      "visual_2.obj": "ca4d752601c647441e7bf128d5192163835f9c675ae2baa4d44280adbd0558fd",
+      "visual_3.obj": "ae3d61aa224e6e42cd2646fb66380609baffdcc458ff3e7aa9a0052a4b30d970",
+      "visual_4.obj": "dcb9fff28a407fbfa37c690cb78a60f4b7cba01df4c142bf6068500629f8ea3b",
+      "visual_5.obj": "3bfefea6f698681ef7d868c5219d288075c69a290a95ce58a8b25842e3ec97ea",
+      "visual_6.obj": "8741ef4b827ae03802a51f59090ebf4196ad74e018fa15619818bee652bb0423",
+      "visual_7.obj": "b0acbbbc16bccef49068e75e94fd99bd6eba179f19340a77f258d3f7d39d12bf"
+    },
+    "imported_at": "2026-10-30T12:41:31+00:00"
+  },
+  "clock_alarm_a01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "measurement_clock_alarm_a01/simready_usd/sm_measurement_clock_alarm_a01_01.usd",
+    "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 16,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005
+    },
+    "bbox_mm": [
+      100.8,
+      212.3,
+      294.3
+    ],
+    "mass_kg": 7.89655,
+    "labels": {
+      "wikidata_class": [
+        "alarm clock"
+      ],
+      "wikidata_qcode": [
+        "Q212758"
+      ]
+    },
+    "files": {
+      "clock_alarm_a01.xml": "4723015c7e47d52b9d6fa084046d05d466e7281fb9ede3228acf2e578c21a482",
+      "clock_alarm_a01_tex0.png": "7b3b689d96e9633364261745230d820789c41428ee754937dbd1cbff24fd6fea",
+      "collision_0.obj": "9333e56f98dc135bad92f0ed3c767d2a6810024c3d08fb018862bba677167903",
+      "collision_1.obj": "b375f8e0b1ce95059da9f15418121dfeb78485c3fc9f5a1c78e6ca3065e2c1b6",
+      "visual_0.obj": "2d59678960404cd6555fddf93777727e7fb4fc47fab60a76b4decd8536a4c722",
+      "visual_1.obj": "e0403a0b52cf2d1b2afe1b5c6a2960badde43dc62b2ce04d04c6d434a6bcfc45"
+    },
+    "imported_at": "2026-10-30T10:34:28+00:00"
+  },
+  "clock_d00001": {
+    "repo_id": "PalatialSim/palatial-nv-asset-library",
+    "path_in_repo": "D00001/simready_usd/D00001.usd",
+    "revision": "69a87329036cec0440403351c12230970c4e67d8",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "default",
+    "options": {
+      "rigid": false,
+      "max_hulls": 16,
+      "max_visual_tris": 140000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005
+    },
+    "bbox_mm": [
+      119.6,
+      67.9,
+      162.4
+    ],
+    "mass_kg": 0.35,
+    "labels": {
+      "class": [
+        "clock"
+      ],
+      "wikidata_qcode": [
+        "Q376"
+      ]
+    },
+    "files": {
+      "clock_d00001.xml": "79f40c90741e42d4e86d04b8e223043b02e9706f6c2c4ef2835b6e1feea3170f",
+      "clock_d00001_tex0.png": "a894ce37c51c7ef32f86f6c7947e7550d4528f2f6cf20ab340121c9d5e5571b8",
+      "collision_0.obj": "28e0b05af00f3857a5ca85605a2876157083d889e3784b347e9c804e1567bea9",
+      "collision_1.obj": "6c325d7946172e7205b9aa70a71be686d574837b645ec192b06e0d1e1cdabd47",
+      "collision_10.obj": "0f1a6687ae0c8e1005257db7c00ea22bde4c5b937b6d679e8597dc631db3aef7",
+      "collision_100.obj": "ae87d96275364cc456ab202f077eca2eb4eeff1c3ef7202551b27698e939af59",
+      "collision_101.obj": "852b36d23af2407446681786c86445df3387bd16146eb9acea2a2f3a5a8c0083",
+      "collision_102.obj": "846bff3fa6c50aa6942d736739f1f4fe5843b2376f7d9402904d9adfe3418860",
+      "collision_103.obj": "76ec00bc371138b9d0e3adbf3789d668f81329b4811b7f377a6fe874e5782b2d",
+      "collision_104.obj": "92929163269e11ed33ac0ac9e76170ef8e0ddcbce3118ee86380a20c4efaac24",
+      "collision_105.obj": "60177702804208f59f957cd34734205b0b4cb6eb6fca75d884a8f8ed75cbb3a9",
+      "collision_106.obj": "c76b12c4b67f558e190f424b70d20a81128aed3ff818b1cad289a7988c2a3cd3",
+      "collision_107.obj": "595937208f3f9808a1620fa89fd8782b72efe02634e766be4576079fa2e017ae",
+      "collision_108.obj": "285db7cd32eb14dd00c7a8e5710fc6b84bcd990992aab98ad949b6e6c493dd7a",
+      "collision_109.obj": "966aed9acf28a530ece7bad62b0cbe487b0bc1272672c478d160c603a4d28bd0",
+      "collision_11.obj": "0018008dd8207735d9a7daf5f8194538277fc35d405c09606ad981bbfa046632",
+      "collision_110.obj": "941c5e4162247e87e30daca0d5c790a7d312a9cfde39b9832cc4a7205de3030e",
+      "collision_111.obj": "6c08234fbda8eae63a6040ce95c2efdc5255f95e8b265e546b3cdb72508ab333",
+      "collision_112.obj": "68a280d680b5b6fcea613ee80fda82285d48bf0f8081dacb56679b8a8fd215d3",
+      "collision_113.obj": "638caca0a28bd92808f375a4f0c6cd6d63f3cf33506dcade549a4f283b3ace1b",
+      "collision_114.obj": "7329b218c2c6e10f962932fffda36ab5fe427d227d71af1f5763d6037a9717b8",
+      "collision_115.obj": "e3981a99b50876ee828fb8fda5a322229bb16c9fae8f53092311fee83f583366",
+      "collision_116.obj": "7188e58f18fe8e0056608d799ffb5c46825cf2f5de33160228d7a170a91bce22",
+      "collision_117.obj": "5392455b52f2ef846c7bb8a3f4613e1c13028b2653ad082f807126df8d6e438f",
+      "collision_12.obj": "bcc56ee7fd8fc13b3b01e70b00837f230310efa47a51cdf12fa4b5ba1ae6d085",
+      "collision_13.obj": "085d461a6f05ba1dd5145823cda9d6c95003cd95f7c4a7932cd6f6dd6f9438f4",
+      "collision_14.obj": "144f6b6edc4346bfa5e2a10828873b77c791302ca037c224b83d9d3bf713cbb4",
+      "collision_15.obj": "2abf73d57a2c9c6c2537b41dcbcdd2d0b240cf98e715e54dc0b4d41a854ae952",
+      "collision_16.obj": "c8c2ba77e750faf12999ec1603622dcb5118c61edce36fae73f07cf237e9e37f",
+      "collision_17.obj": "b92859a381990cf8762885f4c63e13ea9b97cb99a3e17783243f3fcdf9c04049",
+      "collision_18.obj": "61fa603230ceceafb20713d958da3a0f151571c23412b55eee66dab7f5552367",
+      "collision_19.obj": "5ea6bd9fab894f1bd3e8c4c83d1c2cc7276f4489c44a27845e584168d66b0ae6",
+      "collision_2.obj": "fc694157085de0587c66c81516392eea5c4ea0edd675580d0dc4d0b241b68d8a",
+      "collision_20.obj": "f7c855d5d193b33481f2d92b72e304fb1bc277505663cca55bcff1623269e1c1",
+      "collision_21.obj": "3c8c417cdc4f4bf0bb9c5d7aa8cc99b254ee658f1a8fa89e5221e6e1bd2d5f9a",
+      "collision_22.obj": "4358a8de6b6b5938793556063638c9140e46d69bfef02e0a56b665ff9ec92751",
+      "collision_23.obj": "cc87fa0962e344661e0f3d38f0d817f0ff89298e57b2396a9f6d89037f3635ae",
+      "collision_24.obj": "f3604a579c242589544c531fa4927c6366539533d531f6ffacadc486fe448f50",
+      "collision_25.obj": "e305683760b2f365e5bfef1af75c439197d43ae39581709816d63093ed56b59b",
+      "collision_26.obj": "0f313636dcc22d182e5da72d01cd2037c386502055901101278790b3bdbf96b0",
+      "collision_27.obj": "ed10a78a86e10f242d4426eacaa48b6e1aee837bce9b2bc2604a7ea6e72a8805",
+      "collision_28.obj": "c4b2c4465d87b00a50fd876339db10397e93032452f1d589882c3867d3440966",
+      "collision_29.obj": "f56ad209e552c201f7c4e48bf6050552595f2260ad60aa979486c4fde55b69cd",
+      "collision_3.obj": "38a1b25edfcf2deecb38446d84f600f2f88a9999bbd3befad01334327f61b135",
+      "collision_30.obj": "2cfa3869a1233588bfa441f5a3eb62f9fcf69f77bafbc98b799bee367784d883",
+      "collision_31.obj": "27187e83be7df15e419656a52fd9046b24eb62501b5348a26a209116f0be76ff",
+      "collision_32.obj": "913bb25146eb9186de97344aca1ec2ad4818b59e7e929b713277347aed0dbfe9",
+      "collision_33.obj": "5a2e6e4b8649a8edc4d76257a874c2e6c4e9b1cc1d1f13ce64bcd2271c5b92c1",
+      "collision_34.obj": "2d8f58c7cd67a756af56af8228a4a17b3240ad020029b7e3e2131a1c40e3a2c1",
+      "collision_35.obj": "b8c0b97e8b28463ba67b3d0411dc2cfc3631ef3ab9271e3e6e6ca1294ea4035e",
+      "collision_36.obj": "efa839cab21e70f563c1c2aadc001a9ddf403f196aa4ce2c1901daf0fed44650",
+      "collision_37.obj": "592dae9bbd831ab8d98c76b83bf8837ce3a491f9f378cb4ef3152c8e28af4f4e",
+      "collision_38.obj": "aeb177c2b5980f6c4343537aadb56fc500ae2f501ebe0ad316bc0abfbfed1599",
+      "collision_39.obj": "229dda23d7fc23ca5eb84f20102c12c47b9c095b0a7c9f890b62512c4a4a3bb1",
+      "collision_4.obj": "33e114e3ad1b30e6bc697c1efa718686a0f08b9f299d8a740905b90164a61ada",
+      "collision_40.obj": "ef5715dacd0edb527a65566a5a0a198d1e843ec51ecc869840c8916241e6ce3d",
+      "collision_41.obj": "9988e757a93dd44a3a2dbae46a884cf61a0c48251e01afff3c58ec54adc3dc2b",
+      "collision_42.obj": "e17a1682cadb79ad4cd5f9f87e3b7f7b619b0e4c6806555908a4e2f29b9ae26a",
+      "collision_43.obj": "75df7f20ab284a1f88abe4b109f62610c648b716b8d6ebcba4b4dfa996fa6a1e",
+      "collision_44.obj": "482c864ce7a55115c6afd88c1831a161ac388ac7a9b959caf3a36d34abde15b9",
+      "collision_45.obj": "72e2bb6cabbdbf56ca67e1594f4abbf226964421752867621d749db9033a1f98",
+      "collision_46.obj": "c729a3835540ea5fc31485efa17847d19784347a6480c2cad6801a1b9a7c6426",
+      "collision_47.obj": "a90c80f7754e70f5b23ee55a9e8d780e3f443199f0b1d0662296eea7a2578a9c",
+      "collision_48.obj": "f83b947cabeca9f33009c0665164dc6cc81a45fa9c5157108540cc62c03ccfd8",
+      "collision_49.obj": "1dc935f6f8956610734df88c701fd9cd29c56358096e0f44b06b8d0ce6ef63b0",
+      "collision_5.obj": "87ef0557c70b28a14cc586f20249b98bb5669a5eac5de9a931a178934051c8e2",
+      "collision_50.obj": "189dd74d3f002d95bad4994d4aab79f24474c235d4853667840e485c9c31eadc",
+      "collision_51.obj": "ca9778ee195433a2c313eac3d1295b4d930a10288150c768b196a352696918c2",
+      "collision_52.obj": "b4da22124c8235db8503dcda8dd8000c4e0ada93c16d58bbc690c9ad073fd471",
+      "collision_53.obj": "00057573bbf39beef4b6079cadd72039aa367d8c20042563639ed32c587e45ca",
+      "collision_54.obj": "0bf73ed1bca82ed3f15e73c9e86f3b55291237bb636a8e9507cce20597001d8a",
+      "collision_55.obj": "a20d2f1170047ddf8ce10e317981a335224df96c8a2a2499cbc1cc66b85e50c0",
+      "collision_56.obj": "8f8c7499781822d4ee4858657b89a31f9a8de8d1ab16d49e7298d1a65f275155",
+      "collision_57.obj": "853510946eadbe2396c445e29a20d8b493f9894a9c75e2c3d4322cbbb1202a33",
+      "collision_58.obj": "baebf5683089c83c24af1f56040e919b234e90e4eb8fbcf186bccf22f5714808",
+      "collision_59.obj": "55dcb44ed5224b1cda9a9378fe1e463dcaf13e8258ee5657bb47583896428ccd",
+      "collision_6.obj": "6d4db5f11dc683c27e4fdb725135b18d05ef12192e6d5e4d56bedbf1dc09b162",
+      "collision_60.obj": "228981934c68292177d548314be183d78bc8f7636cfe5cdab8a90f1347207904",
+      "collision_61.obj": "d1afb742950583f579834a2ed2103f94cd0630080957c8771d793210b9422626",
+      "collision_62.obj": "0a15053252e41b74dcf85e47bfb87afda5fee4d3b1acd54d842b00fc10415eb9",
+      "collision_63.obj": "d1b8dd1f490343b839a0e4f608f354f5e5479b596bbfc78b522da4ef28589f63",
+      "collision_64.obj": "a1e568020cd0c0d8bd6b339210a41168e99c1bd84055693d9f29eb5fb9f9b7de",
+      "collision_65.obj": "4130672188e01233865ea933b254d3cd52246ef193b614b43f67c25535be10d1",
+      "collision_66.obj": "1010cde5809575b002570c955b342afa2cecd4a0955cd402806697ef9bf75389",
+      "collision_67.obj": "57ccc4ec7445d5f0ed8ed18940b71a42985ad5e022c0a7f20c8aa4ed392869cc",
+      "collision_68.obj": "02b27e63e14d680c6552ee538549d6eb7095b5ee939a05757698f9754237c2da",
+      "collision_69.obj": "cbd3f9811f5aaeb77a703598f49313f83bd5df385e03075a62a34fdada795a67",
+      "collision_7.obj": "ddebf9b8170cc0df4e206d3361df50a1f0061f1c9306a2fffec57cd038b235de",
+      "collision_70.obj": "441d9b61dafda7e98c3aaae00674c35bb83ace4923685ac6d73d947a437025c8",
+      "collision_71.obj": "f4fde8f088cda2dc0a773dcc86a90b1cff0f2544bd78b4d87cb9593bcf4fc2b6",
+      "collision_72.obj": "abc6a946edafc4b2f1d4f23209ae0d96d271fc4b726a716666650bf365d87a88",
+      "collision_73.obj": "9874a2ae34dafb0ad8bb302392f6cffbb45ac16b8e7be8009718e7a76fd2c6d0",
+      "collision_74.obj": "628ba315bce118e6417b8d933964789a4185d15e3d9acda86a74c6b0a91e12f7",
+      "collision_75.obj": "2593ee27bc14100f50ceddc0c484a7cb64a2354f1d5d559a4b46e7a43048dc49",
+      "collision_76.obj": "4c2ed99e29565fc5c892c00e5de1b2409b589e5748a69e15a7ea2697af0ad257",
+      "collision_77.obj": "ea32b4e4f0729e12dc29fe46660c92b42fa5260ec5952a9e1f574e9aec2a865b",
+      "collision_78.obj": "002903acd21199b2f81208d4530c8eb784a848c6de54fae6fbc02722657f0d7d",
+      "collision_79.obj": "9cf6ab0f705ddeb6b146515f085d50533b5f0db37dc340f96ceefb9c5c3694d9",
+      "collision_8.obj": "fdbbf60d72ccb0261f5698be4a3ec6cb9baf9e4cd231efbf7337f1074b49fc9a",
+      "collision_80.obj": "708b1f07e2be5313afc8b86da69e86eb62bcf5b57ed401ff5c81e17873aa79e4",
+      "collision_81.obj": "b3f919fea3a398885e33a99d4891323bb499d1df24e8cdc46b9436071dd5f56e",
+      "collision_82.obj": "421a66ef584d1da569e082ba81ee07ecca3b4a5874ba970012b68ee46447ce2f",
+      "collision_83.obj": "e4da807cf807928c9140ebc71cd1f64f2aec32fc5295d9a05185508f6799dc2d",
+      "collision_84.obj": "e551d73cb87b68f0779e309f61729d11df7c60ad96d79f33d2169751ff2e1548",
+      "collision_85.obj": "84eecf7effdd2cfd74563f6abb0e7f6890f2af06874128f5c28d724f26001f4f",
+      "collision_86.obj": "e0e7e0232d9bccbd8987e89899bd1a67c4dc8c714a09be56f8ebb6f739b653c7",
+      "collision_87.obj": "112e0a963bf33f365eb8b14b248d46981ff0cc289e9f8635d8bd00ce329082ae",
+      "collision_88.obj": "0d5d4793b515af99f8a32bc1914027011182434917ed23aa7fb44c67d8b914be",
+      "collision_89.obj": "074d7de1f3bc938e88927d764bc23380fb22f80a70e412ce3d6ae4d6fc4deb8f",
+      "collision_9.obj": "55e88980bd25249f03d73ec95b32e7388c78d0586de1fea08430e8dbb9784cb8",
+      "collision_90.obj": "6e6b61ef96fb87c1fc0ab6dc97c948586bc3ff2c842054a73b2b8d19da0a1b66",
+      "collision_91.obj": "51fc4eb243db7a948653141ba719624aeac6a2f48b109aa2fb46e9dbf8587f56",
+      "collision_92.obj": "f191558b4fad99336a30cadb96bb9220446046129737c61a43a16316fcaf4771",
+      "collision_93.obj": "03fb7ff792826dd7df59a017592781d2de63db7c89c8eecc22381cb9c62d68d6",
+      "collision_94.obj": "29cff7e49e927ae79b3cc2d0142d2171a7ed507a62e1359ab870f7ecccab1e32",
+      "collision_95.obj": "0085b745f5ee608140c56f937305fdbadd9a6af33c8eeea389d5dcb83bab6e09",
+      "collision_96.obj": "290bf749e6acdba791b28487b65b38be58564fe6cb704c6af0c631c1a4a584bd",
+      "collision_97.obj": "eb0bafa47fd5c12c8be9b23bf611491a304b1909b4660f116757220daf7d425b",
+      "collision_98.obj": "0b163bb93fb6d7d5b453862b0c0b8b01db141a628c301189eaa9bd32a21eb76e",
+      "collision_99.obj": "512ff676527f30d31f21a78699f9e035a84ec6b60441a37cfd3a8d6bc3e288b5",
+      "visual_0.obj": "01889278ef94c1069dc7a221b2d57b88b142134baaac16c0d37eb8c7a5af0a1d"
+    },
+    "imported_at": "2026-10-30T12:33:31+00:00"
+  },
+  "computer_keyboard_a01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "computer_keyboard_a01/simready_usd/sm_computer_keyboard_a01_01.usd",
+    "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 16,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005
+    },
+    "bbox_mm": [
+      442.0,
+      142.0,
+      20.2
+    ],
+    "mass_kg": 0.55603,
+    "labels": {
+      "wikidata_class": [
+        "computer keyboard"
+      ],
+      "wikidata_qcode": [
+        "Q250"
+      ]
+    },
+    "files": {
+      "collision_0.obj": "cfb34a81a1d2f4e753aae59fe6d0ea9523aa2dbd2675d0bdf2592ef0e9782ff1",
+      "computer_keyboard_a01.xml": "59a420fb11afaa76d4a55e72cf564e40bb1eb70b06448b3006dc800bd1d1c631",
+      "computer_keyboard_a01_tex0.png": "16b0c311f24ceec72313e2184c790cb1c95a58befff0c77d257447dbcf29aaef",
+      "visual_0.obj": "f33176045ec2b63c8339410a99fb30f36d92b51fd960de7abcb1086f7427c6a2"
+    },
+    "imported_at": "2026-10-30T12:36:38+00:00"
   },
   "cucumber_a01": {
     "repo_id": "nvidia/simready-assets",
@@ -70,11 +626,11 @@
     },
     "files": {
       "collision_0.obj": "40c460e441225ef9594879b02a737c68fa7cd8d17f71b4072d28959e7c58a50f",
-      "cucumber_a01.xml": "0a50c6e13bf3d886cf06ef8351d8f20fd9d81f9d7654915d44145d66e2042c40",
+      "cucumber_a01.xml": "7e095e7b23dea93457a2541a4893ec6d462c177d2174f8f1b37a9ec64e406967",
       "cucumber_a01_tex0.png": "ff36213adad2c25ffa901567de94009f550b94a598f850a89edee558221ed86d",
       "visual_0.obj": "563be86b11f1d09fb9cb66fcf16fb9cffbd45f8bfad028c16374fe2d7f15e001"
     },
-    "imported_at": "2026-10-29T17:33:38+00:00"
+    "imported_at": "2026-10-30T12:36:15+00:00"
   },
   "cupcake_g01": {
     "repo_id": "nvidia/simready-assets",
@@ -107,11 +663,850 @@
     },
     "files": {
       "collision_0.obj": "12247befe0af639532cecb8a737d6b666844e7e0e622586f6c5289d0a395e5d9",
-      "cupcake_g01.xml": "4c6f5dee2c3b49b29bd0d38de397bf9d369bb23863f62d94dc32fda9247edc61",
+      "cupcake_g01.xml": "0d17c9e20fdf85808c204141f962e40280d261dca98dff602a39419334f43305",
       "cupcake_g01_tex0.png": "c62ddaf5e23a2c8259905312a3c5ab69d12eb52a5a02759b7ae45c6151ffb5ec",
       "visual_0.obj": "7ce3e7851cbbd62770f104638721a7507d8f98ff644129bcfbe0423849767ff4",
       "visual_1.obj": "87eabdba29248931bd8c3e8cfae17e4cf277f9464adc9f21f7396ee4f105a3a9"
     },
-    "imported_at": "2026-10-29T17:33:43+00:00"
+    "imported_at": "2026-10-30T12:36:22+00:00"
+  },
+  "laboratory_incubator": {
+    "repo_id": "ForgeCAD/simready-assets",
+    "path_in_repo": "laboratory_incubator/simready_usd/laboratory_incubator.usda",
+    "revision": "aaa5a8ddae66537c9135817044b9c78d5b952b44",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "physics=physics",
+    "options": {
+      "rigid": false,
+      "max_hulls": 32,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005,
+      "articulated": true,
+      "handles": {
+        "Door": [
+          [
+            0.2,
+            -0.3,
+            0.29
+          ],
+          [
+            0.2,
+            -0.3,
+            0.41
+          ],
+          [
+            0,
+            -1,
+            0
+          ]
+        ],
+        "LowerShelf": [
+          [
+            -0.15,
+            -0.215,
+            0.248
+          ],
+          [
+            0.15,
+            -0.215,
+            0.248
+          ],
+          [
+            0,
+            -1,
+            0
+          ]
+        ],
+        "UpperShelf": [
+          [
+            -0.15,
+            -0.215,
+            0.423
+          ],
+          [
+            0.15,
+            -0.215,
+            0.423
+          ],
+          [
+            0,
+            -1,
+            0
+          ]
+        ]
+      },
+      "exclude": [
+        "CultureVesselFixture"
+      ]
+    },
+    "bbox_mm": [
+      529.0,
+      563.0,
+      650.0
+    ],
+    "mass_kg": 60.47168,
+    "labels": {
+      "class": [
+        "incubator",
+        "laboratory incubator"
+      ],
+      "wikidata_qcode": [
+        "Q900452"
+      ]
+    },
+    "links": {
+      "Door": {
+        "parent": "Shell",
+        "joint": "Door_joint",
+        "kind": "hinge",
+        "range": [
+          0.0,
+          1.8325957145940461
+        ],
+        "authored_damping": 0.007853982038795948,
+        "mass_kg": 9.0687,
+        "handle": true
+      },
+      "LowerShelf": {
+        "parent": "Shell",
+        "joint": "LowerShelf_joint",
+        "kind": "slide",
+        "range": [
+          0.0,
+          0.07999999547357743
+        ],
+        "authored_damping": 8.0,
+        "mass_kg": 2.2669,
+        "handle": true
+      },
+      "UpperShelf": {
+        "parent": "Shell",
+        "joint": "UpperShelf_joint",
+        "kind": "slide",
+        "range": [
+          0.0,
+          0.07999999547357743
+        ],
+        "authored_damping": 8.0,
+        "mass_kg": 2.2669,
+        "handle": true
+      }
+    },
+    "files": {
+      "laboratory_incubator.xml": "3a14ef2dd4d46622f41b80e21c07c57d6b07ca17d169a99e1ba0d1ae3f07aaeb",
+      "laboratory_incubator_tex0.png": "2c9df4fdf78cc3b60ed30e2523c09422fdd52b7cf5f99dc66cbb5c8a7f83aa79",
+      "laboratory_incubator_tex1.png": "06086a1f619865b77a5d77eb8ae3e4d2c77fce887f111c019dcc5a0d6847f384",
+      "visual_0.obj": "cc17b46addaa9f1132763b0e80458a4e5cfed5012403ae722946bd42740928d8",
+      "visual_1.obj": "7fb2bca7a39cfe572297d075c4403f8e2462b853639b6e02a17981b2b52b0ca5",
+      "visual_10.obj": "7d15885d040dd914889dba464be0ba56d0a74dccb0d592a430cb114c3f12fd20",
+      "visual_11.obj": "63b6873089ac003ec77e388ababb946269f4555c1332fb87f00d88107a89424c",
+      "visual_12.obj": "8a62c2aebb282fadad43b13ef6ded74b4f0036d34b0c3375894eb97670cd010e",
+      "visual_13.obj": "62ef4655a33d8d2a6c555b8a7e19e155adde1e06c00099ac7de702e7c3d5a6cd",
+      "visual_14.obj": "bc37caa64443067488aca5b85d122a237ac53a263c6f2ead24ad11b62db6df1b",
+      "visual_15.obj": "474bd77fe8435db1eab4c80c5379a9a37523f8ac9a739df0493b3f624fc7641c",
+      "visual_16.obj": "5b50b710da6de704d860078d71fd459d7e0b514bf418be338277ad8af6c3756d",
+      "visual_17.obj": "1e66731e37e23e924ed75d4c4f87abc2ce180daaf38aecc531cbf3f8820142e0",
+      "visual_18.obj": "43a869cacb9ea3a172f9f6cceaa4cbef83fc53b1f8212281c9fb42157b9f715a",
+      "visual_19.obj": "50f1bfa24a6470d86b9c79a731414bb825f7282e18205d5d26c5ba2c149dcca9",
+      "visual_2.obj": "06e6f68e9a7d1f996722c71a176700dbfdd5e4de7534774b3effbfc67b39d5f8",
+      "visual_20.obj": "6495bf2084596cbaa3024854c67ff6c4ee516c45604013e71000993a4cd93fc9",
+      "visual_21.obj": "890a24cc4cb6a10052437c73219ef74b20d20d2fa49e196751151d9146b1ce5b",
+      "visual_22.obj": "d90522b0886692757e350317ada40ab9155bff2d482f07eb1f384eb63f375464",
+      "visual_23.obj": "d7d891b6ae82f2e317ce4f2fb92bdb76805b1cbd5943affd7ad85b3ed0adba57",
+      "visual_24.obj": "b7af7a81ff53eee0d363341bd5fdbf16efbbf255869ae76d41a377892e7bfa62",
+      "visual_25.obj": "01888bbfc813b06b9626c243cfbea60181a838242d8c3721d6af8c4f2e8e956e",
+      "visual_26.obj": "cf0adcf62cf5999d87fe83bf04b23cd1023370b2935b8be90fcbfdb80de8b46e",
+      "visual_27.obj": "7342849731ddf0ba4bc78fa67bbdbfe84ae5349c7c5b29e0cc034d4894bc4813",
+      "visual_28.obj": "11273b01b471d6b917b8832e52f0ff30502be7bc1b41ad3ea701b8c1c9ea3fa4",
+      "visual_29.obj": "b335db4972e21f26a523001260b874d486d740fb64bc36dda7bcb8163581daae",
+      "visual_3.obj": "3c46783fe7496f821200b27b2d9eaa69a3943d1bfbe99b18131301aff2708c08",
+      "visual_30.obj": "3d7d96e0fbb19010fe5a7212b6fa5301cbdb0ec71d7a7d733c8e289937bc048d",
+      "visual_31.obj": "7195831251e7c0682e56f936e992ffc38e13af3774a584db707d7d7964087411",
+      "visual_32.obj": "9f2c37b845e096ea992d8fec526a1475b99a74e4d7c9fa21fdaf8d2307f0246a",
+      "visual_33.obj": "7697d8c3a17fb1fa782497e9e3c623731fb3e4441301da0d90a4f6c2e8a26c4f",
+      "visual_34.obj": "35c33c1420114407d78fce773411d1801837685da48db3ecaf4ebbea80acb9cb",
+      "visual_35.obj": "792d883a4fbfe8a1bb45b3d16fe35b38cf2223df0f79cca64cf96f043c0d5461",
+      "visual_36.obj": "0d0259a175d9d6458a27423eb5f9cc59921f6ebfde2c9bd777135a2e6d7a9da4",
+      "visual_37.obj": "0340081723af0bd43f7c9c2f68dba1f6b37621cc2a99121750d9d148b8dfabc7",
+      "visual_38.obj": "18f217dcbca4e2d6493e123162ba34f7a97f497fe6585e8b5185b071c4233345",
+      "visual_39.obj": "3f246dcf12f862a7f786f2ddc9a319e9b4aae086ca47927b9e2b6b88b2c2be2d",
+      "visual_4.obj": "03e8a546c99820f9a2224265133673622e355d07246aff887bda1872a6f3941e",
+      "visual_40.obj": "b7c43a7444174ea19b8ee0d4bb8f1fc5be992380fbd7fd4d806a068547287cf1",
+      "visual_41.obj": "80663caf6a8ee7a193076a02da4841d8d06eb5c2ca25af9312b889916ac650ae",
+      "visual_42.obj": "e0bbe3e730d4f8d62644ce411f87e91040dedf8307b139e973296fe26f3e826f",
+      "visual_43.obj": "144d45c7aa0d9a5df4bce8f0fae9833501a9f559f809dc0e68a3628da4443fad",
+      "visual_44.obj": "144d45c7aa0d9a5df4bce8f0fae9833501a9f559f809dc0e68a3628da4443fad",
+      "visual_5.obj": "e45b284d670375e5e60ae6f3dcf564650a5ea2f86793fc4c1d3707966b9e9a72",
+      "visual_6.obj": "b3f01b074aaa45f4bf446fc0e522b8572566a3fe2c6f9895cb35c97d0918f7b1",
+      "visual_7.obj": "4dcc24d0dce0f923ae26af3f3c77d10ac6f4864c27f4bc273f38e53b25f76de9",
+      "visual_8.obj": "483f37fa6be94cd439bb3ae5b4973b78ff22b7752d13c704f42d943ace4dbc4b",
+      "visual_9.obj": "6a74c73a7ac369ac7c872fa5dac23edb283e366d464ee96a848c71cdf20d51c5"
+    },
+    "imported_at": "2026-10-30T12:31:06+00:00"
+  },
+  "refrigerator_a01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "appliance_refrigerator_a01/simready_usd/sm_appliance_refrigerator_a01_01.usd",
+    "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 96,
+      "max_visual_tris": 120000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005,
+      "articulated": true,
+      "handles": {
+        "door_01": [
+          [
+            0.355,
+            -0.025,
+            0.62
+          ],
+          [
+            0.355,
+            -0.025,
+            1.45
+          ]
+        ],
+        "door_02": [
+          [
+            0.355,
+            -0.087,
+            0.62
+          ],
+          [
+            0.355,
+            -0.087,
+            1.45
+          ]
+        ],
+        "drawer_01": [
+          [
+            0.196,
+            0.02,
+            0.709
+          ],
+          [
+            0.196,
+            0.38,
+            0.709
+          ]
+        ],
+        "drawer_02": [
+          [
+            0.191,
+            0.02,
+            0.575
+          ],
+          [
+            0.191,
+            0.38,
+            0.575
+          ]
+        ],
+        "drawer_03": [
+          [
+            0.191,
+            0.02,
+            0.391
+          ],
+          [
+            0.191,
+            0.38,
+            0.391
+          ]
+        ],
+        "basket_01": [
+          [
+            0.165,
+            -0.38,
+            0.4
+          ],
+          [
+            0.165,
+            -0.13,
+            0.4
+          ]
+        ]
+      }
+    },
+    "bbox_mm": [
+      735.7,
+      906.6,
+      1734.8
+    ],
+    "mass_kg": 179.59987,
+    "labels": {
+      "wikidata_class": [
+        "refrigerator"
+      ],
+      "wikidata_qcode": [
+        "Q37828"
+      ]
+    },
+    "links": {
+      "drawer_02": {
+        "parent": "body_01",
+        "joint": "drawer_02_joint",
+        "kind": "slide",
+        "range": [
+          0.0,
+          0.24916401505470276
+        ],
+        "authored_damping": 1.0,
+        "mass_kg": 16.1644,
+        "handle": true
+      },
+      "door_02": {
+        "parent": "body_01",
+        "joint": "door_02_joint",
+        "kind": "hinge",
+        "range": [
+          -2.9670597283903604,
+          0.0
+        ],
+        "authored_damping": 0.20999999344348907,
+        "mass_kg": 9.7745,
+        "handle": true
+      },
+      "door_01": {
+        "parent": "body_01",
+        "joint": "door_01_joint",
+        "kind": "hinge",
+        "range": [
+          0.0,
+          2.9670597283903604
+        ],
+        "authored_damping": 0.20999999344348907,
+        "mass_kg": 12.8876,
+        "handle": true
+      },
+      "basket_01": {
+        "parent": "body_01",
+        "joint": "basket_01_joint",
+        "kind": "slide",
+        "range": [
+          0.0,
+          0.3255540132522583
+        ],
+        "authored_damping": 0.20000000298023224,
+        "mass_kg": 2.6433,
+        "handle": true
+      },
+      "drawer_01": {
+        "parent": "body_01",
+        "joint": "drawer_01_joint",
+        "kind": "slide",
+        "range": [
+          0.0,
+          0.24408301711082458
+        ],
+        "authored_damping": 1.0,
+        "mass_kg": 12.9444,
+        "handle": true
+      },
+      "drawer_03": {
+        "parent": "body_01",
+        "joint": "drawer_03_joint",
+        "kind": "slide",
+        "range": [
+          0.0,
+          0.24916428327560425
+        ],
+        "authored_damping": 1.0,
+        "mass_kg": 18.3003,
+        "handle": true
+      },
+      "shutter_01": {
+        "parent": "door_01",
+        "joint": "shutter_01_joint",
+        "kind": "hinge",
+        "range": [
+          0.0,
+          0.021323219284910704
+        ],
+        "authored_damping": null,
+        "mass_kg": 2.3339,
+        "handle": false
+      }
+    },
+    "files": {
+      "collision_0.obj": "16d5d65a8c4593d16fcfdcd1f0d20091e8cc6ef3db5021791bee020fbe1556c0",
+      "collision_1.obj": "f7be31dc204c10e732b4e7fee3d0e12955f8ecd3cb88ede8e0cf9bb5c3b2502f",
+      "collision_10.obj": "d4126fe31df982cfecf6ead83e058c27e270559f0000f14090545646518ef3c6",
+      "collision_100.obj": "956af4d1f035654d53c00e7ef0a5c690e84b3c3f7db45978a849de2af65f9ec7",
+      "collision_101.obj": "2e6395607d2acec1744948c58e481000ecefde66acf55f7944cf2a1183f390b5",
+      "collision_102.obj": "c33430326e3abf98e5a97490acba402ad6fdc076434f36b1344d4cc2f51f3b1d",
+      "collision_103.obj": "2575e4796ab081f3ec3712612e75bdb1552c8bbc32846937a6e7e241d05018a7",
+      "collision_104.obj": "493afa7758f023879b37593a0b4b3630028e069e2a83d2b9ef7590cbb8c358d4",
+      "collision_105.obj": "0e3245d1b83fb55e4ec1293934de9f67e842bde6d504e78fd1a7b3d477e84c00",
+      "collision_106.obj": "4fa74f454b2bdcc4a51685a76cdae4f32aa6b40a86b06cd9a761c9edb2671049",
+      "collision_107.obj": "3e31cdffad54cf226e3c77cdb17d042f35e10d15f64d3282f706d4dae395e0a8",
+      "collision_108.obj": "b8190e0ecdddb3a09f01e4fc40f1eace5bd182b9ec869cdb55396702d34557f4",
+      "collision_109.obj": "d2fe2c17c09910a8706fe4972faf5811886946c3c77edc0f2e10dd592b37db01",
+      "collision_11.obj": "6961f12fc8a92dff6a69bd4b1542cb62d1c3ab80cb390dcfd0519d68f6ff73b0",
+      "collision_110.obj": "e0af9386ea846a2e43dd57dfffd2e3f7ca8a8d56d5249ee6588eac3058485b54",
+      "collision_111.obj": "21f55af92c600871d6ea0187e5d08cab56553efd0bd366eebd2d20b00d637368",
+      "collision_112.obj": "03e76af30cfb7c38941a3363cb520a4fc400b1c2d80c3dcc89fcb1e2426dc91e",
+      "collision_113.obj": "9a95532367ac6f39abe024776381987152afbca85ba6d2b579a4123044328a95",
+      "collision_114.obj": "fcd874b108f1e82a3699b1bd64b11b45fe3862640ffd4f51c46631d32c193f96",
+      "collision_115.obj": "56c0acf84e8659a3007843ffd396173207a910bb39c615e5a326f9fa90dc5532",
+      "collision_116.obj": "55740f311104f8f00aac91f9047a447945fd69a589d4876fa1cf775d32167648",
+      "collision_117.obj": "8f8bbfb0624ab98ab019ede84d3f511df97cfbeb3c3f3da6634f7f618ef6b0ff",
+      "collision_118.obj": "eaa2508873700f0ffe68ca78b602601c9bea402119296035389e52792ac31c9e",
+      "collision_119.obj": "e5c033562f188b3e166d532839329de4fc041488e050f8c5f5c53581e79146ba",
+      "collision_12.obj": "554a6c7eec691d7482943e620807d87fb2cd6befe5c5611336e7c5d50ecd4492",
+      "collision_120.obj": "4b742e82a602bd439d76c6327ad5a0ea333e75fa404922512f839ac239387804",
+      "collision_121.obj": "e414065156c357ff4da988d69b82dde3e331b5b2a98ec98278a0f1360a045f57",
+      "collision_122.obj": "566c018cbbbdccd45f578db7a5ff8b10ca0de0b57dd7207878381964396a44a6",
+      "collision_123.obj": "50c5257d0e66db9acf693f7909d5ebb6259390c5fe15a532dd38691e747c7130",
+      "collision_124.obj": "39788ce9fc4dd75bbd290bbaab587e13fdd88011618bddac3827a7a58124280c",
+      "collision_125.obj": "379efe3e3c7e1c38e7c4f3fc76732d098e1d817d85b4bffd6057f8e0c1df9696",
+      "collision_126.obj": "978fe3f2dd36f9d1055cd85dd7ea62cffdaeee0e7e2e81ffca98979e27ec4a23",
+      "collision_127.obj": "24280f9157c40ca3f3a8198b262a27d1dbc481a82074c80086c56c67131f2ca6",
+      "collision_128.obj": "bcfa8208f1e8a4cb8862c88dc63249a78708fb1650fef993b8e5d6fc90b85314",
+      "collision_129.obj": "973b4d38e09fdc7bb406739d9927b7fb79e45f5eed319e056663658e1608f545",
+      "collision_13.obj": "d861029f1435aa93d24cc261735e6401ce182e4828d120222d1a9a4d1e40b727",
+      "collision_130.obj": "6a61d880d47f79a7eeed3315ad6f20c41c58387baa0d8fdb7420001f65a2642b",
+      "collision_131.obj": "6b7405da8ac000020cdca174172f17cfdae23547536bf900674eb86461a5b214",
+      "collision_132.obj": "dcf38f574d61f887bf97521744eacebb0bef0ad71685c0697e163b537673ea87",
+      "collision_133.obj": "42332393b8566e0e8fc6bbbe195117c3be07493b4664ccdd0d4ecb8ecdc9ab1c",
+      "collision_134.obj": "0073a2996f53edfc3ef332b7721942b081bc0ccce6dd91b886dd21888ed176ea",
+      "collision_135.obj": "5f6b0b21d78e600b9e213c6da202b61d716a65daafc0c3bc7f68d20f3ee1ba96",
+      "collision_136.obj": "45692497f816440b1089139e88bd61d3b3064a0d7b0c16ffa1bc93da22288a1c",
+      "collision_137.obj": "b8eb518bbb529d02792c8cb9c9b6ac4f7a7b20f820063bedd6379e495de11bdb",
+      "collision_138.obj": "124c1c651684a3640fdadd20c06795b44f48d4640cfbded39e7fc5a63409911f",
+      "collision_139.obj": "140ae16ade900717e92d37414c3d23c0389fcc3aae3687e0d47ef0b709465ba8",
+      "collision_14.obj": "d6140fb85df11fb02b2b46f76eb89f9774092471e415ba36a3d48a84aaeb70e4",
+      "collision_140.obj": "93589122d6eb0f907e32bd3914b76d263a69c179fdca0a0601731bb84d66dd27",
+      "collision_141.obj": "6cd9fea768a5e439d5c54355b97608fb8abd9667d1b7c2788f961093b394cd74",
+      "collision_142.obj": "2f4c3e8d623ccc93ddcef3500a710b7c5601d126c830ba76317936be6e0cb0ed",
+      "collision_143.obj": "bf47258de47f09464ce58d8dfc17bb38cb6ec680751c86c4e25c9873465f8f5f",
+      "collision_144.obj": "6316ad73e4d163eb99878d097102970b980a9498478547aa003f04a81d9ea501",
+      "collision_145.obj": "1ba0a447b078af48482200e23ebf8bc632f006e89e4fe4af00017f813d0254de",
+      "collision_146.obj": "6ac69a926044adbdfad5a2e5e13280085c349a0fd6b390125cb61e7b3337f6cc",
+      "collision_147.obj": "b5ebf133940263a77f61c4cb77f43c564cf85ab17f68bd362e229386428785f7",
+      "collision_148.obj": "3d2e9e7bd5393a1d68418adb11931a625f58773d3eb92f16cf112e9c77e81573",
+      "collision_149.obj": "773f04ca81a3c8f1e7f0851cf48268c105078e65ca39d5062bb94969a960d73a",
+      "collision_15.obj": "7ded983b73c617b258561b1b2bbef071aa7ded50be451f6a94d1124b68136dbf",
+      "collision_150.obj": "bed1a76ca1fd99c812c2f657bcce7015b22ec598f9cba0b6fe3e915b330888be",
+      "collision_151.obj": "9ad723b160e845791ac2047e99ca3fe2b701eb4a6fb65288f4978a1cac784922",
+      "collision_152.obj": "332b122a9887b9de820f19c3006dba5ae9fdea3462e4272546eb7b60aded53b2",
+      "collision_153.obj": "721419dbf718662433b912e88336393b61cd7478214de388f75327029cc79697",
+      "collision_154.obj": "2a5efe3ccfcebae10149246f0114c70cc208b1eca1d2ee098e47cc6a445b4ada",
+      "collision_155.obj": "402c34b7e93f194cf207635aa94ae131284d7d8ba2e7217c0780a9eb00de949b",
+      "collision_156.obj": "d5dfdb5f4c76b1133c59fdedf73a794f9601484086b501473e8019721eb59e8b",
+      "collision_157.obj": "1027d4c90981e7c421a9c2fd07efa3e19338ba9395dec9a6a6517749d80396dc",
+      "collision_158.obj": "9b2918bf9b1af5f64c2fecf4aed407cdb3109eaccd0df242614dd90bf1422ccb",
+      "collision_159.obj": "843d30e343635003c626e7ab6128d6061a088be208432f85333aaf9f9ddad398",
+      "collision_16.obj": "a130ef1c1795d9d888e1dda55fb8898e1b638f4ad85b37e9bd0d84a2b0ef3b58",
+      "collision_160.obj": "c5035cd22094a590143bdc3a5cbedf5e59b0aca5031546b579e9c08457271934",
+      "collision_161.obj": "ffee598c23dc0aef2525c305dbd47af0403d264c6e49ad10521c684d8f37913d",
+      "collision_162.obj": "fa215593a9a2c5215e10c2b5f137c45af662d98918c3f4571d7a60793b5880bd",
+      "collision_163.obj": "dccb564aa2e6d109dc003dfb5dcf0ad31b8e373442096149ad0b17776d5b22b1",
+      "collision_164.obj": "f481133baddfbd5a97104749edbdefd3fefeb81a230a1d6ab3f431e2315ebf8e",
+      "collision_165.obj": "8a7ed15cd012d647a6d52916dee66452b6cdc782b657cfc554da445d969c0aae",
+      "collision_166.obj": "4c970dce1a348441620b612262dfe0bb45f4733576af6bf82dd91216b4193e54",
+      "collision_167.obj": "7209ee46e1906a6b7d6bf6919972d83affc75e9972e2f033462d6e55d37be90e",
+      "collision_168.obj": "f60c0b6b6465867ba20a97faaf32a18e60dc41e1e9b6145c0dbc2d750d60791c",
+      "collision_169.obj": "c9bc15c39635a0b0a35e8041a2e989ff7932c650de3f61c7c14c30a953580243",
+      "collision_17.obj": "ec75b5bf45de8515c8cdcc28839cf23d6fc26b656945544dbbaa745c76a85eeb",
+      "collision_170.obj": "876c1e78f35436397cd43e50492491fe39e3607afa34fe054111eb9b582ea705",
+      "collision_171.obj": "6ab3edab4c62012dd25d074d6d56600f04dd9894e75e18716d66aeb47c934459",
+      "collision_172.obj": "1cf3e158afc9d0d3772165b72f71948143a8764ff4a812d8883aed513a24ae67",
+      "collision_173.obj": "67104ac7d23636dab3b94ffb9e899bbef81259c19f7a833368bad32d60cad79d",
+      "collision_174.obj": "40b323b5b43eb52f4cdfa54b159c90ba2ad7650dacd2aef24396a3e685972573",
+      "collision_175.obj": "784361f7ad5e6908d31ff8aa64d621fcd6bbf0afa409b6d2f30cdf54d747273a",
+      "collision_176.obj": "7bf9f3299fc2f47688c1402fd14c71dc9c7806969ddf9bbd0ffb0c94b7668fb9",
+      "collision_177.obj": "947c6ef6d1b3552c08a2067279d97f944aef791d742201c1d61bbd54a3ac433e",
+      "collision_178.obj": "e24237e77fdc0ae4c7514cdeef3d8668ac2553e71014d0a2c20a2a7568c82168",
+      "collision_179.obj": "70cbdfcfc86c6ff8c2baf613a6361e26aad2f9dfbb3528e2bd80b6809b83d14e",
+      "collision_18.obj": "ca27017397436e378c85249d36d6b398905397cde9c758544f49b12f93f77f43",
+      "collision_180.obj": "499e0965c20b77f829a74a177457b929e9e694bb512effc32b5eba427ba00a71",
+      "collision_181.obj": "864b91c62def9fe9fb8db42db6f70724290d3dd6d5dd98d5b3fc94f3342e1919",
+      "collision_182.obj": "c14641a6d90107647495281e5ee03c2f90bc2c8f9e997aab874edf3c88372c30",
+      "collision_183.obj": "93a56583056f38b58023f46b8b02bd0cd8000f5993618aa3d21145f717b6b39f",
+      "collision_184.obj": "b3095f99f3963328b7fe6798e33edfdd393c13ef8d0cb4b2bc11323f6e9bde23",
+      "collision_185.obj": "c78a1656ea9b35437d701511639ee420694c5d0bc0abc37da144b7ecb6dd0021",
+      "collision_186.obj": "58ab22cdb6cd5867b4d09c026962fbfb61eb0b952282386843c7294cf2cf59db",
+      "collision_187.obj": "b5dd4e12e70c31d41c70f04261e2d129115fbcf6edefa80b126de3009dd526f7",
+      "collision_188.obj": "d1278f579402466f5463ffbe7ef5a0a43c2ff095e940011d14014251c4d486f8",
+      "collision_189.obj": "94cffe1d5c8bec91dd3d016db16874e52b7e55ac8fb9a6d3cdb0ccccfdea74b2",
+      "collision_19.obj": "172e4930182d3256da45b4ecdb8f40e3155ebbd52b26aea447a2be31ee6e2105",
+      "collision_190.obj": "a3d68ebb79e5a8a1e44827bf4955beec18b5c7e9faf0df3bc32c1bfc980e480d",
+      "collision_191.obj": "7346556f55d0fbdfb0585cd1a8c899ba6e6d120a2b5463e7883a56d074f276d1",
+      "collision_192.obj": "fe09f0bbb1c70cc889ab6b79f0ef33a809916a7bd711b98033504adcd8d15339",
+      "collision_193.obj": "4344b6d559bcb3ac714b789b6a9507bb4220fb789706549ec8e83ec0326d0d57",
+      "collision_194.obj": "a61d3436d25bdb9ba4226a235791773337fe50c6f87b5c374bc1800a74d9203c",
+      "collision_195.obj": "86c82a198a36ae0a21542dd39d827b408bb7ab1b1294ba886e473d271e32261a",
+      "collision_196.obj": "7b416162ac09013838afe076410f5c6e596a83c5c051b6caeb31c3dbd42bba76",
+      "collision_197.obj": "3eb90d05f96cd68296df2b1a2dc47481ae8a6972a87872cf8254721bdb0a9ede",
+      "collision_198.obj": "f664442a55c6089cc31f85b862ef5b8040b542af307905e48fc59b51b826dd0e",
+      "collision_199.obj": "8e1a23924c3e86cc6a624c529cadaf20d5319a628e0c202e5547bfd5f835c85e",
+      "collision_2.obj": "56353822aaec693bd6609833e8a3e4548e731a094b2dfc0d5839ec1ff46b0366",
+      "collision_20.obj": "503b1a65adac3397c567334149a2e167186b1b82e8132260716cea868cf27aa7",
+      "collision_200.obj": "d74ecb5d023fac73f72906a1a2716652bbb0051aeb149206a18cc2681ad9eed2",
+      "collision_201.obj": "3f8d55b241bb709e0e96ee521436eb89261b51202873d0d517c0df7c95c2c7bc",
+      "collision_202.obj": "d69dd594394d80addf69141a58c0ce990309e01816af3481506c1336d6a38eda",
+      "collision_203.obj": "19eb3d4e9fc8fbfe1aadccf7027516528daf6f28f08874d110829ccb7ce9ab13",
+      "collision_204.obj": "0fafff0a7246e4d4648dd6f2a58adfe205ba64556240184ad5d14b2522a8fbd3",
+      "collision_205.obj": "fc66ea7a1ec457a8f8bbca0f78059cd48005261b2c2cc1d0f250afec3d599a0c",
+      "collision_206.obj": "0985c1a5d2606f57330ca104a71754f69fa6e7f48b6acd525bcd141a468a2236",
+      "collision_207.obj": "d8eddd22e2476926baac9720cdf085f1327793c9762174e9296b4b34ccbdf76d",
+      "collision_208.obj": "8e60462dbf65937f68130fa6097e6a786d4b75dbb7ac94f96c5bf715c58d7fe1",
+      "collision_209.obj": "7d2a50895b5df21ba9d1e417b098f031e40efac0d621ce9dd2cc224fdd324fe4",
+      "collision_21.obj": "77b286ac8e773b30db5c43ca5f16edf097452613a0ff6eeecb39952fc9c5da11",
+      "collision_210.obj": "af5187b465238954f378eccef5625e11149908500461a4ddf6dbd085353e4c0c",
+      "collision_211.obj": "e82a751306b00a30f0aca56899dc116f7d2419a7d750dce65032f109d36642e2",
+      "collision_212.obj": "d93843dee4ead7e214a7b1029bc04eecab1c0f69f656bb2e8ac6eb869677e0b2",
+      "collision_213.obj": "f1f70e5b18ee0c5125a7561f514433acd972528b723e0e937418e59a4d5e0b5d",
+      "collision_214.obj": "8e77db537de50ede7c038003663998aa73db27e528766c680d4a640941045920",
+      "collision_215.obj": "a08a51290096ef5d9365ea912f4f6e9f83d944a58a5fab8b683e03b713a379ea",
+      "collision_216.obj": "9ccb66b8597968cbd23ecee401494c5a11c219150291ad5f8e5b570e5b6d9a53",
+      "collision_217.obj": "3706a2d2b9da06676a7d4d233add9735733f04b2e958d6f9810e8fdd2040a837",
+      "collision_218.obj": "8ebb3bc5c5e3a4699cbbf05a08323255494e96248104ce4278a2a0f952f59c61",
+      "collision_219.obj": "24103772a6a9ff4876c36df11491c5a998cbaae5586ab382026b105e188d47bd",
+      "collision_22.obj": "bb2da6299f68e556e8d5589ba0bca49f20b9742dc1717f5f1395f74adba8943c",
+      "collision_220.obj": "caa9e51f895bfecd1402ae76f6f23635030c3aa083dae305a334bd7cc1eb124b",
+      "collision_221.obj": "66f06de8389c16b8f8cbfb17533a9bd87ed760823ec30873af6dcf0fb7845ae2",
+      "collision_222.obj": "9a6549b02c3b9a99f591d399f90d40d4fe2371f4e39f3a7e7508b675535a9e94",
+      "collision_223.obj": "dd5d6afdf966eea7f533ff462d8774fabb02d40e4167b8ccba67a7381cce86fb",
+      "collision_224.obj": "3b44c0828ead6a198b3fb37c060ad0b320332164d860e29e650c36a2bfa98347",
+      "collision_225.obj": "70944207f6f013ad780aa2238dc80c2a1e5cf74065b7deee03c54966d8fb8cf5",
+      "collision_226.obj": "31251cc870322ac250d333c72515e8038a169e49a1ca866cf9286cca2c359a60",
+      "collision_227.obj": "faec03cee23ed87467816aff13a385545fd54bb3817d1e8b8ebe05fa090365db",
+      "collision_228.obj": "c75ec050f12e839c279dff0bf8e249d55e166769af59607c30b4ea601208fb47",
+      "collision_229.obj": "c36e12fe4ed9b4fc5b4fc592764493f49eb84086622ecf9a7f6484c8e40ec00d",
+      "collision_23.obj": "82571a9b31a8e23efd8131d5b27340d569e2e118cc1aad895cc8d4349575432b",
+      "collision_230.obj": "3c4b816b4cf436f806febdd709e1cd51f47ace92838bf85aaa7aad3ab4eb2432",
+      "collision_231.obj": "ce61336683bd9d7e0c695f500d52f15a2914554dbb507a61471c8c6ed528fbcc",
+      "collision_232.obj": "786a40f6ceb6452e4057d251e09ef0735f29515fb9777031658f2dcb50f9e221",
+      "collision_233.obj": "24d12a910dac36375065823647f68eac8170ac0664bcdd369e0d127d675cd4e6",
+      "collision_234.obj": "c8a313d0126ca87bd2c482e2945b208ce25b0e9ab9443fada779837dd9f6333a",
+      "collision_235.obj": "145c38fc7606e6bed9389a8a6b0ac9a5c5f6069b70a2d425c2d43ddc6cf90497",
+      "collision_236.obj": "c63b77b8f6cfbaf9dd65f3e41f5adc940976e9e036f2bfcb1830beb216084771",
+      "collision_237.obj": "6272a23d1093daf12970fcc1116bed2701aa2f0fb18f114c7177b1b689da9fbe",
+      "collision_238.obj": "99e3fd27122f70fb61d924b314d09ef608bc9d389b34da2ddfaf94b37810cec9",
+      "collision_239.obj": "df61e93fda022469a809b26478373ae92a963b0d86be8d762fb4405e966afdb7",
+      "collision_24.obj": "e365f4eca441459f8d3f0f4303e4a83ebdcba18b4778af03dfddb35e7031eb28",
+      "collision_240.obj": "287cf2a95b10d31945cd0c9f2a3e0bdaeb07b4f0b264a006ad046661b53e520a",
+      "collision_241.obj": "72fe7b8a9373c8a49b1a98337c466b590f14a1dbea9e9171e59403372ce2cc21",
+      "collision_242.obj": "b9aec6609c041b955c45f827fa1051d9c29115d2afb65f902302305315938d3c",
+      "collision_243.obj": "33c415c12d561094f4e5505a988e417de8dcdc86acae3568a34e2ffc6796ccb1",
+      "collision_244.obj": "1ce3e26bff83e669fb48fc30c9959229da0573ef779da6cc1e8332a85031362b",
+      "collision_245.obj": "2abc285afc3ad5ca0c2c053e7009b4990050c269394b31413dce532fe4406254",
+      "collision_246.obj": "c5ac1413ca358bdedaa388d2d25afa79dd71c227f700cecfc768624765246131",
+      "collision_247.obj": "0b29430f8ab87596799ded617dc41fbce11faa03c16b67a05106c4919b322ed1",
+      "collision_248.obj": "4c67668834be10623ba52251e35280fd90189ce0dfe74fcc9d5119079d5fa0f9",
+      "collision_249.obj": "dee7d5d7a5b8ad9d4cb5b41f64f23e28c406464cf6bd33080ffda750abae708a",
+      "collision_25.obj": "96cd02434839dae0485916cc0cd57ea08c2b518134c68d7b9262ce064f099307",
+      "collision_250.obj": "7a53ea7f76c9ddcb4fff05b47a64d97516e8d37c2651f5bf056f132e5d3b2c74",
+      "collision_251.obj": "da35dfaea16887779778aebd5896e9bec4447aced8fc025280ebfe0a3387c6ab",
+      "collision_252.obj": "45d3a0cd83342e619d729b0ece747caddb43729148615095eba3a51f1a3ab57c",
+      "collision_253.obj": "ecffa7625939319e8bdee92097987da954815826bc9e454deb9c294423a530ab",
+      "collision_254.obj": "999726edb1d53883806842761d7f6a6fc77b31983d16a4e549b897986bfb9a03",
+      "collision_255.obj": "a0f058265d1c66cf10811c9eae8fe1bb45cc7a60e7e5eabb0ff69080141c0a26",
+      "collision_256.obj": "6dfc566284429bb710212d42f0a685386ef74fc76d86cf333c5fab2e341ac63d",
+      "collision_257.obj": "4f45ee41f4c7e78c5e73687da2afac37a66898e8ca9e2b51377ec016fb084f92",
+      "collision_258.obj": "2484b7bd0bb1962c13b521d9b2e38ee7aad5981c8ef57353cc8179be5a0fbe04",
+      "collision_259.obj": "ca20ee829ae2402995496248726c7b481df74cb16f814b333b84c4c6c07446cc",
+      "collision_26.obj": "ff4df803dd72e56f1b7fcfb2887958654cbe7500f5d45a61e1668b98ffd7aa6c",
+      "collision_260.obj": "7347c7b2d6113cd69535f6e8690e3b8b39bdad2cb788ee0de17eaa18843405a1",
+      "collision_261.obj": "36852dabaf3834439372d54036a4979ef98530319ee68d6d96956b8c4a839ae2",
+      "collision_262.obj": "8409c565d8dc4712b11a60b80248d415bc1e401e9ad05d91e1ebff182f4b4383",
+      "collision_263.obj": "0487c1a7615e361bf08b44e5782be3495f11b9ee9c6364c1edde2a5d09ea9fc6",
+      "collision_264.obj": "298a690cbc2020da9454f2bcb03ad337deedfc3c3b2f73fd0e42ddbfa1ef7545",
+      "collision_265.obj": "8a277889c86c0552b1082ac386e1425e46667d0d426f66e41911fecde229668c",
+      "collision_266.obj": "afa83634a1a32cee81578c5c6426eb18198e59f8353234140550ed994a1f7967",
+      "collision_267.obj": "a5320dfaa8c49a39ceca4c80a97c3e4b7da6dfb22c8512b7e3f1c41e70999828",
+      "collision_268.obj": "c6520f5909f31391833e379f5c642f747c27b4220270e9de6354c239aba05fda",
+      "collision_269.obj": "e4e4cfef78b27ed8a5ae808f24138d46a53ed93f99cabb5a4ace4e374fe06a44",
+      "collision_27.obj": "505f5e00175ec49fc3352f4a69868a2783389556db68da77666854ac766fc57b",
+      "collision_270.obj": "64c4a555564a6180e3646f4db3ce4b2923167097b5e9a482859a7e3c931e6501",
+      "collision_271.obj": "9fc6020742cfaaf32efcd1cd920f614bcbbdbbd2988b04fe469db0e65d43338e",
+      "collision_272.obj": "c851bd4eae8ac02877cc773bd2d91b1079f5d90b50c1653302fee0647fe0782c",
+      "collision_28.obj": "d2b85fa15fd7a3b9e5e75f375ac3f2efa77cdc8fe7692753e5c28df184e6ecc5",
+      "collision_29.obj": "4f6a2303bc79a2d41d3555f12effda0ae592ba5554add4d4f7fc1101230b9460",
+      "collision_3.obj": "41968e8cfb0aa6feae202c72e4e86422ecf103af4fbf5b4a5f9c876308db49e9",
+      "collision_30.obj": "a0b818b35fd2d67b04e705771e1b8f51f154880f95d8887a25d8f7628e294c82",
+      "collision_31.obj": "a9487335343281b4a1f5fa66b6334c78d810b62adb1af94b1789f1ed92b382b5",
+      "collision_32.obj": "eb5ec5a32e770b955df5bf9255d0a05e3279eedb5bd10ef2f578a22efdbb91f1",
+      "collision_33.obj": "c5a76fc5e674519ba8db49b9846bcda35fac36e523b03cd4dacca486e8cece2c",
+      "collision_34.obj": "9e5628b5863d3e8946be8ba7ac25a365bd8f67db5ea7ffbc89ec449dfe80fd4f",
+      "collision_35.obj": "0d7e62370218acb0356e35be30cfe5b22c381e1e213153ebc50c65abc4f30c23",
+      "collision_36.obj": "53676b30ec5f8f3ae5d275565ea9a8ceb4282ba254252ead9838f68bff9dc323",
+      "collision_37.obj": "d873db3c6623228854d7cdd8ceeeb6d125fc80240c8defa83ca0e67f3175cf74",
+      "collision_38.obj": "603998e7d6cc507650fdea9c0734da8a5ddfb8e00f5aa51c9d7bb42f0c7fc3d8",
+      "collision_39.obj": "70143aea4dd77ebb4654c83c5c889fb379bfd226f214f39cec9ab90fc40d3f71",
+      "collision_4.obj": "ffb4b15879a61de2dadb017df9776807bfc7dc230c4cf8a4b4715a89b871adff",
+      "collision_40.obj": "2bd3057f91d42c5bfeb159369d3347034c98af31010bae406c67526e588ffff0",
+      "collision_41.obj": "9e6bef34784a9c2703a5dcd82bc9e6af012314478329fa2322e7e4b5b8b69f32",
+      "collision_42.obj": "b7be63762d703673e0c4a139585efd180e42a60fd6a006b36fdfeb7bb204d2e4",
+      "collision_43.obj": "d318b430a5d1b3117fa8bb340c1e8c55cffc425f12825fc74bbab9d054dd8fa0",
+      "collision_44.obj": "1f2ba43e1405c3f6375a1f0f1bacdf5b38e473403dd70962e661205842ca9326",
+      "collision_45.obj": "c79530eed68e89f85b96efaefa39c4f74f3abf948880c65dc56e558657810101",
+      "collision_46.obj": "c034aeb8f913866b146b5d0008b63e03b829e01082047d5a44186fbec5e0412c",
+      "collision_47.obj": "3b39d7d4381ba8ccea1230e2a6010a7fe65a3dbd35e921307290bfa6af0be26c",
+      "collision_48.obj": "8f22b6176914c0baee76bf2bab9f91ee74e91458294f1477eb514fe3ae6b6632",
+      "collision_49.obj": "cc05261da6c366685457eb591b0c366b1896b658a6198ac910e2b2bf49bf955f",
+      "collision_5.obj": "e61a50182c9cdb5fe52eb7dd546b158bcf53f6e8412a8ca802600f194c91db87",
+      "collision_50.obj": "af11a1a75e1d3ccc70182e1611c61d91a2133eaa992d55702f9bebfe6a30f5b1",
+      "collision_51.obj": "74135777849f24c868932f7b7c555253d10154ab8fc1d252297f721d7481180d",
+      "collision_52.obj": "71c6493d7013fb24069fabccceaea34362804d146d8198427e850a7f5f20701a",
+      "collision_53.obj": "93bfc7c168d96ec9ea597452a984558354c9392f7868134f1e69699eb0946e56",
+      "collision_54.obj": "22454b03549269017461be6934743f18b78ec0dc54c47e2896018eba9e585e71",
+      "collision_55.obj": "61d598640cca464bb2f8c7f777bc6ae8790d65cb384063471836d5dfcdb138b1",
+      "collision_56.obj": "4171402a1b32038b3ec450efe383db134ff5cdfd08dfc89bd03adbdb7e59ccce",
+      "collision_57.obj": "603ee3cfb239c807ab72884d5a139bfca77ecbef1e4c763a88a7db536d56a503",
+      "collision_58.obj": "1ffaf33da6d770ac71a961160ff303f466a6a6fd2ee3a125906addc1288eb64e",
+      "collision_59.obj": "196956f85eb4b34dbf134902b1eda0619d20f4ae99047cb54de24839348129d1",
+      "collision_6.obj": "80547819a512d3e1154b5cabc7eb751b1205d94c16a41625c91931e1f7bbbaaa",
+      "collision_60.obj": "3013f1290f387158aedad36b8b3b490c766a310cd07b5b785993388cbfc390ae",
+      "collision_61.obj": "3de21af548c1e7db81741e8e2e284d85d2b6956fec910f0c15691ec0063afe14",
+      "collision_62.obj": "399d044d1ebb4b21979685b601874acc994d09cbb0973bf5978823741950da03",
+      "collision_63.obj": "47e86805b700b688e33164fe1a3e44c2d146181a07424752c1f320f4d3144e97",
+      "collision_64.obj": "6ead82304c0ad160ad2d255f3ed7b5304f16a2b19b9d04023bcb7b7a724885cf",
+      "collision_65.obj": "0182fadb4b05305ef7540850742e4b0a877f05f94ed3d1e7e0df3ed45e7e7ad8",
+      "collision_66.obj": "fee6b16cb264cff14ed9fb05fbba2f430a100a440c616529767f72c19c1ad958",
+      "collision_67.obj": "cdae6237871e5cdff3523e021a5ff02a734e89354ee35eb0f599d7b368ed0dc8",
+      "collision_68.obj": "01953dd8be6aa13a1e9b849afc190fd999f5ab636fcb00a4a5834b1ed53476b4",
+      "collision_69.obj": "1728acf5e148b3f1de7d505cdf9b126e9c50132accaa644b2147636df6b3eba3",
+      "collision_7.obj": "1cb704670af55d72ccbff8c4086a7962b74d3e6ad3a7f1430a62088bb5b1f6a6",
+      "collision_70.obj": "2a912323031ae146167acd9c39042ce70754eb449a48ac5f1e54d6f2e4e18a9e",
+      "collision_71.obj": "5b6c7b1e76ed0b83a89f740b5af0d1ba7ab94666b429f315b12efaacce0ba084",
+      "collision_72.obj": "7d3d7e964a64f1b5811025cfb47fa7c26d9c6fe012dd57216148dbde0a8bc27e",
+      "collision_73.obj": "b5110253cc2b5a874534a589b20b990227746d2d5314aa808ac2c76773e83a58",
+      "collision_74.obj": "cc0395add310e2fd6824a383f8228c49712b2f6f12f96484b2b2869d6056c206",
+      "collision_75.obj": "449047309a2843537aacf21aea9c19419a646d0e21ced3a26061985b353e34e8",
+      "collision_76.obj": "1ca4b65657a8dbcd3ac872f58fe6c1a0f49005fc1a739455155d60a6634bce5c",
+      "collision_77.obj": "7e312f35e495748d3fd887f87f17ef9e988b8515e27fac4a74a6f0df4632bf5b",
+      "collision_78.obj": "9a331862b8b1f862b010d8ff35ab4af6c51c7dca2dab108fc38368447f982347",
+      "collision_79.obj": "31db2646eb2cd7a3163513eef96e238dbb5a0625bb6ecee9590c6af5594f5c28",
+      "collision_8.obj": "b4e9ba1a9ba8cafc8e82f1eb51dfbaf88b4d429a022e49898c58f4d032f3f771",
+      "collision_80.obj": "7cf5d47479b0d8a03d2e7721d08971a860ca6c2d5180dea4807d04f1bb90af2c",
+      "collision_81.obj": "57c3f3e01a7ea6ac2b3dc5779198ebde8179aa3e0d96645ba3c1cd0baaf48042",
+      "collision_82.obj": "b6a0df8267dfed6b887338ce2bd7e788a0dd96087a84fb454a913c3be2843316",
+      "collision_83.obj": "094f43f06c00f63be3c7e8cb9c60adf117e73979040fc99b9f515316a6b749e7",
+      "collision_84.obj": "b258e774220f38ceee8ca73ca499eb947ab87e67e7aed02a60d83a46054f5747",
+      "collision_85.obj": "f46cfc493b09807166acae208017d9724b1155d3ae52ef1458be484e3e57b8b1",
+      "collision_86.obj": "f8e51dc314ca813bd6d8c0e56e7280997191f63b74939b00a32027fcf4d17018",
+      "collision_87.obj": "4bde411eec39f7c07e865eaca2fce70bf2697bd4de3b73edf471852255f48809",
+      "collision_88.obj": "931b366896bed656ad1e15b206c51a97c0df496d1389cc3b8b7de733359c3f81",
+      "collision_89.obj": "e49ef67f01532900f5b217550785b3a980b1acceb47c76efd3762f150f0a1a0c",
+      "collision_9.obj": "7b10b73fb66a8dfb2011c4535458c0c77fa467a2842fa8528a1edfa17d7a7ce3",
+      "collision_90.obj": "f9fddfbd0c54bff11e19234428d1522e4545d610b6805dff3971b3d1d5a5ecc6",
+      "collision_91.obj": "5d21c1995cc44ba3152e7da308ff243a23d6e6b1021b15bb6757effc642d3e41",
+      "collision_92.obj": "17b0562ff26ff0303708b887262e13d0eb33cce50a63070a1c23f5623ee208e0",
+      "collision_93.obj": "2b7dfcd8496542382088857abe898094b5c2f775a10fc2a8c8bed2f682992fed",
+      "collision_94.obj": "a43aa2e4e96e11b3be991fbad7293cf52f87354784506bdeee2cc76f38752e24",
+      "collision_95.obj": "a9dc46b23f67c9a5c2cee751cdee220c564f0b8d95be246c4a7ddc61b64879ee",
+      "collision_96.obj": "5b40e37af00409763e0583032f93eb24d622c88f79930f611efae5d8b048caf9",
+      "collision_97.obj": "0d661bc12d851c071a041d9584b6c8eae0ff5a745c75366fc376b80bde48f587",
+      "collision_98.obj": "cad66bbb688b5072b3984cb7f212a89eebf04021b2d24482ac398ab149a498c8",
+      "collision_99.obj": "9fc8e3d9f51c6b7577acd50daf77fa59ffc1ad85613559db8dafa458ed2ab457",
+      "refrigerator_a01.xml": "80cbafea309fcfd658150e720d6cdc49b6a4efb3637501a710adc8c6de405031",
+      "refrigerator_a01_tex0.png": "e0b649eac4b200d1fbb785fd38700be74df4f92b805d258f81232bab19dea659",
+      "refrigerator_a01_tex1.png": "93e3f8e0b913696d3738872a83435c55aa6496b6f40b5f9aa32a5f4b09aff445",
+      "refrigerator_a01_tex2.png": "29e29d6f017ad59728157482ef6553f5d8293a9b462e974705b7b6e1b5daef4e",
+      "refrigerator_a01_tex3.png": "4c06b24584e14d037d156a3cf27f96f141abab41c3c3ed2481ca440780b9fe72",
+      "refrigerator_a01_tex4.png": "a9ffe71d3f9af118ebf8c04711463a2bf6d1740f518d03f5e56d1e6e239c8714",
+      "refrigerator_a01_tex5.png": "41b2ed241d07a23cda60ed5f7bca1b67cf49aaa195a9e7391f08d5c2c05de2f3",
+      "refrigerator_a01_tex6.png": "61a8f1eaaed8559a52237ebc4b33a895b36ce9e1ddd3dbb1599494a8278e496e",
+      "refrigerator_a01_tex7.png": "5aee176e0db01444eb8d69b7b84affe2a0c5165331477ea23b40352364565170",
+      "refrigerator_a01_tex8.png": "b10682312c17eef548fdc78e83b39d8f79b00446b9c76851c6a56663841f6fcc",
+      "refrigerator_a01_tex9.png": "a8ad7c46d9e644351638f3aac155975959dec3e805fc6edc0197f0662a8131ad",
+      "visual_0.obj": "60833c1be9e833dab7b4950b045e9e9890c73e9de8e5d434cc7d7bd21c9b95de",
+      "visual_1.obj": "7fb9a9b914a412b49d2d2a683484703b86ece37978c19100180e79417adf613f",
+      "visual_10.obj": "4b50001f62020bcb8c8b24b42b17c193f42907c24e44ff9d8d07c26390b5e5af",
+      "visual_11.obj": "7c7a7c3354e80b314ff70e64c9e29add51a4813db3932feba4c637f9f4465a98",
+      "visual_12.obj": "dc1a15aafbcbfc1b45ad5eb0794bbf9fd2913d70b8fe1334b29574b55fa26abe",
+      "visual_13.obj": "c42ee5d55815353c4ea63dcf2c55d240ba6ef19d8cb51b10dcf7e137b97c49c4",
+      "visual_14.obj": "19da62a527ae656505c210369d75bb9cf81079b4f4164bba8450b59d4f4fe6d3",
+      "visual_15.obj": "21878d654280f55496a0bc0511a5e041d73d4ff3b139c85d92f2fe7f03a63d59",
+      "visual_16.obj": "eba1cc7bb604de1f04ed101cb01c4b3103983131781d1ed243e9f70366ad8db9",
+      "visual_17.obj": "860a0435d85c45f5a95da7930b09804f7aaf2a49c8ddeb04fd4d2a93a73e715f",
+      "visual_18.obj": "ccba01b0855a17d5afb44b28436880cec265d15a463e77f20eb5f77bacf6a6a1",
+      "visual_19.obj": "b30e01ba45e4279105396a3dcd78f03876f66a1220c8ce6794c30a3d9862b8a3",
+      "visual_2.obj": "4927a24fd319e60916efd3f48d4de7ace230a8e5c8530b80c389f57a9121d12e",
+      "visual_20.obj": "a49a5bfebe9daa16d9594ab2139a38252f362eec8ff8e4f8ff1093275fcb6623",
+      "visual_21.obj": "336fc6172c54fea88e2ce7bd48646e1fca427a7f2440159e44350a7963ddd82a",
+      "visual_22.obj": "2da81e373a15cea8b398754e79ea9e574b76ba10412b91feb609bf17b42ae5f7",
+      "visual_23.obj": "142224805d06c5368b7682171ec3b1eda5601b6a5a65f6f0a92bd458e8a70953",
+      "visual_24.obj": "971aa2606e392a2452b6e86aadd162555737cf8e5f1ac863c51c4d1695d28496",
+      "visual_25.obj": "d07ff21ea525f87f340209fe970e87e2ca2df325615e6949cd988139817bafa4",
+      "visual_26.obj": "db19c1fe74c2837cfe465b636bdad173dd8e7d46ac4fbfa9212616c26263cfe0",
+      "visual_27.obj": "ed870b69f2e1dcb031b8b2aa0ddfc50327fb8f2c909d3f6fac637493b504e583",
+      "visual_28.obj": "4751811e7132b451deaa7f0077e96defe5f95954d420638557bdfecd0138b951",
+      "visual_29.obj": "a51214b2a8255479de8ab94affd80137d92995a7ad1cf00da112d4baebbd907c",
+      "visual_3.obj": "431cfdab0cff62a8136e5356c340e62eee0e3421964ca385523447a9854673cc",
+      "visual_30.obj": "e238b279abd8212aa89a245959591d1dfffa47e6b86335b5f37fc59f4fd560b5",
+      "visual_31.obj": "61265f717b696e01c8d6baa38a9d38d3226ce6cc9b0798b7f8dce89f0121dcaa",
+      "visual_32.obj": "ff96aad4bceab87f7c9eb1bd21e3baff16a885648ff86c036a1a865bd00c43ac",
+      "visual_33.obj": "19f0c36c0719d1b38055e12d46ef45e584dccd342237f604962c306df7c3dda3",
+      "visual_34.obj": "b6bec7e8a9b317079289f5749e74008b0380f9c13189a8ef2878cc3a17478ec0",
+      "visual_35.obj": "87d10563a60eba1cd435bff71989aa0991d398b9e36424ef96ebb6b570f74404",
+      "visual_36.obj": "396ed994acb5873afff67633046845e4d230aca19d46f7c14657fcb6f4900998",
+      "visual_37.obj": "4089294552055e1f140c0e0b3d9a59812871637971f271cd13d9e4a736c41b18",
+      "visual_38.obj": "c59c7a2ec355cdfe99a2b05505b130be013520a4a803c7b83f78ba0281d76bcd",
+      "visual_39.obj": "080af35b7af149a5c11ba6a24979207e476f703678fbc4e280fd6783b7c8c91f",
+      "visual_4.obj": "038c2617625a3394b9bf7e841417a5c50b503b236c30c5c59c15c05f337fd947",
+      "visual_40.obj": "d902a8ec06b4c7d480c6407a5d177d8e5a83ba3d1f7aee08f889605c8515287e",
+      "visual_41.obj": "88328a4d4f1d0bd8a803decaa58504849e71f6ec333d445fe0650a3e4e5c3879",
+      "visual_42.obj": "a2dc2f94994a77f333ca71e20ad95b4cb5105ae62e44daeadd6f3b1580ef1731",
+      "visual_43.obj": "68786f5fc525583c8cb4460700c834d09e344b5bdb062f7388db839131db9584",
+      "visual_44.obj": "68cf6dc95f40158ab12010dc6caa0a72f9efa073ae9db18140f59faf1b27d53f",
+      "visual_45.obj": "3b7a95ba395c4a49b662a73c206c7de355546be31478199c97a41dc5e5d8f23b",
+      "visual_46.obj": "fe5580661ebf13220c0450c73b843ae1af5ab522faeb6966b7272b844d5f7957",
+      "visual_47.obj": "a77eac5f056d59eba2b59d053f682d121bbcb07c52c6edfc53816d8a5cbbe095",
+      "visual_48.obj": "ffdf8558e43f062ea4582286d747e5e51a1c0f486edf6bb80c713eb2f38bc76c",
+      "visual_49.obj": "11f4d0dcbeaa30df8b976b76555457eacf162c67384065487d598b6be2aa21f1",
+      "visual_5.obj": "9a9d0b654641d675b34e628f90976428f1e897173ef978062f1c22b91d022912",
+      "visual_6.obj": "b4f67887bf5f96814954061181d7aaa6c1753312ec5c2246f55f4cb17e2779c7",
+      "visual_7.obj": "78b59bf55f77e5177bd92088243cbb77b94d55e0934662e081eed49e4a4e5834",
+      "visual_8.obj": "d88a2c01ae389815c46f42e56f0505182cd979bc1d71ed55c55829bccb21a5e1",
+      "visual_9.obj": "b50aeb7fa3fd45c832ec88ae861729ba886f10612a7e2fb0fbe0bb8d57d0dcfb"
+    },
+    "imported_at": "2026-10-30T12:46:19+00:00"
+  },
+  "toaster_a01": {
+    "repo_id": "nvidia/simready-assets",
+    "path_in_repo": "appliance_toaster_a01/simready_usd/sm_appliance_toaster_a01_01.usd",
+    "revision": "19512d4dd4b7c0868530efd3ec62277fa2dc1cde",
+    "license": "CC-BY-4.0",
+    "source_meters_per_unit": 1.0,
+    "source_up_axis": "Z",
+    "physics_variant": "MuJoCo=Enabled",
+    "options": {
+      "rigid": false,
+      "max_hulls": 32,
+      "max_visual_tris": 40000,
+      "torsional_friction": 0.005,
+      "rolling_friction": 0.005,
+      "articulated": true,
+      "handles": {
+        "lever": [
+          [
+            0.16,
+            -0.015,
+            0.146
+          ],
+          [
+            0.16,
+            0.015,
+            0.146
+          ]
+        ]
+      }
+    },
+    "bbox_mm": [
+      306.6,
+      154.9,
+      179.0
+    ],
+    "mass_kg": 1.49178,
+    "labels": {
+      "wikidata_class": [
+        "toaster"
+      ],
+      "wikidata_qcode": [
+        "Q14890"
+      ]
+    },
+    "links": {
+      "dial": {
+        "parent": "body",
+        "joint": "dial_joint",
+        "kind": "hinge",
+        "range": null,
+        "authored_damping": 0.10000000149011612,
+        "mass_kg": 0.0075,
+        "handle": false
+      },
+      "cancel_button": {
+        "parent": "body",
+        "joint": "cancel_button_joint",
+        "kind": "slide",
+        "range": [
+          -0.003214240074157715,
+          0.0
+        ],
+        "authored_damping": 0.10000000149011612,
+        "mass_kg": 0.0016,
+        "handle": false
+      },
+      "lever": {
+        "parent": "body",
+        "joint": "lever_joint",
+        "kind": "slide",
+        "range": [
+          -0.05949397385120392,
+          0.0
+        ],
+        "authored_damping": 0.10000000149011612,
+        "mass_kg": 0.0109,
+        "handle": true
+      }
+    },
+    "files": {
+      "collision_0.obj": "11d817734e3a1cb11850e72430a9ebc2f1dd8f1f666c411d1a95f25e382c0286",
+      "collision_1.obj": "3baa0d6e35d29dac77f9d71ad2356daae52cc99cb572cf6b3370823a207ba5f0",
+      "collision_10.obj": "55bcc6e1d936bafb2f21bf5df0adfcc723ffef4e324ddfa8faea67695b113697",
+      "collision_11.obj": "76bfa43bcc2283a04b975294b5f29db33f9e181e7eeec470202f7db0e642c592",
+      "collision_12.obj": "535ce9fafdd1dd68d7c166af84ec42710c31a0683388fa9579cbaa84d78ffe40",
+      "collision_13.obj": "ebb0a21860cbb85868c802f0b2083d13a48b7ccbeb442966d2dc873c8c0f6f4c",
+      "collision_14.obj": "1e9f49332927bd6fb9c078d77d419768e4c487ffa5556d4b9f32b2b443e534cf",
+      "collision_15.obj": "968c14b4647f51ed6d4588917c52e5d07c754b7d032d3e13f2dc7204c5c5d58c",
+      "collision_16.obj": "71581bb83f38031642e63f73e90d8ee462ecfd9a15798ed6bb964e961c15af3d",
+      "collision_17.obj": "78df0811e661461b76ad613a18898b472ef70a128c6abfa0a2cb04a961fe1afb",
+      "collision_18.obj": "e739b4ae0501b7639027bed877f60a5cb2c7ff2846744eca013ef6dcf522d3a7",
+      "collision_19.obj": "fb297870ab3e69c4e50decd9c1d8e7d403a21eac9efc150bb729e600c14f66f6",
+      "collision_2.obj": "87dfb3f38be63add6bfd9a221e538a5831c0cf1c51816df092586655af1ceeda",
+      "collision_20.obj": "28c9cb5a068e1742877a282953b648bd150708a8abde3feed9ba84278091e17b",
+      "collision_21.obj": "540b3f44d3e10724c97b01265c1a030c17b3fd5ca7a0b42eb7794a7019cf8bc4",
+      "collision_22.obj": "2c10e69e9bd8ebe5b13e658bbb7cc3b4c23115f0e5e39c66cc4431fadd4a5711",
+      "collision_23.obj": "a39baadbf88b367016053216cd9c6fdc0fcaf0da10f280d4c3bfde9aec01528d",
+      "collision_24.obj": "8be45c127bfd8af9b98e3d7b415bee2b9d73648af63e40112d6e012efb8d6483",
+      "collision_25.obj": "a825bab9818db8bc53338bab08d139624b504ee70ea02e6f34ed0c417d23e41c",
+      "collision_26.obj": "f817f5419826b14547f735457cbf194f584454f679177a183477f73b24c93eef",
+      "collision_27.obj": "0299252fff459b9ca8cdf3b983aaa53f6fc189b1d47dae4eccb96b6f0bb1a2de",
+      "collision_28.obj": "f94d6eb80057c77d2da9dd0305a8739b9693c7c82fad6e1aa1d3f7d2487d0846",
+      "collision_29.obj": "38adcf2257f77c5a2328e14ba9f6bd13ac6e7033e584c5e1d12d7b2a401b1a00",
+      "collision_3.obj": "4ce8bce607470ae478c5d7843713dd723216e6790322d16461cd3af9fc97be81",
+      "collision_30.obj": "fae32b4bb00a6ee14fcf6e09a3a60c3d1f9c250fd35f55ff4579158e5cf710c3",
+      "collision_31.obj": "0dabcae4061d27cce3a1dbf1589d81eeebf59df4119856c20da76f43fd93f954",
+      "collision_32.obj": "1141523ce060f43817cbf9afbec3514db6fa48b1861dd9cdf654dcd23dea75fd",
+      "collision_33.obj": "de05e6cff73814441ea65ddb0c596d309ff717b802cba94aa7341151b9c05393",
+      "collision_34.obj": "39b5fea9f3aa338d9f44a16e6043451d7cd483b90a4821512d4adac2ac38fae2",
+      "collision_35.obj": "8ee254836fb6ce784798fe46918edfc903b2197d5737573bac9fed9bf54781ef",
+      "collision_36.obj": "51933cce15079aed880910c265f57ed9f7719005d8fa016966ca2d6fc7c2ee95",
+      "collision_37.obj": "b75dab2339df92eea97cb7e19c19ebef02e024bbca38dc034d169d2e7db3431a",
+      "collision_38.obj": "8745cab31cbad82e6ea3f03f7088630db213a39ab9ca257a23cf8f62b6e508e2",
+      "collision_39.obj": "f92fbf597150bff95440bd631a9dc841d76843cab1e07e7ca7e62a14b7789fb7",
+      "collision_4.obj": "c7c6b64f66dd0d35bd6db8eb5d803b2abb43b3ef6227fd80799036b2aba40758",
+      "collision_40.obj": "49c460478c5144a3e8a27bc3c1c9409ae1577b595d78960528b335fd652fc175",
+      "collision_41.obj": "9ec002c72cd7a76e75407fa668b4e46d3a439ffcfeac0d5e9b681ddf91e85315",
+      "collision_42.obj": "deed2b251b1da45bbb18f6ba921ec8fa4474d08cb62a7e83a294f5cb07932b69",
+      "collision_5.obj": "bfa8c69fcd043fd6af4a45a7e4d5ea59c4fb2baa169c4e18c648d24577ae283c",
+      "collision_6.obj": "476f7fe103e1a654648c63fafd861afdb30737c8f43a919114dd83a5b402a353",
+      "collision_7.obj": "ff69807e55b9d5fb869367b8cd9793f59135a30265d500e2da220c13d078c374",
+      "collision_8.obj": "7b374b219e411a9210e075968dd57f9ee23564e3010efd481b02c53984731711",
+      "collision_9.obj": "e3b9e8d804b5984d81fdd1f131e8e1f9982eada5616463c8440072ac58ace09c",
+      "toaster_a01.xml": "c856ce18b38e6e80aa7ab8d39d687d7ad51a8f45d0c71d1a95c54177e2d5d05e",
+      "toaster_a01_tex0.png": "e0d48520c3d63f473380cfd7eedd23ec6d10ecd11ff5c3a37136dcae6afe921a",
+      "visual_0.obj": "6e6224c21b19e5fac08b84099a60b0f0241d9ca5a45ed06dca1b6a7787d95866",
+      "visual_1.obj": "e011569d04796724a6c655a4fd5e1a3f37057c02185d45ad502c4df6acd835bd",
+      "visual_2.obj": "1f0ed4bbdb6ea143a26a7b1731e7d454d30f12636809817fcf21635e69ada045",
+      "visual_3.obj": "9058cd1038506fc1dd7e0cc081adcd3ea977fd1ec34f4ee298a1e67f1d31b4a2",
+      "visual_4.obj": "c4a2a5be61e2c674eb5fa76dd647f430babf70ee93042ae3b83e3a5b820e7fdd",
+      "visual_5.obj": "13e997e64397582a42cb566d8655ff970d11e2616ba7cf8b266f0a3e774fedda"
+    },
+    "imported_at": "2026-10-30T12:36:08+00:00"
   }
 }

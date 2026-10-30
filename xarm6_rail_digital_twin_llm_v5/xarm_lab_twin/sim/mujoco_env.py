@@ -27,6 +27,8 @@ RAIL_ACT    = 0
 BIN_BODIES = ("green_bin", "blue_bin", "translucent_cup")
 
 from arm_backend import unsupported
+from sim.tool import (GRIPPER_DRIVER_CLOSED as _TOOL_DRIVER_CLOSED,
+                      GRIPPER_DRIVER_OPEN as _TOOL_DRIVER_OPEN, driver_for_gap)
 
 GRIPPABLE_BODIES = {
     # Cubes. The two red cubes straddle the rail (200 mm either side of its
@@ -103,7 +105,7 @@ GRIPPER_REACH_BIO_M = 0.10  # 100mm
 # grasp and does not transfer to real hardware. These make the weld require a
 # pose a real parallel gripper could actually have grasped from.
 GRASP_MAX_LATERAL_M = 0.030      # object centre offset from the tool axis
-GRASP_APERTURE_M = 0.075         # widest object the standard jaws span
+GRASP_APERTURE_M = 0.086         # widest object the xArm Gripper spans (UFACTORY: 86 mm stroke)
 GRASP_APERTURE_BIO_M = 0.130     # bio gripper, SBS footprint
 GRASP_MIN_DOWNWARD = 0.70        # cos of angle between approach and world -Z
 GRASP_MAX_BEHIND_M = 0.015       # how far *above* the tool an object may sit
@@ -121,7 +123,27 @@ GRASP_MAX_AXIAL_M = 0.045
 # tight enough to exclude one merely leaning against another.
 STACK_MIN_RISE_M = 0.020
 STACK_MAX_RISE_M = 0.070
-GRASP_MAX_PENETRATION_M = 0.004  # deepest contact tolerated at the grasp pose
+GRASP_MAX_PENETRATION_M = 0.004
+# Handles of articulated objects (a fridge door, a drawer). The tool point
+# must be this close to the handle's centre line for close_gripper to take it.
+HANDLE_REACH_M = 0.030
+# operate_part: stand-off before grasping a handle, and the step sizes along
+# the joint's path (each step is one validated set_position).
+HANDLE_STANDOFF_M = 0.10
+HANDLE_FAR_STANDOFF_M = 0.25
+HANDLE_APPROACH_DEG = (0.0, 35.0, -35.0, 70.0, -70.0)
+# Rail parked level with the grip point first, then to either side: beside an
+# open door the arm reaches a drawer handle diagonally, from away from the door.
+HANDLE_RAIL_OFFSETS_M = (0.0, -0.15, 0.15)
+# The tool point holds the bar this far proud of its centre line: collision
+# hulls fill the gap behind a handle, so a tool on the centre line would put
+# the palm into the door.
+HANDLE_GRIP_OFFSET_M = 0.020
+HANDLE_STEP_DEG = 6.0
+HANDLE_STEP_M = 0.025
+# A part reads "open" in physical_outcome beyond these.
+PART_OPEN_DEG = 5.0
+PART_OPEN_M = 0.015  # deepest contact tolerated at the grasp pose
 
 # --- Swept-path validation ---------------------------------------------------
 # Motion primitives used to validate only their ENDPOINT. The pose you asked
@@ -156,14 +178,20 @@ CARRIED_CONTACT_TOL_M = 0.0
 #: is not checked at a coarser resolution than a short one.
 SWEPT_SAMPLE_SPACING_MM = 8.0
 
-# Cosmetic finger animation. The two finger joints have range [0, 0.015] m
-# where 0 = open, 0.015 = closed (inward). Both joints are driven to the
-# same ctrl value via act_finger_l / act_finger_r. Fingers are contype=0 so
-# they don't affect contacts -- they're purely a visual cue for the magnetic
-# grasp. Welds still do the actual carrying.
+# Cosmetic finger animation. finger_left_joint / finger_right_joint are the
+# xArm Gripper linkage's two DRIVER hinges, 0 = open .. 0.85 rad = closed
+# (sim/tool.py; the names say _M from when they were 15 mm slides -- the values
+# are radians now, and teleop_hand interpolates between them unchanged). Both
+# are driven to the same ctrl via act_finger_l / act_finger_r. Fingers are
+# contype=0 so they don't affect contacts -- welds still do the carrying -- so
+# a grasp closes them to the object's width (sim.tool.driver_for_gap), not
+# through it: recorded frames would otherwise show fingers inside the object.
 FINGER_ACT_NAMES = ("act_finger_l", "act_finger_r")
-GRIPPER_OPEN_CTRL_M   = 0.0
-GRIPPER_CLOSED_CTRL_M = 0.015
+GRIPPER_OPEN_CTRL_M   = _TOOL_DRIVER_OPEN
+GRIPPER_CLOSED_CTRL_M = _TOOL_DRIVER_CLOSED
+# Gap the jaws close to on a handle bar (fridge door handles are ~40 mm deep,
+# drawer planks ~16 mm; the pads stop on the bar).
+HANDLE_JAW_GAP_M = 0.025
 
 # Tube-rack slot grid (rack-local offsets). Both racks share the same 4x2 layout:
 #   columns 1..4 at rel x = -0.060, -0.020, +0.020, +0.060
@@ -328,6 +356,7 @@ class SimXArmAPI:
             body_name: self.model.equality(weld_name).id
             for body_name, weld_name in self.grippable.items()
         }
+        self._init_handles()
 
         from sim.fk_validator import FKValidator
         from sim.ik_solver import IKSolver
@@ -412,7 +441,9 @@ class SimXArmAPI:
             except Exception:
                 pass
         self._std_gripper_gids = []
-        for n in ("gripper_geom", "finger_left_geom", "finger_right_geom"):
+        for n in ("gripper_geom", "finger_left_geom", "finger_right_geom",
+                  "knuckle_outer_left_geom", "knuckle_outer_right_geom",
+                  "knuckle_inner_left_geom", "knuckle_inner_right_geom"):
             try:
                 self._std_gripper_gids.append(self.model.geom(self._mj(n, "geom")).id)
             except Exception:
@@ -1047,6 +1078,8 @@ class SimXArmAPI:
         with self.lock:
             held = [name for name, eqid in self.weld_eqids.items()
                     if bool(self.data.eq_active[eqid])]
+            held += [f"{name} handle" for name, h in self.handles.items()
+                     if bool(self.data.eq_active[h["eqid"]])]
         if held:
             return "held", f"welded to {held[0]}"
         return "empty", "no active weld"
@@ -1456,6 +1489,13 @@ class SimXArmAPI:
             # Release any grasped cube
             for eqid in self.weld_eqids.values():
                 self.data.eq_active[eqid] = 0
+            for h in self.handles.values():
+                self.data.eq_active[h["eqid"]] = 0
+            # Doors and drawers of articulated objects back to closed (qpos0).
+            for jid in self._part_jids:
+                self.data.qpos[self.model.jnt_qposadr[jid]] = \
+                    self.model.qpos0[self.model.jnt_qposadr[jid]]
+                self.data.qvel[self.model.jnt_dofadr[jid]] = 0.0
             # Restore EVERY free-floating body to its XML pose, not just the
             # grippable ones. This used to iterate self.cube_bids, so anything
             # the arm knocked into that it could not grasp -- heater_shaker,
@@ -1880,9 +1920,362 @@ class SimXArmAPI:
                 if self.data.eq_active[eqid]:
                     self.data.eq_active[eqid] = 0
                     released.append(cube_name)
+            for name, h in self.handles.items():
+                if self.data.eq_active[h["eqid"]]:
+                    self.data.eq_active[h["eqid"]] = 0
+                    released.append(f"{name} handle")
             self._set_finger_ctrl(GRIPPER_OPEN_CTRL_M)
         print(f"[SimXArm] Gripper open  (released: {released or 'nothing'})")
         return 0
+
+    # ---- articulated objects (doors, drawers) ------------------------------
+    def _init_handles(self) -> None:
+        """Handles, moving parts and containment boxes of the room's
+        articulated objects. All empty in the lab, so nothing below changes
+        its behaviour or its physical_outcome text."""
+        inst = self.robot.instance
+        self.handles = {}                 # "fridge.door_01" -> handle record
+        self._part_jids = []              # every hinge/slide joint of an object
+        self._part_boxes = []             # (label, body id, lo, hi) in body frame
+        objs = getattr(self.room, "objects", {}).values()
+        for o in objs:
+            for link, h in getattr(o, "handles", {}).items():
+                if inst not in h.connects:
+                    continue
+                jid = self.model.joint(h.joint).id if h.joint else None
+                self.handles[f"{o.name}.{link}"] = {
+                    "object": o.name, "link": link,
+                    "site": self.model.site(h.site).id,
+                    "body": self.model.body(h.body).id,
+                    "eqid": self.model.equality(h.connects[inst]).id,
+                    "jid": jid}
+        for o in objs:
+            try:
+                root = self.model.body(o.body).id
+            except KeyError:
+                continue
+            sub = [b for b in range(self.model.nbody) if self._is_descendant(b, root)]
+            jids = [j for b in sub for j in range(self.model.njnt)
+                    if self.model.jnt_bodyid[j] == b and self.model.jnt_type[j] in
+                    (mujoco.mjtJoint.mjJNT_HINGE, mujoco.mjtJoint.mjJNT_SLIDE)]
+            if not jids:
+                continue
+            self._part_jids += jids
+            # Children first, so "in fridge drawer_03" wins over "in fridge".
+            for b in sorted(sub, key=lambda b: b == root):
+                box = self._body_collision_box(b)
+                if box is None:
+                    continue
+                link = self._logical(self.model.body(b).name).split("/")[-1]
+                label = o.name if b == root else f"{o.name} {link}"
+                self._part_boxes.append((label, o.name, b, *box))
+
+    def _is_descendant(self, b: int, root: int) -> bool:
+        while b > 0:
+            if b == root:
+                return True
+            b = int(self.model.body_parentid[b])
+        return b == root
+
+    def _body_collision_box(self, b: int):
+        """AABB of body b's collision geoms in its own frame, or None."""
+        pts = []
+        for g in range(self.model.ngeom):
+            if self.model.geom_bodyid[g] != b or self.model.geom_contype[g] == 0 \
+                    and self.model.geom_conaffinity[g] == 0:
+                continue
+            c, half = self.model.geom_aabb[g][:3], self.model.geom_aabb[g][3:]
+            R = np.zeros(9)
+            mujoco.mju_quat2Mat(R, self.model.geom_quat[g])
+            R = R.reshape(3, 3)
+            for sx in (-1, 1):
+                for sy in (-1, 1):
+                    for sz in (-1, 1):
+                        pts.append(self.model.geom_pos[g] + R @ (c + half * [sx, sy, sz]))
+        if not pts:
+            return None
+        pts = np.array(pts)
+        return pts.min(axis=0), pts.max(axis=0)
+
+    def _container_part_of(self, obj_name: str, p) -> Optional[str]:
+        """The articulated part whose collision box holds point p (an object's
+        centre), e.g. "fridge drawer_03"; the object itself never counts."""
+        for label, owner, b, lo, hi in self._part_boxes:
+            if owner == obj_name:
+                continue
+            R = self.data.xmat[b].reshape(3, 3)
+            q = R.T @ (np.asarray(p) - self.data.xpos[b])
+            if np.all(q > lo) and np.all(q < hi):
+                return label
+        return None
+
+    def _part_open_amount(self, jid: int):
+        """(amount, unit) a part is open by: degrees or mm from closed (qpos0)."""
+        adr = self.model.jnt_qposadr[jid]
+        d = float(self.data.qpos[adr] - self.model.qpos0[adr])
+        if self.model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_HINGE:
+            return abs(np.rad2deg(d)), "deg"
+        return abs(d) * 1000.0, "mm"
+
+    def _part_states(self) -> list:
+        notes = []
+        for jid in self._part_jids:
+            amount, unit = self._part_open_amount(jid)
+            if amount < (PART_OPEN_DEG if unit == "deg" else PART_OPEN_M * 1000.0):
+                continue
+            name = self._logical(self.model.joint(jid).name)
+            obj, _, link = name.partition("/")
+            notes.append(f"{obj} {link.removesuffix('_joint')} open {amount:.0f} {unit}")
+        return notes
+
+    def _handle_segment(self, h):
+        c = self.data.site_xpos[h["site"]]
+        axis = self.data.site_xmat[h["site"]].reshape(3, 3)[:, 2]
+        half = float(self.model.site_size[h["site"]][1])
+        return c - axis * half, c + axis * half
+
+    @staticmethod
+    def _closest_on_segment(p, a, b):
+        ab = b - a
+        t = float(np.clip(np.dot(p - a, ab) / max(np.dot(ab, ab), 1e-12), 0.0, 1.0))
+        return a + t * ab
+
+    def _nearest_handle(self, ee_pos):
+        best, best_d = None, float("inf")
+        for name, h in self.handles.items():
+            a, b = self._handle_segment(h)
+            d = float(np.linalg.norm(self._closest_on_segment(ee_pos, a, b) - ee_pos))
+            if d < best_d:
+                best, best_d = name, d
+        return best, best_d
+
+    def _grasp_handle(self, name: str, ee_pos, dist: float) -> int:
+        """Pin the tool point to the handle with its CONNECT constraint: both
+        anchors are the tool point as it is now, so nothing snaps. A point,
+        not a weld: the door turns about its hinge under a gripper whose
+        orientation the arm keeps commanding. Caller holds self.lock."""
+        h = self.handles[name]
+        eqid = h["eqid"]
+        g, b = self.gripper_bid, h["body"]
+        self.model.eq_data[eqid, 0:3] = self.data.xmat[g].reshape(3, 3).T @ (ee_pos - self.data.xpos[g])
+        self.model.eq_data[eqid, 3:6] = self.data.xmat[b].reshape(3, 3).T @ (ee_pos - self.data.xpos[b])
+        self.data.eq_active[eqid] = 1
+        self._set_finger_ctrl(driver_for_gap(HANDLE_JAW_GAP_M))
+        print(f"[SimXArm] Gripper close (grasped {name} handle at {dist*1000:.1f}mm)")
+        return 0
+
+    def held_handle(self) -> Optional[str]:
+        with self.lock:
+            for name, h in self.handles.items():
+                if self.data.eq_active[h["eqid"]]:
+                    return name
+        return None
+
+    def part_opening(self, part: str) -> float:
+        """How far `part` ("fridge.door_01") is open, 0 (closed) .. 1 (its limit)."""
+        jid = self.handles[part]["jid"]
+        lo, hi = self.model.jnt_range[jid]
+        far = hi if abs(hi) >= abs(lo) else lo
+        with self.lock:
+            q = float(self.data.qpos[self.model.jnt_qposadr[jid]])
+        return 0.0 if far == 0 else float(np.clip(q / far, 0.0, 1.0))
+
+    def operate_part(self, part: str, opening: float = 1.0, speed: float = 60.0,
+                     **kwargs) -> int:
+        """Open or close a door/drawer by its handle: approach the handle from
+        the front, grasp it, carry the grip point along the joint's own path
+        (an arc about the hinge, or the slide line) in validated steps, then
+        release and back off.
+
+        `part` is "<object>.<link>" (see self.handles); `opening` is the target
+        as a fraction of the joint's travel from closed (0) to its limit (1).
+        Returns 0 when the part reached the target (within one step), 1 for
+        an unknown part or nothing to do, 2 when a move was refused partway
+        (the part is released where it got to; last_refusal says why).
+        """
+        h = self.handles.get(part)
+        if h is None or h["jid"] is None:
+            self.last_refusal = (f"unknown part {part!r}; parts with handles: "
+                                 f"{sorted(self.handles)}")
+            print(f"[SimXArm] {self.last_refusal}")
+            return 1
+        jid = h["jid"]
+        lo, hi = (float(v) for v in self.model.jnt_range[jid])
+        far = hi if abs(hi) >= abs(lo) else lo
+        hinge = self.model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_HINGE
+        adr = self.model.jnt_qposadr[jid]
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            q0 = float(self.data.qpos[adr])
+            a, b = self._handle_segment(h)
+            # The handle's outward normal (the side to approach from) is its
+            # site's x axis, written by simready_import per handle.
+            normal = self.data.site_xmat[h["site"]].reshape(3, 3)[:, 0].copy()
+            anchor = self.data.xanchor[jid].copy()
+            axis = self.data.xaxis[jid].copy()
+            rail_m = float(self.data.qpos[self.rail_jid])
+        q1 = float(np.clip(opening, 0.0, 1.0)) * far
+        step = np.deg2rad(HANDLE_STEP_DEG) if hinge else HANDLE_STEP_M
+        if abs(q1 - q0) < step / 2:
+            print(f"[SimXArm] {part} already at {self.part_opening(part):.2f}")
+            return 1 if abs(q1 - q0) > 1e-3 else 0
+        bar = (b - a) / max(np.linalg.norm(b - a), 1e-9)
+
+        def joint_rot(q):
+            """Rotation the link has made since q0 (identity for a slide)."""
+            if not hinge:
+                return np.eye(3)
+            R, quat = np.zeros(9), np.zeros(4)
+            mujoco.mju_axisAngle2Quat(quat, axis, q - q0)
+            mujoco.mju_quat2Mat(R, quat)
+            return R.reshape(3, 3)
+
+        def pose_at(q, grip, R_grasp, follow=1.0):
+            """Tool position + rotation holding `grip` when the joint is at q.
+            The grip POINT travels with the link; the tool turns by `follow`
+            times the link's rotation. The handle is held by a point
+            constraint, so any orientation holds it: turning fully with a
+            door has the tool pointing back at the robot by 120 deg, never
+            turning puts the upper arm into the door's edge, so operate_part
+            tries several per step."""
+            p = anchor + joint_rot(q) @ (grip - anchor) if hinge else grip + axis * (q - q0)
+            return p, joint_rot(q0 + follow * (q - q0)) @ R_grasp
+
+        def grasp_frame(phi_deg):
+            """Tool frame on the bar: z (approach) is the inward normal turned
+            by phi about the bar, x along the bar, so the jaws (which close
+            along tool y) straddle it."""
+            quat, Rb = np.zeros(4), np.zeros(9)
+            mujoco.mju_axisAngle2Quat(quat, bar, np.deg2rad(phi_deg))
+            mujoco.mju_quat2Mat(Rb, quat)
+            z = Rb.reshape(3, 3) @ -normal
+            x = bar - z * np.dot(bar, z)
+            x /= np.linalg.norm(x)
+            return np.column_stack([x, np.cross(z, x), z])
+
+        # Grip point: along the handle, nearest the shoulder first (a fridge
+        # handle runs far above what the arm reaches), rail parked under it;
+        # then the approach turned about the bar (from above suits a drawer
+        # handle, from the side a door that already stands open).
+        base_x0 = self._rail_x0_mm / 1000.0
+        lo_r, hi_r = (v / 1000.0 for v in self._rail_limits_mm)
+        with self.lock:
+            shoulder = self.data.xpos[self.model.body(self._mj("link2", "body")).id].copy()
+        inset = min(0.06 / max(float(np.linalg.norm(b - a)), 1e-9), 0.5)   # 60 mm off the ends
+        ts = np.linspace(inset, 1.0 - inset, 9)
+        order = sorted(ts, key=lambda t: float(np.linalg.norm(
+            (a + t * (b - a))[1:] - shoulder[1:])))
+        rc = 1
+        tried = []
+        for t, off, phi in [(t, off, phi) for t in order[:2] for off in HANDLE_RAIL_OFFSETS_M
+                            for phi in HANDLE_APPROACH_DEG]:
+            if tried:
+                tried[-1] += f": {self.last_refusal or 'IK failed'}"
+            tried.append(f"t={t:.2f} rail{off:+.2f} phi={phi:+.0f}")
+            self.last_refusal = None
+            R_grasp = grasp_frame(phi)
+            approach = R_grasp[:, 2]
+            grip = a + t * (b - a) - approach * HANDLE_GRIP_OFFSET_M
+            mid, _ = pose_at((q0 + q1) / 2, grip, R_grasp)
+            rail = float(np.clip(mid[0] + off - base_x0, lo_r, hi_r))
+            if abs(rail - rail_m) > 0.005:
+                if self.set_rail_position(rail * 1000.0, speed_mm_s=speed) != 0:
+                    continue
+                rail_m = rail
+            p, R = pose_at(q0, grip, R_grasp)
+            if any(self._move_tool(p - approach * d, R, speed) != 0
+                   for d in (HANDLE_FAR_STANDOFF_M, HANDLE_STANDOFF_M)):
+                continue
+            if self._move_tool(p, R, speed / 2, correct_sag=True) != 0:
+                continue
+            rc = 0
+            break
+        if rc != 0:
+            self.go_home()
+            tried[-1] += f": {self.last_refusal or 'IK failed'}"
+            print("[SimXArm] approaches tried:\n  " + "\n  ".join(tried))
+            self.last_refusal = (f"{part}: no reachable approach to its handle "
+                                 f"({self.last_refusal or 'IK/validation failed'})")
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        self.close_gripper()
+        if self.held_handle() != part:
+            self.open_gripper()
+            self._back_off(speed)
+            self.last_refusal = f"{part}: the gripper did not take the handle"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+
+        n = max(int(np.ceil(abs(q1 - q0) / step)), 1)
+        rc = 0
+        follow = 1.0
+        for k in range(1, n + 1):
+            q = q0 + (q1 - q0) * k / n
+            for f in dict.fromkeys((follow, 0.5, 1.0, 0.0)):
+                p, R = pose_at(q, grip, R_grasp, f)
+                if self._move_tool(p, R, speed, part=part) == 0:
+                    follow = f
+                    break
+            else:
+                rc = 2
+                break
+        reached = self.part_opening(part)
+        self.open_gripper()
+        self._back_off(speed)
+        amount, unit = self._part_open_amount(jid)
+        msg = f"{part} at {reached:.2f} of its travel ({amount:.0f} {unit} open)"
+        if rc != 0:
+            self.last_refusal = f"{part} stopped partway: {msg}; {self.last_refusal}"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        print(f"[SimXArm] {msg}")
+        return 0
+
+    def _back_off(self, speed: float) -> None:
+        """After letting go of a handle: straight back along the tool axis,
+        then home. A door swung to 90 deg stands beside the arm, and a rail
+        move with the elbow still out sweeps it into the door -- every later
+        move was refused from there until the arm went home."""
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            ee = self.data.site_xpos[self.ee_site].copy()
+            z = self.data.site_xmat[self.ee_site].reshape(3, 3)[:, 2].copy()
+        for d in (HANDLE_STANDOFF_M, HANDLE_STANDOFF_M / 2):
+            if self._move_tool(ee - z * d, None, speed) == 0:
+                break
+        self.go_home()
+
+    def _move_tool(self, pos_m, R, speed: float, part: Optional[str] = None,
+                   correct_sag: bool = False) -> int:
+        """set_position to a tool pose given as metres + rotation matrix (or
+        None: keep the current orientation). correct_sag re-commands up to
+        twice with the remaining error added: the twin sags 15-35 mm at full
+        horizontal reach, more than a handle's grasp tolerance."""
+        if correct_sag:
+            target = np.asarray(pos_m, float)
+            aim = target.copy()
+            rc = self._move_tool(aim, R, speed)
+            for _ in range(2):
+                if rc != 0:
+                    return rc
+                with self.lock:
+                    mujoco.mj_forward(self.model, self.data)
+                    err = target - self.data.site_xpos[self.ee_site]
+                if np.linalg.norm(err) < 0.004:
+                    break
+                aim = aim + err
+                rc = self._move_tool(aim, R, speed)
+            return rc
+        if R is None:
+            with self.lock:
+                R = self.data.site_xmat[self.ee_site].reshape(3, 3).copy()
+        import warnings
+        from scipy.spatial.transform import Rotation
+        with warnings.catch_warnings():       # a horizontal tool is pitch +-90: the
+            warnings.simplefilter("ignore")   # angles are degenerate, the matrix is not
+            roll, pitch, yaw = Rotation.from_matrix(R).as_euler("xyz", degrees=True)
+        x, y, z = (float(v) * 1000.0 for v in pos_m)
+        return self.set_position(x, y, z, roll, pitch, yaw, speed=speed)
 
     # ---- rooms -------------------------------------------------------------
     def _mj(self, name, kind: str = "body"):
@@ -2344,6 +2737,12 @@ class SimXArmAPI:
             # Animate fingers closing regardless of whether anything is in
             # reach -- a "tried to grasp but missed" visual is informative.
             self._set_finger_ctrl(GRIPPER_CLOSED_CTRL_M)
+            # A handle (door, drawer) nearer than any object is what the jaws
+            # close on. Measured to the handle's centre line, not a body origin.
+            hname, hd = self._nearest_handle(ee_pos)
+            if hname is not None and hd <= HANDLE_REACH_M and (nearest is None
+                                                               or hd < nearest_d):
+                return self._grasp_handle(hname, ee_pos, hd)
             # Bio-gripper widens the effective grasp envelope so plate
             # picks tolerate more positioning slop.
             reach = (GRIPPER_REACH_BIO_M if self._gripper_mode == "bio"
@@ -2391,6 +2790,8 @@ class SimXArmAPI:
             self.model.eq_data[eqid, 6:10] = rel_quat
             self.model.eq_data[eqid, 10]   = 1.0
             self.data.eq_active[eqid] = 1
+            # Jaws stop on the object, not through it.
+            self._set_finger_ctrl(driver_for_gap(self.object_width_m(nearest)))
         print(f"[SimXArm] Gripper close (grasped {nearest} at "
               f"{nearest_d*1000:.1f}mm)")
         return 0
@@ -2580,6 +2981,12 @@ class SimXArmAPI:
                 notes.append(f"{obj_name} in {placed_in}")
                 categorical.add(obj_name)
                 continue
+            # Inside an articulated object (a fridge drawer, a cabinet shelf)?
+            part = self._container_part_of(obj_name, p) if self._part_boxes else None
+            if part is not None:
+                notes.append(f"{obj_name} in {part}")
+                categorical.add(obj_name)
+                continue
             # Tube seated in a NON-HOME rack (= a placement event worth reporting).
             if obj_name in tube_home_rack:
                 home = tube_home_rack[obj_name]
@@ -2737,6 +3144,7 @@ class SimXArmAPI:
                 else:
                     notes.append(f"{a} farther from {b}")
 
+        notes += self._part_states()
         return "; ".join(notes) if notes else "no objects displaced"
 
     def _wait_arm_settled(self, target_rad: np.ndarray,

@@ -4,10 +4,14 @@
   search <query> [--limit N] [--dataset REPO ...]
         SimReady assets whose folder names match, with dataset, root USD, size
         and licence.
-  fetch <repo_id> <path_in_repo> [--revision SHA] [--slug S] [--rigid]
+  fetch <repo_id> <path_in_repo> [--revision SHA] [--slug S] [--rigid | --articulated]
+        [--handle LINK=X,Y,Z:X,Y,Z ...]
         download at a pinned commit, check every dependency resolves, convert
         to assets/simready/<slug>/ and record it in assets/simready/manifest.json.
-        Prints the licence and the bounding box in mm.
+        Prints the licence and the bounding box in mm. A jointed asset (doors,
+        drawers) needs --rigid (one body) or --articulated (hinge/slide joints
+        kept); --handle marks a grip segment on a link, in the asset's USD
+        frame in metres (the twin's gripper welds to it).
   fetch --picks
         fetch every asset in assets/simready/picks.json
   place <slug> --room ID --name NAME --pos X Y [Z] [--euler R P Y] [--fixed]
@@ -42,9 +46,25 @@ def default_slug(folder: str) -> str:
     return folder.split("/")[-1].lower().replace("-", "_")
 
 
+def parse_handle(text: str):
+    """"door_01=0.35,-0.03,0.6:0.35,-0.03,1.4[:NX,NY,NZ]" -> ("door_01", (p0, p1[, normal]))
+
+    The optional third triple is the handle's OUTWARD normal (the side the
+    gripper approaches from), default the asset's +x."""
+    try:
+        link, seg = text.split("=", 1)
+        pts = [tuple(float(v) for v in q.split(",")) for q in seg.split(":")]
+        assert len(pts) in (2, 3) and all(len(p) == 3 for p in pts)
+    except (ValueError, AssertionError):
+        raise argparse.ArgumentTypeError(
+            f"--handle {text!r}: expected LINK=X,Y,Z:X,Y,Z[:NX,NY,NZ]") from None
+    return link.strip(), tuple(pts)
+
+
 def import_asset(repo_id: str, path_in_repo: str, revision: Optional[str] = None,
                  slug: Optional[str] = None, rigid: bool = False, max_hulls: int = 16,
-                 max_tris: int = 40000) -> dict:
+                 max_tris: int = 40000, articulated: bool = False,
+                 handles: Optional[dict] = None, exclude: tuple = ()) -> dict:
     from simready_import.fetch import fetch
     from simready_import.mjcf_writer import ROLLING_FRICTION, TORSIONAL_FRICTION, write_mjcf
     from simready_import.usd_reader import read_usd
@@ -52,20 +72,34 @@ def import_asset(repo_id: str, path_in_repo: str, revision: Optional[str] = None
     slug = slug or default_slug(res.folder)
     print(f"[fetch] {repo_id}@{res.revision[:8]} {path_in_repo}")
     print(f"[fetch] LICENSE: {res.license}  ({'; '.join(res.license_detail)})")
-    asset = read_usd(res.root, rigid=rigid)
+    asset = read_usd(res.root, rigid=rigid, articulated=articulated, exclude=tuple(exclude))
     out = ASSETS_DIR / slug
-    w = write_mjcf(asset, slug, out, max_visual_tris=max_tris, max_hulls=max_hulls)
+    w = write_mjcf(asset, slug, out, max_visual_tris=max_tris, max_hulls=max_hulls,
+                   handles=handles)
+    extra = {"articulated": True, "handles": {k: [list(p) for p in v]
+                                              for k, v in (handles or {}).items()}} \
+        if articulated else {}
+    if exclude:
+        extra["exclude"] = list(exclude)
     entry = manifest.record(
         slug, repo_id=repo_id, path_in_repo=path_in_repo, revision=res.revision,
         license=res.license, source_units_m=asset.meters_per_unit,
         source_up_axis=asset.up_axis, variant=asset.variant,
         options={"rigid": rigid, "max_hulls": max_hulls, "max_visual_tris": max_tris,
-                 "torsional_friction": TORSIONAL_FRICTION, "rolling_friction": ROLLING_FRICTION},
-        asset_dir=out, bbox_mm=w.bbox_mm, mass_kg=w.mass, labels=asset.labels)
+                 "torsional_friction": TORSIONAL_FRICTION, "rolling_friction": ROLLING_FRICTION,
+                 **extra},
+        asset_dir=out, bbox_mm=w.bbox_mm, mass_kg=w.mass, labels=asset.labels, links=w.links)
     print(f"[import] {slug}: bbox {w.bbox_mm[0]:.1f} x {w.bbox_mm[1]:.1f} x {w.bbox_mm[2]:.1f} mm, "
           f"{w.mass * 1000:.0f} g, {w.n_visual} visual / {w.n_collision} collision mesh(es)")
     for msg in asset.warnings + w.warnings:
         print(f"[import] note: {msg}")
+    for name, ln in w.links.items():
+        r = ln["range"]
+        unit = "deg" if ln["kind"] == "hinge" else "mm"
+        k = 180 / np.pi if ln["kind"] == "hinge" else 1000.0
+        print(f"[import] link {name}: {ln['kind']} on {ln['parent']}, range "
+              f"{'free' if r is None else f'{r[0] * k:.0f}..{r[1] * k:.0f} {unit}'}, "
+              f"{ln['mass_kg']:.2f} kg{', handle' if ln['handle'] else ''}")
     print(f"[import] -> {w.xml}")
     return entry
 
@@ -74,13 +108,26 @@ def cmd_fetch(a) -> int:
     if a.picks:
         picks = json.loads((ASSETS_DIR / "picks.json").read_text())
         for p in picks["assets"]:
-            import_asset(picks["repo_id"], p["root_usd"], picks["revision"], slug=p["slug"],
-                         rigid=a.rigid)
+            if a.slug and p["slug"] != a.slug:
+                continue
+            handles = {k: tuple(tuple(q) for q in v) for k, v in p.get("handles", {}).items()}
+            import_asset(p.get("repo_id", picks["repo_id"]), p["root_usd"],
+                         p.get("revision", picks["revision"]),
+                         slug=p["slug"], rigid=a.rigid or p.get("rigid", False),
+                         max_hulls=p.get("max_hulls", a.max_hulls),
+                         max_tris=p.get("max_visual_tris", a.max_tris),
+                         articulated=p.get("articulated", False), handles=handles or None,
+                         exclude=tuple(p.get("exclude", ())))
         return 0
     if not (a.repo_id and a.path_in_repo):
         print("fetch needs <repo_id> <path_in_repo>, or --picks")
         return 2
-    import_asset(a.repo_id, a.path_in_repo, a.revision, a.slug, a.rigid, a.max_hulls, a.max_tris)
+    if a.rigid and a.articulated:
+        print("--rigid and --articulated are exclusive")
+        return 2
+    import_asset(a.repo_id, a.path_in_repo, a.revision, a.slug, a.rigid, a.max_hulls, a.max_tris,
+                 articulated=a.articulated, handles=dict(a.handle or []) or None,
+                 exclude=tuple(a.exclude or ()))
     return 0
 
 
@@ -254,7 +301,14 @@ def main(argv=None) -> int:
     f.add_argument("--revision")
     f.add_argument("--slug")
     f.add_argument("--rigid", action="store_true", help="import a jointed asset as one rigid body")
-    f.add_argument("--picks", action="store_true", help="fetch assets/simready/picks.json")
+    f.add_argument("--articulated", action="store_true",
+                   help="keep a jointed asset's revolute/prismatic joints")
+    f.add_argument("--handle", action="append", type=parse_handle, metavar="LINK=X,Y,Z:X,Y,Z",
+                   help="grip segment on a link, USD asset frame, metres (repeatable)")
+    f.add_argument("--exclude", action="append", metavar="PRIM",
+                   help="leave out a prim by name, and everything under it (repeatable)")
+    f.add_argument("--picks", action="store_true",
+                   help="fetch assets/simready/picks.json (only --slug's entry, if given)")
     f.add_argument("--max-hulls", type=int, default=16)
     f.add_argument("--max-tris", type=int, default=40000)
     f.set_defaults(fn=cmd_fetch)

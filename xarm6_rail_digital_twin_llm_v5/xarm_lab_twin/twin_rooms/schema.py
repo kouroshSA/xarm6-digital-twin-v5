@@ -24,6 +24,7 @@ BUILTIN_PARAMS = {
                   "mass": (int, float)},
     "tube": {"radius": (int, float), "length": (int, float), "cap_rgba": list,
              "rgba": list, "mass": (int, float)},
+    "platform": {"size": list, "rgba": list, "mass": (int, float)},
 }
 
 

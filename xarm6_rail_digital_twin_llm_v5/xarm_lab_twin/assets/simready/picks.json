@@ -1,5 +1,5 @@
 {
-  "_comment": "SimReady assets chosen by the user (2026-10-29), pinned to one dataset revision. The importer (simready_import, spec steps 8-12) fetches exactly these; step 14's simready_demo room uses them instead of the search shortlist. Notes were taken by reading the assets' own layers at this revision.",
+  "_comment": "SimReady assets chosen by the user (2026-10-29), pinned to one dataset revision. The importer (simready_import, spec steps 8-12) fetches exactly these; step 14's simready_demo room uses them instead of the search shortlist. Notes were taken by reading the assets' own layers at this revision. Second batch (2026-10-30, from SimReady_additional_assets.txt): each entry pins its own revision; jointed assets are imported with their joints kept and handle segments in the USD asset frame (metres), read off the handle parts' bounds. Third batch (2026-10-30): a lab incubator (ForgeCAD) and a desk clock (PalatialSim), each from its own dataset (per-asset repo_id), both CC-BY-4.0. Handle normals: an optional third triple, the side the gripper approaches from.",
   "repo_id": "nvidia/simready-assets",
   "repo_type": "dataset",
   "revision": "a666cb4381ba513b174fb120ed523c1566ba832c",
@@ -24,8 +24,291 @@
       "slug": "cupcake_g01",
       "folder": "food_prepared_cupcake_g01",
       "root_usd": "food_prepared_cupcake_g01/simready_usd/sm_food_prepared_cupcake_g01_01.usd",
-      "download_mb": 34.70,
+      "download_mb": 34.7,
       "notes": "Ships payloads/MuJoCo/. Physics layer not yet read."
+    },
+    {
+      "slug": "computer_keyboard_a01",
+      "folder": "computer_keyboard_a01",
+      "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+      "root_usd": "computer_keyboard_a01/simready_usd/sm_computer_keyboard_a01_01.usd",
+      "notes": "442 x 142 x 20 mm, 556 g. Wider than the jaws: push, do not pick."
+    },
+    {
+      "slug": "bottle_laboratory_a01",
+      "folder": "bottle_laboratory_a01",
+      "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+      "root_usd": "bottle_laboratory_a01/simready_usd/sm_bottle_laboratory_a01_01.usd",
+      "notes": "60 x 66 x 143 mm, 711 g; body + cap + label parts on fixed joints."
+    },
+    {
+      "slug": "clock_alarm_a01",
+      "folder": "measurement_clock_alarm_a01",
+      "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+      "root_usd": "measurement_clock_alarm_a01/simready_usd/sm_measurement_clock_alarm_a01_01.usd",
+      "notes": "101 x 212 x 294 mm; authored mass 7.9 kg."
+    },
+    {
+      "slug": "toaster_a01",
+      "folder": "appliance_toaster_a01",
+      "revision": "19512d4dd4b7c0868530efd3ec62277fa2dc1cde",
+      "articulated": true,
+      "root_usd": "appliance_toaster_a01/simready_usd/sm_appliance_toaster_a01_01.usd",
+      "handles": {
+        "lever": [
+          [
+            0.16,
+            -0.015,
+            0.146
+          ],
+          [
+            0.16,
+            0.015,
+            0.146
+          ]
+        ]
+      },
+      "notes": "307 x 155 x 179 mm. Dial (free hinge), lever (59 mm slide), cancel button (3 mm slide).",
+      "max_hulls": 32
+    },
+    {
+      "slug": "refrigerator_a01",
+      "folder": "appliance_refrigerator_a01",
+      "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+      "articulated": true,
+      "max_hulls": 96,
+      "root_usd": "appliance_refrigerator_a01/simready_usd/sm_appliance_refrigerator_a01_01.usd",
+      "handles": {
+        "door_01": [
+          [
+            0.355,
+            -0.025,
+            0.62
+          ],
+          [
+            0.355,
+            -0.025,
+            1.45
+          ]
+        ],
+        "door_02": [
+          [
+            0.355,
+            -0.087,
+            0.62
+          ],
+          [
+            0.355,
+            -0.087,
+            1.45
+          ]
+        ],
+        "drawer_01": [
+          [
+            0.196,
+            0.02,
+            0.709
+          ],
+          [
+            0.196,
+            0.38,
+            0.709
+          ]
+        ],
+        "drawer_02": [
+          [
+            0.191,
+            0.02,
+            0.575
+          ],
+          [
+            0.191,
+            0.38,
+            0.575
+          ]
+        ],
+        "drawer_03": [
+          [
+            0.191,
+            0.02,
+            0.391
+          ],
+          [
+            0.191,
+            0.38,
+            0.391
+          ]
+        ],
+        "basket_01": [
+          [
+            0.165,
+            -0.38,
+            0.4
+          ],
+          [
+            0.165,
+            -0.13,
+            0.4
+          ]
+        ]
+      },
+      "notes": "736 x 907 x 1735 mm, front +x. French doors (0-170 deg, full height), three drawers and a basket inside, ice-maker flap on door_01. Download ~1 GB.",
+      "max_visual_tris": 120000
+    },
+    {
+      "slug": "cabinet_file_a03",
+      "folder": "cabinet_file_a03",
+      "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+      "articulated": true,
+      "max_hulls": 32,
+      "root_usd": "cabinet_file_a03/simready_usd/sm_cabinet_file_a03_01.usd",
+      "handles": {
+        "door_01": [
+          [
+            0.185,
+            -0.03,
+            0.6
+          ],
+          [
+            0.185,
+            -0.03,
+            1.4
+          ]
+        ],
+        "door_02": [
+          [
+            0.185,
+            0.03,
+            0.6
+          ],
+          [
+            0.185,
+            0.03,
+            1.4
+          ]
+        ]
+      },
+      "notes": "373 x 826 x 2000 mm, front +x. Two glass doors (0-90 deg), no handle hardware: the handle segment is the free edge."
+    },
+    {
+      "slug": "laboratory_incubator",
+      "repo_id": "ForgeCAD/simready-assets",
+      "folder": "laboratory_incubator",
+      "revision": "aaa5a8ddae66537c9135817044b9c78d5b952b44",
+      "articulated": true,
+      "max_hulls": 32,
+      "root_usd": "laboratory_incubator/simready_usd/laboratory_incubator.usda",
+      "exclude": [
+        "CultureVesselFixture"
+      ],
+      "handles": {
+        "Door": [
+          [
+            0.2,
+            -0.3,
+            0.29
+          ],
+          [
+            0.2,
+            -0.3,
+            0.41
+          ],
+          [
+            0,
+            -1,
+            0
+          ]
+        ],
+        "LowerShelf": [
+          [
+            -0.15,
+            -0.215,
+            0.248
+          ],
+          [
+            0.15,
+            -0.215,
+            0.248
+          ],
+          [
+            0,
+            -1,
+            0
+          ]
+        ],
+        "UpperShelf": [
+          [
+            -0.15,
+            -0.215,
+            0.423
+          ],
+          [
+            0.15,
+            -0.215,
+            0.423
+          ],
+          [
+            0,
+            -1,
+            0
+          ]
+        ]
+      },
+      "notes": "529 x 633 x 650 mm, front -y. Door hinged on its left edge (0-105 deg), two wire shelves sliding 80 mm out. 'physics' variant set (not MuJoCo). CultureVesselFixture, a loose 0.67 kg accessory with no joint, is excluded: one asset is one body tree."
+    },
+    {
+      "slug": "clock_d00001",
+      "repo_id": "PalatialSim/palatial-nv-asset-library",
+      "folder": "D00001",
+      "revision": "69a87329036cec0440403351c12230970c4e67d8",
+      "root_usd": "D00001/simready_usd/D00001.usd",
+      "notes": "Desk (twin-bell alarm) clock, 120 x 68 x 162 mm, 0.35 kg, one rigid body on two thin legs. Ships 118 authored convex colliders (all kept). Visual 134k triangles kept whole so its texture survives (decimation drops UVs).",
+      "max_visual_tris": 140000
+    },
+    {
+      "slug": "cabinet_file_c01",
+      "folder": "cabinet_file_c01",
+      "revision": "653d91e182011f357cf1644013cc94ddf194d349",
+      "articulated": true,
+      "max_hulls": 32,
+      "root_usd": "cabinet_file_c01/simready_usd/sm_cabinet_file_c01_01.usd",
+      "handles": {
+        "door_01": [
+          [
+            0.19,
+            -0.046,
+            0.61
+          ],
+          [
+            0.19,
+            -0.046,
+            0.74
+          ],
+          [
+            1,
+            0,
+            0
+          ]
+        ],
+        "door_02": [
+          [
+            0.19,
+            0.046,
+            0.61
+          ],
+          [
+            0.19,
+            0.046,
+            0.74
+          ],
+          [
+            1,
+            0,
+            0
+          ]
+        ]
+      },
+      "notes": "Low file cabinet, 375 x 826 x 877 mm, front +x, two doors (0-90 deg) with recessed pull handles at z 0.59-0.76."
     }
   ]
 }

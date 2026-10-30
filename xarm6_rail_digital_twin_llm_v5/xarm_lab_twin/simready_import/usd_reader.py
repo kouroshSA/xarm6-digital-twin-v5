@@ -22,11 +22,17 @@ What is read, and how:
   materials      UsdPreviewSurface diffuseColor / opacity, or its UsdUVTexture
                  file; MDL-only -> displayColor or grey, with a warning.
   variants       a "MuJoCo" physics variant set is switched to "Enabled" when the
+                 asset has one; failing that a "physics" set to "physics" (the
+                 ForgeCAD packaging); see PHYSICS_VARIANTS.
                  asset has one (SimReady assets do), so the MuJoCo-authored
                  physics is what is read.
-  articulation   rigid bodies connected by FIXED joints are one body; any other
-                 joint, an ArticulationRootAPI, or unconnected rigid bodies are
-                 refused (ArticulatedAssetError) unless rigid=True.
+  articulation   rigid bodies connected by FIXED joints are one body (a "link").
+                 Revolute and prismatic joints between links are refused
+                 (ArticulatedAssetError) unless rigid=True (weld everything into
+                 one body) or articulated=True: then each link is a BodyData,
+                 the first is the root, and every other one carries the
+                 JointData that moves it against its parent -- axis and anchor
+                 in the asset frame, limits in radians or metres.
   semantics      semantics:labels:* on the default prim.
 """
 from __future__ import annotations
@@ -77,6 +83,16 @@ class PrimitiveGeom:
 
 
 @dataclass
+class JointData:
+    name: str
+    kind: str                               # hinge | slide
+    axis: Tuple[float, float, float]        # unit vector, asset frame
+    anchor: Tuple[float, float, float]      # a point on the axis, asset frame (m)
+    range: Optional[Tuple[float, float]]    # radians (hinge) or metres (slide); None = free
+    damping: Optional[float] = None         # authored drive damping, as found
+
+
+@dataclass
 class BodyData:
     name: str
     parts: List[MeshPart] = field(default_factory=list)
@@ -85,6 +101,8 @@ class BodyData:
     center_of_mass: Optional[Tuple[float, float, float]] = None
     density: Optional[float] = None         # kg/m^3, if authored and mass is not
     friction: Optional[float] = None
+    parent: Optional[str] = None            # parent link's name; None for the root
+    joint: Optional[JointData] = None       # what moves this link against its parent
 
 
 @dataclass
@@ -229,8 +247,23 @@ def _owning_body(target: Sdf.Path, bodies: Dict[str, str]) -> Optional[str]:
     return None
 
 
-def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
-             variant: Optional[Tuple[str, str]] = ("MuJoCo", "Enabled")) -> AssetData:
+def _link_name(path: str) -> str:
+    """/RootNode/Geometry/door_01_obj_00 -> door_01"""
+    n = Sdf.Path(path).name
+    for suffix in ("_obj_00", "_obj_01", "_obj"):
+        if n.endswith(suffix):
+            return n[: -len(suffix)]
+    return n
+
+
+#: Physics variants tried in order; the first the asset has is selected.
+PHYSICS_VARIANTS = (("MuJoCo", "Enabled"), ("physics", "physics"))
+
+
+def read_usd(path, rigid: bool = False, articulated: bool = False,
+             exclude: Tuple[str, ...] = (),
+             default_density: float = 1000.0,
+             variant: Optional[Tuple[str, str]] = None) -> AssetData:
     path = Path(path).resolve()
     stage = Usd.Stage.Open(str(path))
     if stage is None:
@@ -238,11 +271,13 @@ def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
     root = stage.GetDefaultPrim() or next(iter(stage.GetPseudoRoot().GetChildren()))
     warnings: List[str] = []
     used_variant = "default"
-    if variant and root.GetVariantSets().HasVariantSet(variant[0]):
-        vs = root.GetVariantSets().GetVariantSet(variant[0])
-        if variant[1] in vs.GetVariantNames():
-            vs.SetVariantSelection(variant[1])
-            used_variant = f"{variant[0]}={variant[1]}"
+    for vset, value in ([variant] if variant else PHYSICS_VARIANTS):
+        if root.GetVariantSets().HasVariantSet(vset):
+            vs = root.GetVariantSets().GetVariantSet(vset)
+            if value in vs.GetVariantNames():
+                vs.SetVariantSelection(value)
+                used_variant = f"{vset}={value}"
+                break
 
     mpu = float(UsdGeom.GetStageMetersPerUnit(stage))
     up = str(UsdGeom.GetStageUpAxis(stage))
@@ -256,28 +291,48 @@ def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
         return (_apply(points_local, m) * mpu) @ to_z.T
 
     prims = list(Usd.PrimRange(root, Usd.TraverseInstanceProxies()))
+    if exclude:
+        # Prims the caller asked to leave out (and everything under them): a
+        # loose accessory packaged with an instrument, which one asset -- one
+        # body tree -- cannot carry as a separate free object.
+        dropped = [p for p in prims if p.GetName() in exclude]
+        missing = sorted(set(exclude) - {p.GetName() for p in dropped})
+        if missing:
+            raise ValueError(f"{path.name}: --exclude names no prim: {missing}")
+        cut = [p.GetPath() for p in dropped]
+        prims = [p for p in prims if not any(p.GetPath().HasPrefix(c) for c in cut)
+                 and not (p.IsA(UsdPhysics.Joint) and any(
+                     t.HasPrefix(c) for c in cut for r in (UsdPhysics.Joint(p).GetBody0Rel(),
+                                                          UsdPhysics.Joint(p).GetBody1Rel())
+                     for t in r.GetTargets()))]
+        warnings.append(f"excluded {[str(c) for c in cut]} (and the joints to them)")
 
     # ---- articulation -------------------------------------------------------
     bodies = [p for p in prims if p.HasAPI(UsdPhysics.RigidBodyAPI)]
-    if any(p.HasAPI(UsdPhysics.ArticulationRootAPI) for p in prims) and not rigid:
+    if any(p.HasAPI(UsdPhysics.ArticulationRootAPI) for p in prims) \
+            and not (rigid or articulated):
         raise ArticulatedAssetError(f"{path.name}: has an ArticulationRootAPI (a jointed "
-                                    "asset); v1 imports rigid objects only -- pass --rigid "
-                                    "to import it as one rigid body")
+                                    "asset) -- pass --articulated to keep its joints, or "
+                                    "--rigid to import it as one rigid body")
     parent = {str(b.GetPath()): str(b.GetPath()) for b in bodies}
 
     def find(x):
         while parent[x] != x:
             x = parent[x]
         return x
+    movable = []
     for p in prims:
         if not p.IsA(UsdPhysics.Joint):
             continue
         j = UsdPhysics.Joint(p)
         if not p.IsA(UsdPhysics.FixedJoint):
-            if not rigid:
+            if articulated and not rigid:
+                movable.append(p)
+            elif not rigid:
                 raise ArticulatedAssetError(
-                    f"{path.name}: joint {p.GetName()} is a {p.GetTypeName()}; v1 imports "
-                    "rigid objects only -- pass --rigid to weld everything into one body")
+                    f"{path.name}: joint {p.GetName()} is a {p.GetTypeName()} -- pass "
+                    "--articulated to keep its joints, or --rigid to weld everything "
+                    "into one body")
             continue
         t0, t1 = j.GetBody0Rel().GetTargets(), j.GetBody1Rel().GetTargets()
         # A joint may target a prim INSIDE a rigid body (SimReady targets the
@@ -287,15 +342,37 @@ def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
         if a in parent and b in parent:
             parent[find(a)] = find(b)
     groups = {find(k) for k in parent}
-    if len(groups) > 1 and not rigid:
+    n_fixed = sum(1 for p in prims if p.IsA(UsdPhysics.FixedJoint))
+    tree = _link_tree(movable, groups, find, parent, to_asset, cache, root_inv, mpu, to_z,
+                      path.name) if movable else None
+    if len(groups) > 1 and not rigid and tree is None:
         raise ArticulatedAssetError(f"{path.name}: {len(groups)} rigid bodies not joined by "
                                     "fixed joints; pass --rigid to import them as one body")
-    n_fixed = sum(1 for p in prims if p.IsA(UsdPhysics.FixedJoint))
     if n_fixed:
-        warnings.append(f"{n_fixed} fixed joint(s): merged into one rigid body")
+        warnings.append(f"{n_fixed} fixed joint(s): merged into "
+                        + ("their links" if tree else "one rigid body"))
 
     # ---- geometry -----------------------------------------------------------
-    body = BodyData(name=root.GetName())
+    # One BodyData per link (articulated), else everything in one body.
+    if tree:
+        order, links, names = tree
+        link_bodies = {g: BodyData(name=names[g], parent=links[g][0], joint=links[g][1])
+                       for g in order}
+        for g in order:
+            if link_bodies[g].parent is not None:
+                link_bodies[g].parent = link_bodies[link_bodies[g].parent].name
+        warnings.append(f"{len(movable)} moving joint(s): {len(order)} links, root "
+                        f"{link_bodies[order[0]].name}")
+    else:
+        order, link_bodies = [None], {None: BodyData(name=root.GetName())}
+
+    def link_of(prim) -> Optional[str]:
+        if tree is None:
+            return None
+        owner = _owning_body(prim.GetPath(), parent)
+        return find(owner) if owner else order[0]
+
+    per_link = {g: ([], [], [], []) for g in order}     # masses, coms, densities, frictions
     materials: Dict[str, MaterialInfo] = {}
     stage_dir = path.parent
 
@@ -309,8 +386,10 @@ def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
         return key
 
     any_collision = any(p.HasAPI(UsdPhysics.CollisionAPI) for p in prims)
-    masses, coms, densities, frictions = [], [], [], []
     for p in prims:
+        g = link_of(p)
+        body = link_bodies[g]
+        masses, coms, densities, frictions = per_link[g]
         purpose = _purpose(p)
         is_coll = p.HasAPI(UsdPhysics.CollisionAPI)
         if is_coll:
@@ -416,22 +495,30 @@ def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
                 warnings.append(f"{p.GetName()}: restitution {rest:.2f} ignored (MuJoCo "
                                 "contacts are not restitution-based)")
 
-    if not body.parts and not body.primitives:
+    if not any(b.parts or b.primitives for b in link_bodies.values()):
         raise ValueError(f"{path.name}: no mesh or primitive geometry under {root.GetPath()}")
     if not any_collision:
         warnings.append("no CollisionAPI prims: the visual geometry is used for collision")
-    if masses:
-        body.mass = float(sum(masses))
-        if all(c is not None for c in coms):
-            body.center_of_mass = tuple(float(v) for v in
-                                        np.average(np.array(coms), axis=0, weights=masses))
-    elif densities:
-        body.density = float(np.mean(densities))
-    else:
-        body.density = default_density
-        warnings.append(f"no mass or density authored: default density {default_density} kg/m^3")
-    if frictions:
-        body.friction = float(np.mean(frictions))
+    for g in order:
+        body = link_bodies[g]
+        masses, coms, densities, frictions = per_link[g]
+        if masses:
+            body.mass = float(sum(masses))
+            if all(c is not None for c in coms):
+                body.center_of_mass = tuple(float(v) for v in
+                                            np.average(np.array(coms), axis=0, weights=masses))
+        elif densities:
+            body.density = float(np.mean(densities))
+        else:
+            body.density = default_density
+            warnings.append(f"{body.name}: no mass or density authored: default density "
+                            f"{default_density} kg/m^3")
+        if frictions:
+            body.friction = float(np.mean(frictions))
+    empty = [link_bodies[g].name for g in order
+             if not (link_bodies[g].parts or link_bodies[g].primitives)]
+    if empty:
+        raise ValueError(f"{path.name}: link(s) {empty} have no geometry")
 
     labels: Dict[str, List[str]] = {}
     for a in root.GetAttributes():
@@ -439,5 +526,93 @@ def read_usd(path, rigid: bool = False, default_density: float = 1000.0,
         if n.startswith("semantics:labels:") and a.HasAuthoredValue():
             labels[n.split(":", 2)[2]] = [str(v) for v in (a.Get() or [])]
     return AssetData(source=path, meters_per_unit=mpu, up_axis=up, variant=used_variant,
-                     bodies=[body], materials=materials, labels=labels,
+                     bodies=[link_bodies[g] for g in order], materials=materials, labels=labels,
                      warnings=list(dict.fromkeys(warnings)))
+
+
+def _quat_matrix(q) -> np.ndarray:
+    """Gf.Quatf/Quatd -> 3x3 rotation, column-vector convention."""
+    w, (x, y, z) = q.GetReal(), q.GetImaginary()
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
+def _link_tree(movable, groups, find, parent, to_asset, cache, root_inv, mpu, to_z, fname):
+    """Revolute/prismatic joints -> (links in parent-first order, {link: (parent, JointData)}).
+
+    A link is a fixed-joint group (named by its union-find root). The root link
+    is the one that is never a joint's body1 -- body0 is the parent side in
+    SimReady's assets -- falling back to the most-connected one. A joint met
+    from its body1 side is reversed (axis negated, limits swapped and negated).
+    """
+    edges = []
+    named = {}                    # link -> the rigid body its joints name (door_01, not shelf_01)
+    for p in movable:
+        j = UsdPhysics.Joint(p)
+        t0, t1 = j.GetBody0Rel().GetTargets(), j.GetBody1Rel().GetTargets()
+        a = _owning_body(t0[0], parent) if t0 else None
+        b = _owning_body(t1[0], parent) if t1 else None
+        if a is None or b is None:
+            raise ArticulatedAssetError(f"{fname}: joint {p.GetName()} connects to the world "
+                                        "or to a non-rigid prim; not supported")
+        named.setdefault(find(a), a)
+        named[find(b)] = b
+        kind = "hinge" if p.IsA(UsdPhysics.RevoluteJoint) else \
+            "slide" if p.IsA(UsdPhysics.PrismaticJoint) else None
+        if kind is None:
+            raise ArticulatedAssetError(f"{fname}: joint {p.GetName()} is a {p.GetTypeName()}; "
+                                        "only revolute and prismatic joints are supported")
+        axis_tok = str(p.GetAttribute("physics:axis").Get() or "X")
+        e = {"X": np.array([1.0, 0, 0]), "Y": np.array([0, 1.0, 0]), "Z": np.array([0, 0, 1.0])}[axis_tok]
+        lp0 = p.GetAttribute("physics:localPos0").Get()
+        lr0 = p.GetAttribute("physics:localRot0").Get()
+        frame = cache.GetLocalToWorldTransform(Usd.Stage.GetPrimAtPath(p.GetStage(), t0[0]))
+        m = _matrix(frame) @ root_inv                       # row-vector convention
+        anchor = to_asset(np.array([list(lp0 if lp0 is not None else (0, 0, 0))], float),
+                          Usd.Stage.GetPrimAtPath(p.GetStage(), t0[0]))[0]
+        v = (_quat_matrix(lr0) @ e) if lr0 is not None else e
+        v = (v @ m[:3, :3]) * mpu
+        scale = float(np.linalg.norm(v)) or 1.0
+        axis = to_z @ (v / scale)
+        lo = p.GetAttribute("physics:lowerLimit").Get()
+        hi = p.GetAttribute("physics:upperLimit").Get()
+        rng = None
+        if lo is not None and hi is not None and np.isfinite(lo) and np.isfinite(hi):
+            rng = (float(np.deg2rad(lo)), float(np.deg2rad(hi))) if kind == "hinge" \
+                else (float(lo) * scale, float(hi) * scale)
+        damp = p.GetAttribute(f"drive:{'angular' if kind == 'hinge' else 'linear'}"
+                              ":physics:damping").Get()
+        edges.append((find(a), find(b), JointData(
+            name=_link_name(str(p.GetPath())).replace("joint_", "").replace("_joint_00", ""),
+            kind=kind, axis=tuple(float(x) for x in axis), anchor=tuple(float(x) for x in anchor),
+            range=rng, damping=float(damp) if damp is not None else None)))
+    children = {b for _, b, _ in edges}
+    candidates = [g for g in groups if g not in children]
+    if len(candidates) != 1:
+        degree = {g: sum(g in (a, b) for a, b, _ in edges) for g in groups}
+        candidates = [max(groups, key=lambda g: (degree[g], g))]
+    root = candidates[0]
+    links = {root: (None, None)}
+    order = [root]
+    frontier = [root]
+    while frontier:
+        g = frontier.pop(0)
+        for a, b, jd in edges:
+            if a == g and b not in links:
+                links[b] = (g, jd)
+            elif b == g and a not in links:
+                lo_hi = None if jd.range is None else (-jd.range[1], -jd.range[0])
+                links[a] = (g, JointData(jd.name, jd.kind, tuple(-x for x in jd.axis),
+                                         jd.anchor, lo_hi, jd.damping))
+            else:
+                continue
+            child = b if a == g else a
+            order.append(child)
+            frontier.append(child)
+    missing = sorted(set(groups) - set(links))
+    if missing:
+        raise ArticulatedAssetError(f"{fname}: link(s) {[_link_name(g) for g in missing]} "
+                                    "are not connected to the root by any joint")
+    names = {g: _link_name(named.get(g, g)) for g in order}
+    return order, links, names

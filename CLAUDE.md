@@ -451,6 +451,19 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
 - **Mesh objects:** `object_width_m` / `object_z_extent_m` bound a mesh geom by
   its vertices (`_geom_world_bounds`). The bounding sphere made a 52 mm cucumber
   read as 204 mm wide.
+- **Imported visuals are geom group 1, never 2.** The lab hides group 2 (its
+  backdrop) in the viewer, every offscreen renderer and `mj_ray`; in group 2 every
+  imported object was invisible to the viewer, recorded frames and the wrist camera.
+  `simready_import.test_importer` renders the demo room with the lab's own
+  `scene_option()` and requires every object in the picture.
+- **Articulated assets** (`fetch --articulated`): links with hinge/slide joints,
+  CoACD on every link plus thin support plates under floors and shelves (CoACD
+  left holes a dropped box fell through), handles from `--handle LINK=p0:p1[:normal]`
+  as capsule sites (x = outward normal). The gripper holds a handle with a CONNECT
+  (a point), so `SimXArmAPI.operate_part("incubator.Door", 0.7)` carries the grip
+  point along the hinge arc or slide line. Not a planner action yet.
+- **True scale, always** -- the robot is small next to real furniture, and the
+  recordings train VLAs. Do not rescale assets for looks.
 - **Recordings** carry `room_id` / `room_hash` (see Recording format), and
   replay rebuilds the room.
 - Tests: `python -m twin_rooms.test_schema`, `.test_robot`;
@@ -591,6 +604,12 @@ file's "Recording format" section so consumers can find them.
   `tools/sync_public.sh --push`. A direct push would upload the unfiltered
   history. The filter is deterministic, so routine syncs are fast-forwards;
   the script refuses a rewrite unless given `--force`.
+- **The tool is the cell's:** F/T sensor + camera adapter (42.5 mm, derived from
+  the measured 217 mm flange-to-tip) + UFACTORY xArm Gripper (TCP 172 mm), so the
+  TCP is 214.5 mm from the flange and the payload 1.247 kg (`CELL_TCP_LOAD`).
+  One source: `sim/tool.py`; the end_effector site in `lab_scene_primitive.xml`
+  is a hand-edited copy. The fingers are the gripper's real four-bar, cosmetic,
+  driven in radians; a grasp closes them to the object's width.
 - **Magnetic-gripper hack.** This sim doesn't have actuated gripper fingers.
   `gripper_close` activates a MuJoCo `<weld>` constraint between the
   gripper body and the nearest cube/tube/bin/rack. If you're adding a new
