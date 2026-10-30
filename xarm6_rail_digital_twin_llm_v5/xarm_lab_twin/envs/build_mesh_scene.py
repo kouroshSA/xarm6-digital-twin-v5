@@ -94,32 +94,38 @@ def _new_arm_subtree(gripper_block: str) -> str:
           <geom name="base_link" type="mesh" mesh="xarm6_base" mass="2.7"
                 material="xarm6_link_mat" class="arm_link"/>
 
-          <body name="link1" pos="0 0 0.267">
+          <!-- gravcomp="1" on every moving arm and tool body: the real xArm
+               controller compensates gravity for its configured payload
+               (CELL_TCP_LOAD), so the arm holds its pose. Without it the bare PD
+               actuators sagged ~20 mm under the real 1.247 kg tool and
+               set_position landed short while reporting success. A held object
+               is NOT compensated (its weight still loads the arm). -->
+          <body name="link1" gravcomp="1" pos="0 0 0.267">
             <joint name="joint1" axis="0 0 1" range="{_rng(1)}" damping="10"/>
             <geom name="link1_geom" type="mesh" mesh="xarm6_link1" mass="2.16"
                   material="xarm6_link_mat" class="arm_link"/>
 
-            <body name="link2" pos="0 0 0" euler="-1.5708 0 0">
+            <body name="link2" gravcomp="1" pos="0 0 0" euler="-1.5708 0 0">
               <joint name="joint2" axis="0 0 1" range="{_rng(2)}" damping="10"/>
               <geom name="link2_geom" type="mesh" mesh="xarm6_link2" mass="1.71"
                     material="xarm6_link_mat" class="arm_link"/>
 
-              <body name="link3" pos="0.0535 -0.2845 0">
+              <body name="link3" gravcomp="1" pos="0.0535 -0.2845 0">
                 <joint name="joint3" axis="0 0 1" range="{_rng(3)}" damping="8"/>
                 <geom name="link3_geom" type="mesh" mesh="xarm6_link3" mass="1.384"
                       material="xarm6_link_mat" class="arm_link"/>
 
-                <body name="link4" pos="0.0775 0.3425 0" euler="-1.5708 0 0">
+                <body name="link4" gravcomp="1" pos="0.0775 0.3425 0" euler="-1.5708 0 0">
                   <joint name="joint4" axis="0 0 1" range="{_rng(4)}" damping="6"/>
                   <geom name="link4_geom" type="mesh" mesh="xarm6_link4" mass="1.115"
                         material="xarm6_link_mat" class="arm_link"/>
 
-                  <body name="link5" pos="0 0 0" euler="1.5708 0 0">
+                  <body name="link5" gravcomp="1" pos="0 0 0" euler="1.5708 0 0">
                     <joint name="joint5" axis="0 0 1" range="{_rng(5)}" damping="4"/>
                     <geom name="link5_geom" type="mesh" mesh="xarm6_link5" mass="1.275"
                           material="xarm6_link_mat" class="arm_link"/>
 
-                    <body name="link6" pos="0.076 0.097 0" euler="-1.5708 0 0">
+                    <body name="link6" gravcomp="1" pos="0.076 0.097 0" euler="-1.5708 0 0">
                       <joint name="joint6" axis="0 0 1" range="{_rng(6)}" damping="3"/>
                       <geom name="link6_geom" type="mesh" mesh="xarm6_link6" mass="0.1096"
                             material="xarm6_link_mat" class="arm_link"/>

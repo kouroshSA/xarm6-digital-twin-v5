@@ -1144,7 +1144,10 @@ class SimXArmAPI:
                                  rail_mm / _AB_HOME_RAIL_SPEED_MM_S)
         if wait:
             self._wait_rail_settled(self.HOME_RAIL_M)
-            self._wait_arm_settled(np.array(self.HOME_JOINTS_RAD))
+            # At rest, not merely near: reset_scene() ends here, and an episode
+            # must start from a still arm.
+            self._wait_arm_settled(np.array(self.HOME_JOINTS_RAD),
+                                   tol_rad=0.002, rest_rad_s=0.002)
         return 0
 
     def place_tube_in_rack(self, rack_name: str, **kwargs) -> int:
@@ -2249,8 +2252,10 @@ class SimXArmAPI:
                    correct_sag: bool = False) -> int:
         """set_position to a tool pose given as metres + rotation matrix (or
         None: keep the current orientation). correct_sag re-commands up to
-        twice with the remaining error added: the twin sags 15-35 mm at full
-        horizontal reach, more than a handle's grasp tolerance."""
+        twice with the remaining error added. The arm's own weight is
+        compensated (gravcomp), but pulling a door or drawer loads it with
+        forces the model does not cancel, and a handle's grasp tolerance is
+        small."""
         if correct_sag:
             target = np.asarray(pos_m, float)
             aim = target.copy()
@@ -2724,10 +2729,15 @@ class SimXArmAPI:
             # of its geoms (body or cap for tubes; single geom for cubes).
             # Using body center alone overshoots for tall objects when the
             # graspable feature (e.g. tube cap) is far from the body origin.
+            # Only geoms that collide: a decorative one cannot be gripped, and
+            # the heater-shaker's LED (a 9 mm disc, 80 mm from its body) beat a
+            # cube the TCP was centred on by 1 mm.
             nearest, nearest_d = None, float("inf")
             for cube_name, bid in self.cube_bids.items():
                 geom_ids = [g for g in range(self.model.ngeom)
-                            if self.model.geom_bodyid[g] == bid]
+                            if self.model.geom_bodyid[g] == bid
+                            and (self.model.geom_contype[g]
+                                 or self.model.geom_conaffinity[g])]
                 if not geom_ids:
                     continue
                 d = min(float(np.linalg.norm(self.data.geom_xpos[g] - ee_pos))
@@ -3148,13 +3158,23 @@ class SimXArmAPI:
         return "; ".join(notes) if notes else "no objects displaced"
 
     def _wait_arm_settled(self, target_rad: np.ndarray,
-                          tol_rad: float = 0.02, timeout: float = 5.0):
+                          tol_rad: float = 0.02, timeout: float = 5.0,
+                          rest_rad_s: Optional[float] = None):
+        """Wait until every joint is within tol_rad of target_rad. With
+        rest_rad_s, also until every joint is slower than that, i.e. the arm
+        has STOPPED: 0.02 rad is reached while the PD tail is still closing,
+        so an arm "at home" went on moving ~6 mm afterwards. (Under the old
+        gravity sag joints 2/3 never got inside tol_rad, so the wait always ran
+        to its timeout and the tail finished unseen.)"""
         t0 = time.time()
+        dofs = [self.model.jnt_dofadr[jid] for jid in self.joint_ids]
         while time.time() - t0 < timeout:
             with self.lock:
                 current = np.array(
                     [self.data.qpos[jid] for jid in self.joint_ids]
                 )
-            if np.max(np.abs(current - target_rad)) < tol_rad:
+                speed = np.abs(self.data.qvel[dofs])
+            if np.max(np.abs(current - target_rad)) < tol_rad and (
+                    rest_rad_s is None or np.max(speed) < rest_rad_s):
                 return
             time.sleep(0.05)

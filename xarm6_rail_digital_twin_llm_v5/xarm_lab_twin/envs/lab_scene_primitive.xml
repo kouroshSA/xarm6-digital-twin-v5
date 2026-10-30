@@ -501,37 +501,43 @@
           <joint name="joint1" type="hinge" axis="0 0 1"
                  range="-6.28319 6.28319" damping="10"/>
 
-          <body name="link1" pos="0 0 0.09">
+          <!-- gravcomp="1" on every moving arm and tool body: the real xArm
+               controller compensates gravity for its configured payload
+               (CELL_TCP_LOAD), so the arm holds its pose. Without it the bare PD
+               actuators sagged ~20 mm under the real 1.247 kg tool and
+               set_position landed short while reporting success. A held object
+               is NOT compensated (its weight still loads the arm). -->
+          <body name="link1" gravcomp="1" pos="0 0 0.09">
             <geom name="link1_geom" type="box" size="0.055 0.055 0.11"
                   rgba="0.85 0.85 0.85 1" mass="2.16" class="arm_link"/>
             <joint name="joint2" type="hinge" axis="0 1 0"
                    range="-2.05896 2.0944" damping="10"/>
 
-            <body name="link2" pos="0 0 0.22">
+            <body name="link2" gravcomp="1" pos="0 0 0.22">
               <geom name="link2_geom" type="box" size="0.045 0.045 0.105"
                     rgba="0.85 0.85 0.85 1" mass="1.71" class="arm_link"/>
               <joint name="joint3" type="hinge" axis="0 1 0"
                      range="-3.92699 0.19199" damping="8"/>
 
-              <body name="link3" pos="0 0 0.20">
+              <body name="link3" gravcomp="1" pos="0 0 0.20">
                 <geom name="link3_geom" type="box" size="0.04 0.04 0.09"
                       rgba="0.8 0.8 0.8 1" mass="1.38" class="arm_link"/>
                 <joint name="joint4" type="hinge" axis="1 0 0"
                        range="-6.28319 6.28319" damping="6"/>
 
-                <body name="link4" pos="0 0 0.175">
+                <body name="link4" gravcomp="1" pos="0 0 0.175">
                   <geom name="link4_geom" type="box" size="0.035 0.035 0.075"
                         rgba="0.75 0.75 0.75 1" mass="1.05" class="arm_link"/>
                   <joint name="joint5" type="hinge" axis="0 1 0"
                          range="-1.69297 3.14159" damping="4"/>
 
-                  <body name="link5" pos="0 0 0.13">
+                  <body name="link5" gravcomp="1" pos="0 0 0.13">
                     <geom name="link5_geom" type="box" size="0.03 0.03 0.055"
                           rgba="0.7 0.7 0.7 1" mass="0.72" class="arm_link"/>
                     <joint name="joint6" type="hinge" axis="1 0 0"
                            range="-6.28319 6.28319" damping="3"/>
 
-                    <body name="link6" pos="0 0 0.075">
+                    <body name="link6" gravcomp="1" pos="0 0 0.075">
                       <geom name="link6_geom" type="cylinder" size="0.025 0.03"
                             rgba="0.6 0.6 0.6 1" mass="0.25" class="arm_link"/>
                       <!-- IK target marker = the TCP: flange -> F/T sensor +
@@ -540,7 +546,7 @@
                            hand-edited copy against it. -->
                       <site name="end_effector" pos="0 0 0.2145"
                             size="0.005" rgba="1 0.3 0.3 0.5" type="sphere"/>
-                      <body name="gripper" pos="0 0 0.06">
+                      <body name="gripper" gravcomp="1" pos="0 0 0.06">
                         <!-- The cell's tool, true to size (sim/tool.py,
                              envs/assets/xarm_gripper/README.md). This body
                              stays 60 mm out from the flange: the wrist
@@ -567,13 +573,13 @@
                              is each side's DRIVER (0 open .. 0.85 rad closed);
                              follower and inner knuckle are tied to it by joint
                              equalities, which keeps the finger parallel. -->
-                        <body name="finger_left" pos="0 -0.035 0.041598" quat="0 0 0 1">
+                        <body name="finger_left" gravcomp="1" pos="0 -0.035 0.041598" quat="0 0 0 1">
                           <joint name="finger_left_joint" type="hinge" axis="1 0 0"
                                  range="0 0.85" damping="0.1" armature="0.005"/>
                           <geom name="knuckle_outer_left_geom" type="mesh" mesh="xg_left_outer_knuckle"
                                 rgba="0.149 0.149 0.149 1" mass="0.033618"
                                 contype="0" conaffinity="0"/>
-                          <body name="finger_left_tip" pos="0 0.035465 0.042039">
+                          <body name="finger_left_tip" gravcomp="1" pos="0 0.035465 0.042039">
                             <joint name="finger_left_follower" type="hinge" axis="-1 0 0"
                                    range="0 0.85" armature="0.005"/>
                             <geom name="finger_left_geom" type="mesh" mesh="xg_left_finger"
@@ -581,20 +587,20 @@
                                   contype="0" conaffinity="0"/>
                           </body>
                         </body>
-                        <body name="knuckle_inner_left" pos="0 -0.02 0.056598" quat="0 0 0 1">
+                        <body name="knuckle_inner_left" gravcomp="1" pos="0 -0.02 0.056598" quat="0 0 0 1">
                           <joint name="finger_left_inner" type="hinge" axis="1 0 0"
                                  range="0 0.85" armature="0.005"/>
                           <geom name="knuckle_inner_left_geom" type="mesh" mesh="xg_left_inner_knuckle"
                                 rgba="0.149 0.149 0.149 1" mass="0.0230126"
                                 contype="0" conaffinity="0"/>
                         </body>
-                        <body name="finger_right" pos="0 0.035 0.041598" quat="0 0 0 1">
+                        <body name="finger_right" gravcomp="1" pos="0 0.035 0.041598" quat="0 0 0 1">
                           <joint name="finger_right_joint" type="hinge" axis="-1 0 0"
                                  range="0 0.85" damping="0.1" armature="0.005"/>
                           <geom name="knuckle_outer_right_geom" type="mesh" mesh="xg_right_outer_knuckle"
                                 rgba="0.149 0.149 0.149 1" mass="0.033618"
                                 contype="0" conaffinity="0"/>
-                          <body name="finger_right_tip" pos="0 -0.035465 0.042039">
+                          <body name="finger_right_tip" gravcomp="1" pos="0 -0.035465 0.042039">
                             <joint name="finger_right_follower" type="hinge" axis="1 0 0"
                                    range="0 0.85" armature="0.005"/>
                             <geom name="finger_right_geom" type="mesh" mesh="xg_right_finger"
@@ -602,7 +608,7 @@
                                   contype="0" conaffinity="0"/>
                           </body>
                         </body>
-                        <body name="knuckle_inner_right" pos="0 0.02 0.056598" quat="0 0 0 1">
+                        <body name="knuckle_inner_right" gravcomp="1" pos="0 0.02 0.056598" quat="0 0 0 1">
                           <joint name="finger_right_inner" type="hinge" axis="-1 0 0"
                                  range="0 0.85" armature="0.005"/>
                           <geom name="knuckle_inner_right_geom" type="mesh" mesh="xg_right_inner_knuckle"

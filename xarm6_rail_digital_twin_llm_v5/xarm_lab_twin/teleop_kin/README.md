@@ -69,13 +69,16 @@ handle (mocap, group 4) ──drag_target──▶ clamp (vr.transforms) ──�
 
 Each of these was found by a test failing, and each is now guarded.
 
-1. **The twin sags ~15–20 mm under gravity** — bare PD position actuators, no
-   gravity compensation (joint 2 settles 1.2° below its setpoint at home). IK
-   is exact; the arm just doesn't get there. Every interface inherits this
-   (SpaceMouse, VR, `set_position`). Teach mode adds a slow per-joint integral
-   bias (`GRAVITY_COMP_*`), integrated only while a joint is near its setpoint
-   **and nearly at rest** — integrating during a drag wound it up to its clamp
-   on tracking lag. `test_1b` is the negative control: bias off, 21 mm.
+1. **The twin sagged ~15–20 mm under gravity** — bare PD position actuators
+   (joint 2 settled 1.2° below its setpoint at home), ~20 mm once the real
+   1.247 kg tool went on. Since 2026-10-30 the scene compensates the arm's and
+   tool's own weight (`gravcomp="1"`, as the real controller does for its
+   payload), so that sag is gone. A **held object** is still uncompensated, and
+   teach mode keeps its slow per-joint integral bias (`GRAVITY_COMP_*`) for it,
+   integrated only while a joint is near its setpoint **and nearly at rest** —
+   integrating during a drag wound it up to its clamp on tracking lag.
+   `test_1b` switches the model compensation off to make the arm such a load:
+   bias off, 34 mm; on, 0.4 mm.
 2. **The rail deflects a few mm while the arm moves** and springs back. IK
    solving on the deflected rail left the tool 1.5–3 mm off once it recovered.
    The receiver solves and computes FK with the rail at its **setpoint**

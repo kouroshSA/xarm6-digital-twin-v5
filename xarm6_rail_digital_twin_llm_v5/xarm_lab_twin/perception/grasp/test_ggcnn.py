@@ -32,6 +32,8 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 
 import mujoco  # noqa: E402
 
+from sim.tool import TCP_FROM_FLANGE_M  # noqa: E402
+
 from ..rgbd import RGBDFrame  # noqa: E402
 from ..sim_camera import SimWristCamera  # noqa: E402
 from .ggcnn import GGCNNDetector, Grasp  # noqa: E402
@@ -45,9 +47,17 @@ XY_TOL_MM = 45.0
 Z_TOL_MM = 80.0
 
 
-def _look_down_at(arm, x_mm: float, y_mm: float, height_mm: float) -> bool:
-    """Put the flange above ``(x, y)`` pointing down, so the camera sees it."""
-    code = arm.set_position(x_mm, y_mm, height_mm, 180.0, 0.0, 0.0, wait=True)
+# Flange height for the look. It places the CAMERA, so it is a flange height,
+# converted to the TCP height set_position takes: written as a TCP height (1080)
+# it moved the camera 125 mm away when the tool grew to the real 214.5 mm.
+LOOK_FLANGE_MM = 1170.0
+
+
+def _look_down_at(arm, x_mm: float, y_mm: float,
+                  flange_mm: float = LOOK_FLANGE_MM) -> bool:
+    """Put the flange ``flange_mm`` up over ``(x, y)`` pointing down, so the camera sees it."""
+    tcp_mm = flange_mm - TCP_FROM_FLANGE_M * 1000.0
+    code = arm.set_position(x_mm, y_mm, tcp_mm, 180.0, 0.0, 0.0, wait=True)
     return code == 0
 
 
@@ -65,7 +75,7 @@ def check_detects_a_known_cube(arm, cam, det) -> list[str]:
         with arm.lock:
             truth = np.array(arm.data.xpos[bid]) * 1000.0
 
-        if not _look_down_at(arm, x, y, 1080.0):
+        if not _look_down_at(arm, x, y):
             failures.append(f"{name}: could not pose the arm above it; "
                             f"the test could not run, which is not a pass")
             continue
@@ -141,7 +151,7 @@ def check_width_is_delivered(arm, cam, det) -> list[str]:
     if it arrives in metres, so this asserts the magnitude rather than merely
     that the attribute exists.
     """
-    _look_down_at(arm, 0.0, -150.0, 1080.0)
+    _look_down_at(arm, 0.0, -150.0)
     grasps = det.detect(cam.capture(), top_k=1)
     if not grasps:
         return ["no grasp, cannot check width"]

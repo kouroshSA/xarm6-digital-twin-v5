@@ -62,11 +62,12 @@ IK_RETRY_PERIOD_S: float = 0.25
 IK_WARN_PERIOD_S: float = 1.0
 
 # ---- gravity-sag compensation ---------------------------------------------
-#: The twin's joints are bare PD position actuators with no gravity
-#: compensation, so the arm settles BELOW its setpoint -- ~1.2 deg at joint 2,
-#: ~15 mm at the tool in a typical bench pose (measured; IK itself is exact to
-#: 0.07 mm). Every interface inherits that sag. Teach mode is the one place it
-#: is intolerable: the tool must end up where the hand put it. So a slow
+#: The twin's joints are PD position actuators. The scene compensates the
+#: arm's and tool's own weight (gravcomp), but NOT a held object's, which
+#: settles the arm BELOW its setpoint (without gravcomp the bare arm sagged
+#: ~1.2 deg at joint 2, ~15-20 mm at the tool; IK itself is exact to 0.07 mm).
+#: Teach mode is the one place that is intolerable: the tool must end up where
+#: the hand put it. So a slow
 #: per-joint integral term rides on top of the IK setpoint, like the integral
 #: action of the real controller. ctrl (the exported action) is the
 #: compensated setpoint -- what the joints were actually told.

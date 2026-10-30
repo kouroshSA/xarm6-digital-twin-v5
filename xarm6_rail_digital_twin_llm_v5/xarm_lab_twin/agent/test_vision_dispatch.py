@@ -26,10 +26,16 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "not-needed-for-this-test")
 
 import mujoco  # noqa: E402
 
+from sim.tool import TCP_FROM_FLANGE_M  # noqa: E402
+
 SCENE = "envs/lab_scene.xml"
 
 # A flange pose that puts the cubes and bins in the wrist camera's view.
-LOOKOUT = {"x": 60.0, "y": -200.0, "z": 1180.0,
+# The camera rides on the flange, so the look is a FLANGE height (1270, where
+# GG-CNN was validated) less the tool: as a bare TCP height (1180) it moved the
+# camera 125 mm further off when the tool grew to the real 214.5 mm, and GG-CNN
+# stopped proposing grasps on a 40 mm cube.
+LOOKOUT = {"x": 60.0, "y": -200.0, "z": 1270.0 - TCP_FROM_FLANGE_M * 1000.0,
            "roll": 180.0, "pitch": 0.0, "yaw": 0.0, "speed_mm_s": 100}
 
 

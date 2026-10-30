@@ -33,6 +33,8 @@ os.environ.setdefault("MUJOCO_GL", "egl")
 
 import numpy as np  # noqa: E402
 
+from sim.tool import TCP_FROM_FLANGE_M  # noqa: E402
+
 SCENE = "envs/lab_scene.xml"
 SCENE_W, SCENE_H = 960, 720
 PANEL_W, PANEL_H = 960, 720          # the wrist view is upscaled to match
@@ -42,6 +44,16 @@ FPS = 20
 # stationary for this, so the frozen overlay matches what the camera can see;
 # holding it through the approach would show a stale mask over a moved view.
 OVERLAY_HOLD_S = 4.5
+
+# Wrist-camera vantages as FLANGE heights (the camera rides on the flange),
+# turned into the TCP heights set_position takes. Written as TCP heights they
+# put the camera 125 mm further off once the tool became the real 214.5 mm one.
+AIM_FLANGE_Z_MM = 1240.0             # over a surveyed object
+BENCH_VIEW_FLANGE_Z_MM = 1270.0      # the whole-bench look
+
+
+def _tcp_z(flange_z_mm: float) -> float:
+    return flange_z_mm - TCP_FROM_FLANGE_M * 1000.0
 
 # Render the fixed observers every Nth frame; they change slowly.
 OBSERVER_EVERY = 3
@@ -399,7 +411,7 @@ def run_observer_demo(arm, rec, targets) -> int:
         # good to ~8 mm, which is plenty to point with and not enough to grasp on.
         px, py, _pz = tgt.position_world * 1000.0
         rec.say(f'"{phrase}" surveyed at ({px:.0f}, {py:.0f}) - aiming the wrist there')
-        if arm.set_position(float(px), float(py), 1150.0, 180.0, 0.0, 0.0,
+        if arm.set_position(float(px), float(py), _tcp_z(AIM_FLANGE_Z_MM), 180.0, 0.0, 0.0,
                             speed=80, wait=True) != 0:
             rec.say(f"could not reach the vantage: {arm.last_refusal}")
             failures += 1
@@ -506,7 +518,7 @@ def run_demo(arm, rec: Recorder, targets) -> int:
 
     for phrase, bin_name in targets:
         rec.say(f'moving so the wrist camera can see the bench')
-        arm.set_position(60.0, -200.0, 1180.0, 180.0, 0.0, 0.0,
+        arm.set_position(60.0, -200.0, _tcp_z(BENCH_VIEW_FLANGE_Z_MM), 180.0, 0.0, 0.0,
                          speed=80, wait=True)
         rec.hold(0.6)
 

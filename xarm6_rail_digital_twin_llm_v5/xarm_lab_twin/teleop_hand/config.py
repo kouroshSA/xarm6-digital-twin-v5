@@ -198,7 +198,12 @@ POINT_REACH_MM = 550.0              # free-space targets within this of the arm 
 POINT_MAX_RAY_M = 2.5
 
 # Point-to-grasp sequence (wrist camera + GG-CNN).
-GRASP_LOOK_ABOVE_MM = 300.0         # flange height above the object for the look
+# FLANGE height above the object for the look (it places the camera; the move
+# converts it to a TCP target). 390 is where the camera sat in every validated
+# run: the old 300 was passed to set_position as a TCP height and only matched
+# while the twin's TCP was 90 mm -- with the real 214.5 mm tool it put the camera
+# 125 mm further away, and GG-CNN stopped proposing grasps on a 40 mm cube.
+GRASP_LOOK_ABOVE_MM = 390.0
 GRASP_APPROACH_ABOVE_MM = 100.0
 GRASP_MAX_PRIOR_ERR_MM = 25.0       # GG-CNN grasp must be this near the pointed object
 GRASP_LIFT_MM = 120.0

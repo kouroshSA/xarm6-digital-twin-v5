@@ -149,6 +149,12 @@ xyz   = frame.pixel_to_world(320, 240)       # metres, base frame
 - `capture(align=True)` carries the **colour** intrinsics, because aligned depth
   has been reprojected into the colour frame. `RGBDFrame.intrinsics` always
   holds the right matrix so callers never pick.
+- **A camera vantage is a FLANGE height.** The camera rides on the flange, but
+  `set_position` takes the TCP, 214.5 mm further out. Write a look as a flange
+  height and subtract `sim.tool.TCP_FROM_FLANGE_M`: looks written as TCP heights
+  moved the camera 125 mm away when the tool became the real one, and GG-CNN
+  stopped proposing grasps on 40 mm cubes (point-to-grasp, the GG-CNN and
+  vision-dispatch tests, `vision_demo.py`, the planner's look guidance).
 - Sim depth is exact and 100% valid; the real device runs ~71% valid with
   dropouts on transparent and specular surfaces. Validate perception on the
   device, not only on the twin.
@@ -346,11 +352,13 @@ python scripts/run_kinesthetic_real.py --fake               # no robot
 - **`SimXArmAPI.register_key_handler(fn)`** gives a teleop first refusal on
   viewer keys (`fn(keycode) -> True` consumes). Empty by default, so the nudge
   keymap is unchanged. Handlers run on the viewer thread: queue, don't block.
-- **The twin sags 15–20 mm under gravity** in every interface (bare PD
-  actuators). Teach mode cancels it with a per-joint integral bias gated on the
-  joint being at rest; ctrl (the exported action) is the compensated setpoint.
-  Don't "fix" the gating by integrating during motion — that winds up on
-  tracking lag.
+- **The arm and tool are gravity-compensated** (`gravcomp="1"` on link1-6 and
+  the gripper subtree, as the real controller compensates its payload); without
+  it the bare PD arm sagged ~20 mm under the real tool and `set_position` landed
+  short while returning 0. A **held object is not compensated**: teach mode
+  cancels that with a per-joint integral bias gated on the joint being at rest;
+  ctrl (the exported action) is the compensated setpoint. Don't "fix" the
+  gating by integrating during motion — that winds up on tracking lag.
 - **IK is solved with the rail at its SETPOINT** (`TwinServo.rail_at_setpoint`, `teleop_kin/servo.py`). The rail
   deflects a few mm while the arm moves; solving on the deflected value left the
   tool 1.5–3 mm off once it sprang back. SpaceMouse/VR still solve on the live

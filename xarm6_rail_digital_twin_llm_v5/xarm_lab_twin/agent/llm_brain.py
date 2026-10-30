@@ -140,13 +140,13 @@ difference.
 **Aim the camera before you look, and keep your distance.** It is on the wrist
 and sees only what the gripper faces, so a locate/grasp is answered from wherever
 the arm happens to be pointing. Before each one, move_to directly ABOVE where you
-expect the object -- use the registry xy as the prior, z ~ 1100-1200 mm, roll 180
+expect the object -- use the registry xy as the prior, z ~ 975-1075 mm, roll 180
 -- so the target is near the centre of frame.
 
 That height is not cosmetic. The camera needs at least ~250 mm of standoff to
 measure well: closer than ~150 mm it still returns a depth, but a wrong one, and
 the grasp lands inside the object. grasp_object refuses below that and tells you
-to back off, so looking from just above the bench (z ~ 900) wastes a turn. Looking from across the bench finds the wrong thing or
+to back off, so looking from just above the bench (z ~ 800) wastes a turn. Looking from across the bench finds the wrong thing or
 nothing: the object lands at the edge of a 55-degree field where it is small,
 oblique, and easily beaten by whatever is nearer the middle.
 
