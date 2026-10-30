@@ -465,7 +465,7 @@ _CARRIED_HIT = re.compile(r"carried (\S+) would hit (\S+)")
 
 def _carried_collision_constraint(x, y, z, refusal: str,
                                   prev_command: Optional[Dict[str, Any]],
-                                  registry: Any = None) -> Optional[str]:
+                                  registry: Any = None, yaw=None) -> Optional[str]:
     """A move refused because the HELD object would hit something.
 
     Two different failures share that refusal. On a descent to (x, y) -- the
@@ -495,13 +495,24 @@ def _carried_collision_constraint(x, y, z, refusal: str,
     except (KeyError, TypeError, ValueError):
         descent = False
     if descent:
+        # Concrete, because the vague "turn the wrist (yaw)" was never tried:
+        # five live episodes slid the cucumber 80-110 mm sideways instead,
+        # while yaw 90 sets it down at the requested spot clear of the cupcake.
+        try:
+            y0 = float(yaw if yaw is not None else 0.0)
+        except (TypeError, ValueError):
+            y0 = 0.0
+        turned = [((y0 + d + 180.0) % 360.0) - 180.0 for d in (90.0, -90.0)]
         return (f"Putting the carried {held} down at ({x}, {y}) puts it into "
-                f"{obstacle}{where}: that spot is OCCUPIED. Releasing higher does "
-                f"not fix this -- a dropped object is not placed. Choose a "
-                f"destination where {held} clears {obstacle} (move it further "
-                f"from {obstacle}), or turn the wrist (yaw) so {held}'s long "
-                f"side does not reach it, then lower it until it rests on the "
-                f"surface before opening the gripper.")
+                f"{obstacle}{where}: that spot is OCCUPIED with the wrist at "
+                f"yaw {y0:.0f}. Releasing higher does not fix this -- a dropped "
+                f"object is not placed. FIRST try the SAME destination with the "
+                f"wrist turned 90 deg: yaw {turned[0]:.0f} (or {turned[1]:.0f}) on "
+                f"the move over ({x}, {y}) AND on the descent, so {held}'s long "
+                f"side runs along the move instead of reaching {obstacle}. Only "
+                f"if that is refused too, choose a destination further from "
+                f"{obstacle}. Lower it until it rests on the surface before "
+                f"opening the gripper.")
     return (f"On the way to ({x}, {y}, {z}) the carried {held} would hit "
             f"{obstacle}{where}: carry it higher over {obstacle}, or route "
             f"around it.")
@@ -542,7 +553,7 @@ def analyse_command_failure(failed_step: Dict[str, Any],
                     f"re-orient the wrist.")
         if code == 2:
             carried = _carried_collision_constraint(x, y, z, refusal,
-                                                    prev_command, registry)
+                                                    prev_command, registry, yaw)
             if carried:
                 return carried
             body_msg = _move_to_body_aware_constraint(x, y, z, registry)

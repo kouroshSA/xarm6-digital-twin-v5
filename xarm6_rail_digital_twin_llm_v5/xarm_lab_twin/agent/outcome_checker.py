@@ -279,6 +279,37 @@ def expected_outcome(task: str, arm=None) -> Optional[Tuple[str, List[str]]]:
 _PROX_VERBS = (" closer to ", " farther from ")
 
 
+#: A requested displacement is met when each component lands within this
+#: many mm of it, or within MOVE_TOL_FRAC of the requested distance if that
+#: is larger. Physical placement is never exact; a literal "moved (150"
+#: failed a cucumber set down 147 mm away.
+MOVE_TOL_MM = 25.0
+MOVE_TOL_FRAC = 0.15
+_EXPECTED_MOVE = re.compile(
+    r"^\s*(\S+) moved \(\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?")
+
+
+def _displacement_met(physical: str, expected: str) -> Optional[bool]:
+    """Numeric match for a displacement criterion "<X> moved (dx, dy)mm" (or
+    the partial "<X> moved (dx" that the grader also writes, which constrains
+    dx only). None when `expected` is not a numeric displacement."""
+    m = _EXPECTED_MOVE.match(expected)
+    if not m:
+        return None
+    name, want = m.group(1), [float(m.group(2))]
+    if m.group(3) is not None:
+        want.append(float(m.group(3)))
+    got = re.search(rf"(?:^|;\s*){re.escape(name)} moved \((-?\d+), (-?\d+)\)mm",
+                    physical)
+    if not got:
+        return False
+    have = [float(got.group(1)), float(got.group(2))]
+    tol = max(MOVE_TOL_MM, MOVE_TOL_FRAC * (sum(w * w for w in want) ** 0.5))
+    if len(want) == 1:
+        want.append(0.0)        # "moved (150" = 150 along x and no more than tol across
+    return all(abs(h - w) <= tol for h, w in zip(have, want))
+
+
 def _matches_with_swap(physical: str, expected: str) -> bool:
     """Substring match, but ALSO accept the alphabetically-swapped form
     for proximity facts ("X closer to Y" matches if "Y closer to X" is
@@ -286,6 +317,11 @@ def _matches_with_swap(physical: str, expected: str) -> bool:
     alphabetical-first first, but graders (especially Haiku) often
     name objects in semantic-subject-first order. Rather than force
     every prompt edit to win that fight, we just accept both."""
+    # Numbers decide a numeric displacement, before the substring test: as a
+    # substring "moved (150" also matches "moved (1500".
+    moved = _displacement_met(physical, expected)
+    if moved is not None:
+        return moved
     if expected in physical:
         return True
     for verb in _PROX_VERBS:

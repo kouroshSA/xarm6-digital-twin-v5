@@ -41,6 +41,16 @@ def test_refused_descent_says_the_spot_is_occupied():
                                 refusal=REFUSAL, prev_command=_move(51, -264, 900))
     assert "OCCUPIED" in c and "cupcake at (120, -250)" in c, c
     assert "Lift z" not in c and "not fix this" in c, c
+    # concrete: the turned yaw to try, at the same destination
+    assert "yaw 90 (or -90)" in c and "SAME destination" in c, c
+
+
+def test_the_suggested_yaw_turns_from_the_planned_one():
+    cmd = _move(51, -264, 865)
+    cmd["params"]["yaw"] = 135
+    c = analyse_command_failure(FAILED, cmd, registry=_Registry(), refusal=REFUSAL,
+                                prev_command=_move(51, -264, 900))
+    assert "yaw -135 (or 45)" in c, c
 
 
 def test_refused_traverse_says_go_higher():
