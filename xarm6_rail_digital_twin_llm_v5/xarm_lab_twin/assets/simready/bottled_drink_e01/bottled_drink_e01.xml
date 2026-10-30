@@ -16,9 +16,9 @@
   <worldbody>
     <body name="bottled_drink_e01">
       <inertial pos="-0.000004 -0.000020 -0.020069" mass="0.251584" fullinertia="0.000879654713 0.000879654655 0.00011356398 1.61274543e-12 5.35234073e-09 -1.61257266e-08"/>
-      <geom name="bottled_drink_e01_visual0" type="mesh" mesh="bottled_drink_e01_visual0" material="bottled_drink_e01_mat0" contype="0" conaffinity="0" group="2" density="0"/>
-      <geom name="bottled_drink_e01_visual1" type="mesh" mesh="bottled_drink_e01_visual1" material="bottled_drink_e01_mat1" contype="0" conaffinity="0" group="2" density="0"/>
-      <geom name="bottled_drink_e01_visual2" type="mesh" mesh="bottled_drink_e01_visual2" material="bottled_drink_e01_mat2" contype="0" conaffinity="0" group="2" density="0"/>
+      <geom name="bottled_drink_e01_visual0" type="mesh" mesh="bottled_drink_e01_visual0" material="bottled_drink_e01_mat0" contype="0" conaffinity="0" group="1" density="0"/>
+      <geom name="bottled_drink_e01_visual1" type="mesh" mesh="bottled_drink_e01_visual1" material="bottled_drink_e01_mat1" contype="0" conaffinity="0" group="1" density="0"/>
+      <geom name="bottled_drink_e01_visual2" type="mesh" mesh="bottled_drink_e01_visual2" material="bottled_drink_e01_mat2" contype="0" conaffinity="0" group="1" density="0"/>
       <geom name="bottled_drink_e01_collision0" type="mesh" mesh="bottled_drink_e01_collision0" group="3" rgba="0.5 0.5 0.5 0" density="0" condim="6" friction="0.400 0.005 0.005"/>
       <geom name="bottled_drink_e01_collision1" type="mesh" mesh="bottled_drink_e01_collision1" group="3" rgba="0.5 0.5 0.5 0" density="0" condim="6" friction="0.400 0.005 0.005"/>
     </body>

@@ -1,7 +1,7 @@
 {
   "type": "xarm6_rail",
   "name": "UFACTORY xArm6 on a 700 mm linear rail",
-  "description": "The lab cell's arm: xArm6 (real UFACTORY meshes at URDF kinematics) on a 700 mm rail along world +x, with the Gripper G2 / bio-gripper attachment, the D435i wrist camera and the rail's two LED strips. Extracted from the lab scene at build time.",
+  "description": "The lab cell's arm: xArm6 (real UFACTORY meshes at URDF kinematics) on a 700 mm rail along world +x, with the UFACTORY xArm Gripper on the F/T sensor + camera adapter (TCP 214.5 mm), the bio-gripper attachment, the D435i wrist camera and the rail's two LED strips. Extracted from the lab scene at build time.",
   "model": {
     "default": "meshes",
     "variants": {
@@ -46,14 +46,16 @@
     "default": "parallel_gripper",
     "parallel_gripper": {
       "gripper_mode": "standard",
-      "geoms": ["gripper_geom", "finger_left_geom", "finger_right_geom"],
+      "geoms": ["gripper_geom", "finger_left_geom", "finger_right_geom",
+                "knuckle_outer_left_geom", "knuckle_outer_right_geom",
+                "knuckle_inner_left_geom", "knuckle_inner_right_geom"],
       "finger_joints": ["finger_left_joint", "finger_right_joint"],
       "finger_actuators": ["act_finger_l", "act_finger_r"],
       "open_ctrl": {"ref": "sim.mujoco_env:GRIPPER_OPEN_CTRL_M"},
       "closed_ctrl": {"ref": "sim.mujoco_env:GRIPPER_CLOSED_CTRL_M"},
       "reach_m": {"ref": "sim.mujoco_env:GRIPPER_REACH_M"},
       "aperture_m": {"ref": "sim.mujoco_env:GRASP_APERTURE_M"},
-      "note": "Fingers are cosmetic (contype 0); a weld does the carrying."
+      "note": "UFACTORY xArm Gripper (envs/assets/xarm_gripper) on the cell's F/T sensor + camera adapter; TCP sim.tool:TCP_FROM_FLANGE_M (214.5 mm). Fingers are a cosmetic four-bar (contype 0) driven in radians; a weld does the carrying."
     },
     "bio_gripper": {
       "gripper_mode": "bio",

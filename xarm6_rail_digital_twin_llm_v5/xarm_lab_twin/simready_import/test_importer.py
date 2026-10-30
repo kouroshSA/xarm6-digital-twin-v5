@@ -228,11 +228,57 @@ def test_no_collision_falls_back_to_visual_and_texture_survives():
 PICKS = json.loads((ASSETS_DIR / "picks.json").read_text())
 
 
+def test_imported_objects_are_seen_by_the_labs_renderers():
+    """Rendered with the lab's own scene_option() -- what the live viewer, the
+    Recorder's frames and the wrist camera start from -- every object in the
+    demo room is in the picture. Visual geoms in group 2 (the lab backdrop's
+    group, hidden by default) passed every other test and showed nothing."""
+    from sim.render_options import scene_option
+    from twin_rooms.builder import build_room
+    model, ctx = build_room("simready_demo")
+    data = mujoco.MjData(model)
+    for j in range(model.njnt):                        # doors open: what is inside shows too
+        if model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE and \
+                model.joint(j).name.startswith("obj/") and model.jnt_limited[j]:
+            lo, hi = model.jnt_range[j]
+            data.qpos[model.jnt_qposadr[j]] = 0.6 * (hi if abs(hi) >= abs(lo) else lo)
+    mujoco.mj_forward(model, data)
+    r = mujoco.Renderer(model, 480, 640)
+    seen = set()
+    for az, el, look in ((90, -35, (0.0, 0.0, 1.0)), (40, -25, (-0.5, 0.0, 1.2)),
+                         (90, -60, (0.0, -0.4, 0.8))):
+        cam = mujoco.MjvCamera()
+        cam.lookat[:], cam.distance, cam.azimuth, cam.elevation = look, 3.2, az, el
+        r.enable_segmentation_rendering()
+        r.update_scene(data, cam, scene_option=scene_option())
+        seg = r.render()
+        geoms = np.unique(seg[..., 0][seg[..., 1] == mujoco.mjtObj.mjOBJ_GEOM])
+        seen |= {int(model.geom_bodyid[g]) for g in geoms if g >= 0}
+    r.close()
+    missing = []
+    for name, inst in ctx.objects.items():
+        if not inst.spec.source.startswith("simready:"):
+            continue
+        root = model.body(inst.body).id
+        bodies = {b for b in range(model.nbody) if b == root or
+                  model.body_rootid[b] == model.body_rootid[root] and
+                  inst.body in model.body(b).name}
+        if not bodies & seen:
+            missing.append(name)
+    assert not missing, f"not visible to the lab's renderers: {missing}"
+    groups = {int(model.geom_group[g]) for g in range(model.ngeom)
+              if model.body(int(model.geom_bodyid[g])).name.startswith("obj/")
+              and model.geom_contype[g] == 0}
+    assert 2 not in groups, f"imported visual geoms in the backdrop group: {groups}"
+
+
 def test_committed_assets_match_their_manifest():
     """Every file the manifest lists is present and unedited."""
     for p in PICKS["assets"]:
         e = manifest.entry(p["slug"])
-        assert e and e["revision"] == PICKS["revision"] and e["license"] == "CC-BY-4.0", p["slug"]
+        assert e and e["revision"] == p.get("revision", PICKS["revision"]) \
+            and e["repo_id"] == p.get("repo_id", PICKS["repo_id"]) \
+            and e["license"] == "CC-BY-4.0", p["slug"]
         for name, digest in e["files"].items():
             assert manifest.sha256(ASSETS_DIR / p["slug"] / name) == digest, (p["slug"], name)
 
@@ -249,13 +295,22 @@ def _room(objects):
 
 
 def test_assets_rest_and_a_bad_placement_is_reverted():
+    """Every imported object in the demo room rests where the room puts it
+    (furniture on its platform, the rest on the bench); then a placement 35 cm
+    in the air is refused and reverted."""
     from simready_import import cli
+    from twin_rooms.room import ROOMS_DIR
+    demo = ROOMS_DIR / "simready_demo"
+    names = [o["name"] for o in json.loads((demo / "room.json").read_text())["objects"]
+             if o["source"].startswith("simready:")]
+    assert len(names) >= 9, names
+    for n in names:
+        rep = cli.drop_test(demo, n)
+        assert rep.ok, (n, rep.problems)
     tmp, rd = _room([])
     try:
-        for i, p in enumerate(PICKS["assets"]):
-            rc = cli.main(["place", p["slug"], "--room", str(rd), "--name", f"o{i}",
-                           "--pos", str(-0.15 + 0.22 * i), "-0.27"])
-            assert rc == 0, p["slug"]
+        assert cli.main(["place", "cucumber_a01", "--room", str(rd), "--name", "o0",
+                         "--pos", "-0.1", "-0.27"]) == 0
         before = (rd / "room.json").read_text()
         rc = cli.main(["place", "cupcake_g01", "--room", str(rd), "--name", "flying",
                        "--pos", "0.0", "-0.4", "1.10"])          # 35 cm in the air: falls

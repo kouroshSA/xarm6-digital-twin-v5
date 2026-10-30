@@ -155,6 +155,11 @@ Categorical events (exclusive per object -- only one per object per call):
                                     slot (tubes still in their home rack
                                     are NOT reported)
   - `<object> off bench`         -- xy is past the bench edge, still elevated
+  - `<object> dropped from N mm` -- (normal/strict stringency only) it was
+                                    let go N mm above the surface below it,
+                                    not over a bin: a drop, not a placement.
+                                    Always a FAILURE unless the task is to
+                                    make it fall.
   - `<object> still in the gripper`
                                  -- the arm halted while holding it. This is
                                     almost always a FAILURE, including for a
@@ -228,6 +233,14 @@ These are mistakes the grader-as-Haiku has made before; learn from them.
    "move X to (a, b)" task is the looser
    `expected_substrings=["<X> moved"]` with `mode="any"` -- the move
    fact firing at all is enough to confirm displacement.
+
+1b. **A RELATIVE move names its displacement -- write it in full.** For
+   "move X 150 mm to the right" / "push X 100 mm toward the back", emit
+   `"<X> moved (dx, dy)mm"` with the requested delta in world mm, e.g.
+   `"cucumber moved (150, 0)mm"`. The checker compares the numbers with a
+   tolerance (25 mm or 15% of the distance, whichever is larger), so write
+   the full pair -- never a truncated `"<X> moved (150"`. Fall back to the
+   bare `"<X> moved"` only when the direction cannot be tied to a world axis.
 
 2. **`off bench` means OVER THE EDGE, not "onto the bench surface".**
    Tasks like "put it on the bench" / "place it on the table" expect

@@ -6,7 +6,8 @@ gravity-sag bias riding on it, so ctrl = q_cmd + bias. Three measured
 problems are handled here and nowhere else (teleop_kin/README.md, findings
 1, 2 and 4):
 
-  * the twin sags 15-20 mm under gravity -> per-joint integral bias, gated on
+  * a load the scene does not compensate (a held object; the arm and tool
+    carry gravcomp) sags the twin -> per-joint integral bias, gated on
     the joint being near its setpoint AND at rest (integrating during motion
     winds up on tracking lag);
   * the rail deflects a few mm while the arm moves -> IK and FK use the rail

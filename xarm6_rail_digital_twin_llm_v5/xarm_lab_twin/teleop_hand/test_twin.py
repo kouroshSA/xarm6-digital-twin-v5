@@ -187,11 +187,15 @@ def test_10_guards():
     finally:
         tw.close()
 
-    # (b) wrist band in full mode: tilting the tool ~45 deg about world -y
-    # drives joint 5 through zero (measured: 57 deg at home, 1 deg at 45).
+    # (b) wrist band in full mode: tilting the tool about world -y drives joint 5
+    # toward zero. From 100 mm further out than home (measured: 54 deg there,
+    # 6 deg at the band): with the real 214.5 mm TCP the same tilt from home
+    # swings the flange so far that joint 3 hits its +11 deg limit first.
     tw = Twin(orient_mode="full")
     try:
         tw.run(0.5)
+        tw.move(PALM0 + _cam([0.10, 0.0, 0.0]), seconds=1.5)
+        tw.run(1.0)
         q5s = []
         tw.move(rot=rot_about(_cam([0, -1, 0]), 60), seconds=3.0,
                 each=lambda: q5s.append(tw.q5_deg()))

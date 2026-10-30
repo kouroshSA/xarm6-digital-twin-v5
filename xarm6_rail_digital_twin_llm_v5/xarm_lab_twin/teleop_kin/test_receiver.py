@@ -141,24 +141,39 @@ def test_1_tracking():
         arm.disconnect()
 
 
-def test_1b_gravity_comp_is_what_fixes_it():
-    """Negative control for test 1: with the sag bias off, the same drag
-    leaves the tool well short -- so test 1 is passing because of the
-    compensation, not because the twin never sagged."""
+def _drag_error_mm(gravity_comp: bool) -> float:
+    """test 1's drag on an arm whose model gravity compensation is switched
+    off -- an uncompensated load, as a held object is -- with the sag bias on
+    or off. Returns the tool-to-handle error after settling."""
     arm, rx = _twin()
     try:
-        rx.gravity_comp = False
+        with arm.lock:
+            arm.model.body_gravcomp[:] = 0.0
+        rx.gravity_comp = gravity_comp
+        _run_sim(rx, 1.0)                     # let the bare arm sag first
         p, r = rx.handle.read_pose()
         rx.handle.write_pose(p + [0.10, 0.0, 0.0], r)
         _run_until(rx, lambda: _caught_up(rx), 3.0)
         _run_sim(rx, 2.0)
         hp, _ = rx.handle.read_pose()
         ep, _ = rx.handle.ee_pose()
-        err_mm = float(np.linalg.norm(hp - ep)) * 1000.0
-        print(f"    without compensation: {err_mm:.1f} mm")
-        assert err_mm > 5.0, f"expected visible sag, got {err_mm:.2f} mm"
+        return float(np.linalg.norm(hp - ep)) * 1000.0
     finally:
         arm.disconnect()
+
+
+def test_1b_sag_bias_cancels_an_uncompensated_load():
+    """The scene compensates the arm's and tool's own weight (gravcomp, as the
+    real controller does for its payload), so test 1 would pass with or without
+    the sag bias. What the bias is still for is load the model does NOT
+    compensate -- a held object. Remove the compensation to make the whole arm
+    such a load: without the bias the tool must end visibly short (negative
+    control), with it on the handle."""
+    off = _drag_error_mm(gravity_comp=False)
+    on = _drag_error_mm(gravity_comp=True)
+    print(f"    uncompensated arm: {off:.1f} mm without the bias, {on:.2f} mm with it")
+    assert off > 5.0, f"expected visible sag, got {off:.2f} mm"
+    assert on < 2.0, f"the bias left the tool {on:.2f} mm from the handle"
 
 
 def test_2_rate_limit():

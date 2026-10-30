@@ -1,7 +1,7 @@
 {
   "id": "simready_demo",
   "name": "SimReady demo bench",
-  "description": "The empty bench with three NVIDIA SimReady food items imported by simready_import (nvidia/simready-assets@a666cb43, CC-BY-4.0): a cucumber, a cupcake and a green soda bottle. Each passed a 2 s drop test when placed.",
+  "description": "The empty bench furnished with imported SimReady assets, all at true scale: on the bench a cucumber, a cupcake, a green soda bottle, a laboratory bottle, a keyboard, a toaster (dial, lever and cancel button move) and a desk alarm clock; behind the bench a laboratory incubator (door 0-105 deg, two shelves sliding 80 mm) on a 0.78 m platform; at the bench's left end a low two-door file cabinet (doors 0-90 deg) on a 0.78 m platform. Sources: nvidia/simready-assets, ForgeCAD/simready-assets and PalatialSim/palatial-nv-asset-library, all CC-BY-4.0 (assets/simready/ATTRIBUTION.md). Every object passed a drop test when placed.",
   "environment": {
     "extract_from": "../../envs/lab_scene.xml",
     "bodies": [
@@ -90,6 +90,159 @@
       "aliases": [
         "Plastic bottle recycling"
       ]
+    },
+    {
+      "name": "cabinet_platform",
+      "source": "builtin:platform",
+      "params": {
+        "size": [
+          0.38,
+          0.86,
+          0.78
+        ]
+      },
+      "pose": {
+        "pos": [
+          -0.95,
+          -0.3,
+          0.0
+        ]
+      },
+      "dynamic": false,
+      "type": "other",
+      "label": "cabinet platform",
+      "grippable": false
+    },
+    {
+      "name": "lab_bottle",
+      "source": "simready:bottle_laboratory_a01",
+      "pose": {
+        "pos": [
+          -0.28,
+          -0.4,
+          0.8224
+        ]
+      },
+      "dynamic": true,
+      "type": "other",
+      "label": "laboratory bottle",
+      "grippable": true,
+      "aliases": [
+        "bottle"
+      ]
+    },
+    {
+      "name": "keyboard",
+      "source": "simready:computer_keyboard_a01",
+      "pose": {
+        "pos": [
+          0.21,
+          -0.62,
+          0.7611
+        ]
+      },
+      "dynamic": true,
+      "type": "other",
+      "label": "computer keyboard",
+      "grippable": true,
+      "aliases": [
+        "computer keyboard"
+      ]
+    },
+    {
+      "name": "toaster",
+      "source": "simready:toaster_a01",
+      "pose": {
+        "pos": [
+          -0.18,
+          -0.62,
+          0.8405
+        ]
+      },
+      "dynamic": true,
+      "type": "other",
+      "label": "toaster",
+      "grippable": true,
+      "aliases": [
+        "toaster"
+      ]
+    },
+    {
+      "name": "incubator_platform",
+      "source": "builtin:platform",
+      "params": {
+        "size": [
+          0.56,
+          0.53,
+          0.78
+        ]
+      },
+      "pose": {
+        "pos": [
+          0.0,
+          0.81,
+          0.0
+        ]
+      },
+      "dynamic": false,
+      "type": "other",
+      "label": "incubator platform",
+      "grippable": false
+    },
+    {
+      "name": "incubator",
+      "source": "simready:laboratory_incubator",
+      "pose": {
+        "pos": [
+          0.0,
+          0.7815,
+          1.106
+        ]
+      },
+      "dynamic": false,
+      "type": "other",
+      "label": "laboratory incubator",
+      "grippable": false,
+      "aliases": [
+        "incubator",
+        "laboratory incubator"
+      ]
+    },
+    {
+      "name": "clock",
+      "source": "simready:clock_d00001",
+      "pose": {
+        "pos": [
+          0.58,
+          -0.62,
+          0.8322
+        ]
+      },
+      "dynamic": true,
+      "type": "other",
+      "label": "desk clock",
+      "grippable": true,
+      "aliases": [
+        "clock"
+      ]
+    },
+    {
+      "name": "cabinet",
+      "source": "simready:cabinet_file_c01",
+      "pose": {
+        "pos": [
+          -0.9475,
+          -0.3,
+          1.2195
+        ]
+      },
+      "dynamic": false,
+      "type": "other",
+      "label": "file cabinet",
+      "grippable": false,
+      "aliases": [
+        "cabinet"
+      ]
     }
   ],
   "cameras": [
@@ -103,11 +256,11 @@
     }
   ],
   "agent": {
-    "context": "Three food items stand on the bench in front of the rail: a cucumber (52 x 170 x 48 mm, lying along x), a cupcake (75 mm across, at the standard gripper's 75 mm limit) and a green soda bottle (64 mm across, 231 mm tall). The bottle is too tall to grasp from above with this gripper; push it instead. The cucumber is the easiest to pick: grasp it at its centre from above.",
+    "context": "Objects on the bench in front of the rail: cucumber (52 x 170 x 48 mm, lying along y), cupcake (75 mm across), green soda bottle (64 mm across, 231 mm tall: push it, too tall to grasp from above), lab bottle (66 x 60 x 143 mm), keyboard (442 mm wide: push only), toaster (307 mm long: push only) and a desk alarm clock (120 x 68 x 162 mm). Behind the bench stands a laboratory incubator and at the bench's left end a low file cabinet; their doors are closed, and there is no planner action to open them yet, so do not plan to reach inside.",
     "task_ideas": [
       "pick up the cucumber and put it down 150 mm to the right",
-      "push the bottle 100 mm toward the back of the bench",
-      "lift the cucumber 100 mm and hold it there",
+      "push the keyboard 100 mm toward the back of the bench",
+      "lift the lab bottle 100 mm and hold it there",
       "move the cupcake 80 mm to the left"
     ]
   }

@@ -36,6 +36,7 @@ from typing import Optional, List, Tuple
 #: physical_outcome()'s word for "the arm stopped while still holding this".
 #: Spelled once, here, and imported by anything that needs to recognise it.
 HELD_MARKER = "still in the gripper"
+DROPPED_MARKER = "dropped from"
 
 COLORS = ("red", "green", "blue")
 
@@ -278,6 +279,37 @@ def expected_outcome(task: str, arm=None) -> Optional[Tuple[str, List[str]]]:
 _PROX_VERBS = (" closer to ", " farther from ")
 
 
+#: A requested displacement is met when each component lands within this
+#: many mm of it, or within MOVE_TOL_FRAC of the requested distance if that
+#: is larger. Physical placement is never exact; a literal "moved (150"
+#: failed a cucumber set down 147 mm away.
+MOVE_TOL_MM = 25.0
+MOVE_TOL_FRAC = 0.15
+_EXPECTED_MOVE = re.compile(
+    r"^\s*(\S+) moved \(\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?")
+
+
+def _displacement_met(physical: str, expected: str) -> Optional[bool]:
+    """Numeric match for a displacement criterion "<X> moved (dx, dy)mm" (or
+    the partial "<X> moved (dx" that the grader also writes, which constrains
+    dx only). None when `expected` is not a numeric displacement."""
+    m = _EXPECTED_MOVE.match(expected)
+    if not m:
+        return None
+    name, want = m.group(1), [float(m.group(2))]
+    if m.group(3) is not None:
+        want.append(float(m.group(3)))
+    got = re.search(rf"(?:^|;\s*){re.escape(name)} moved \((-?\d+), (-?\d+)\)mm",
+                    physical)
+    if not got:
+        return False
+    have = [float(got.group(1)), float(got.group(2))]
+    tol = max(MOVE_TOL_MM, MOVE_TOL_FRAC * (sum(w * w for w in want) ** 0.5))
+    if len(want) == 1:
+        want.append(0.0)        # "moved (150" = 150 along x and no more than tol across
+    return all(abs(h - w) <= tol for h, w in zip(have, want))
+
+
 def _matches_with_swap(physical: str, expected: str) -> bool:
     """Substring match, but ALSO accept the alphabetically-swapped form
     for proximity facts ("X closer to Y" matches if "Y closer to X" is
@@ -285,6 +317,11 @@ def _matches_with_swap(physical: str, expected: str) -> bool:
     alphabetical-first first, but graders (especially Haiku) often
     name objects in semantic-subject-first order. Rather than force
     every prompt edit to win that fight, we just accept both."""
+    # Numbers decide a numeric displacement, before the substring test: as a
+    # substring "moved (150" also matches "moved (1500".
+    moved = _displacement_met(physical, expected)
+    if moved is not None:
+        return moved
     if expected in physical:
         return True
     for verb in _PROX_VERBS:
@@ -338,6 +375,15 @@ def check_outcome(task: str, physical: str,
                 for seg in phys.split(";") if HELD_MARKER in seg]
         return (False, f"Arm halted still holding {', '.join(held) or 'an object'}"
                        f"{src}; nothing was set down. Physical: {phys}")
+
+    # A drop is not a placement. "<name> dropped from N mm" is only reported at
+    # normal/strict stringency (sim STRINGENCY_LEVELS drop_tol_m), so loose
+    # grading is unchanged. Tasks whose goal IS a fall keep their verdict.
+    if DROPPED_MARKER in phys and not any("fell" in e or "off bench" in e
+                                          for e in expected):
+        dropped = [seg.strip() for seg in phys.split(";") if DROPPED_MARKER in seg]
+        return (False, f"Let go above the surface: {', '.join(dropped)}{src}; "
+                       f"dropped, not placed. Physical: {phys}")
 
     if mode == "any":
         if any(_matches_with_swap(phys, e) for e in expected):

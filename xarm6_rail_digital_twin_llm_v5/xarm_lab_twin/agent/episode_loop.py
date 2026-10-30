@@ -18,6 +18,7 @@ core logic. Each episode:
   6. append per-episode lesson; if failed, append a learned constraint too
   7. always continue to the next episode until max_episodes is reached
 """
+import re
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Tuple
@@ -459,9 +460,68 @@ def _move_to_body_aware_constraint(x_mm, y_mm, z_mm, registry) -> Optional[str]:
     return None
 
 
+_CARRIED_HIT = re.compile(r"carried (\S+) would hit (\S+)")
+
+
+def _carried_collision_constraint(x, y, z, refusal: str,
+                                  prev_command: Optional[Dict[str, Any]],
+                                  registry: Any = None, yaw=None) -> Optional[str]:
+    """A move refused because the HELD object would hit something.
+
+    Two different failures share that refusal. On a descent to (x, y) -- the
+    previous move was over the same spot, higher -- the destination itself is
+    occupied, and the generic "lift z" advice is exactly wrong: it taught the
+    planner to let go 70 mm up and drop the object, which a loose grader then
+    passed. On a traverse the path is blocked, and going higher is the fix.
+    """
+    m = _CARRIED_HIT.search(refusal or "")
+    if not m:
+        return None
+    held = m.group(1)
+    obstacle = m.group(2).split("/")[0]
+    if obstacle.endswith("_geom"):
+        obstacle = obstacle[:-len("_geom")]
+    where = ""
+    obj = registry.find(obstacle) if registry is not None else None
+    if obj is not None:
+        where = (f" at ({obj.position_xyz_m[0] * 1000:.0f}, "
+                 f"{obj.position_xyz_m[1] * 1000:.0f})")
+    prev = (prev_command or {}).get("params", {}) if \
+        (prev_command or {}).get("action") == "move_to" else {}
+    try:
+        descent = (abs(float(prev["x"]) - float(x)) < 5 and
+                   abs(float(prev["y"]) - float(y)) < 5 and
+                   float(prev["z"]) > float(z))
+    except (KeyError, TypeError, ValueError):
+        descent = False
+    if descent:
+        # Concrete, because the vague "turn the wrist (yaw)" was never tried:
+        # five live episodes slid the cucumber 80-110 mm sideways instead,
+        # while yaw 90 sets it down at the requested spot clear of the cupcake.
+        try:
+            y0 = float(yaw if yaw is not None else 0.0)
+        except (TypeError, ValueError):
+            y0 = 0.0
+        turned = [((y0 + d + 180.0) % 360.0) - 180.0 for d in (90.0, -90.0)]
+        return (f"Putting the carried {held} down at ({x}, {y}) puts it into "
+                f"{obstacle}{where}: that spot is OCCUPIED with the wrist at "
+                f"yaw {y0:.0f}. Releasing higher does not fix this -- a dropped "
+                f"object is not placed. FIRST try the SAME destination with the "
+                f"wrist turned 90 deg: yaw {turned[0]:.0f} (or {turned[1]:.0f}) on "
+                f"the move over ({x}, {y}) AND on the descent, so {held}'s long "
+                f"side runs along the move instead of reaching {obstacle}. Only "
+                f"if that is refused too, choose a destination further from "
+                f"{obstacle}. Lower it until it rests on the surface before "
+                f"opening the gripper.")
+    return (f"On the way to ({x}, {y}, {z}) the carried {held} would hit "
+            f"{obstacle}{where}: carry it higher over {obstacle}, or route "
+            f"around it.")
+
+
 def analyse_command_failure(failed_step: Dict[str, Any],
                             planned_command: Dict[str, Any],
-                            registry: Any = None) -> str:
+                            registry: Any = None, refusal: str = "",
+                            prev_command: Optional[Dict[str, Any]] = None) -> str:
     """
     Given a failed step from results[], infer a constraint string.
 
@@ -472,6 +532,10 @@ def analyse_command_failure(failed_step: Dict[str, Any],
     `move_to` and `place_tube_in_rack` are upgraded with body-aware
     detail (which object the gripper is colliding with, or which rack
     the macro needs the rail set near).
+
+    `refusal` is the simulator's reason (arm.last_refusal) and `prev_command`
+    the command before the failed one; with both, a held object refused at
+    its destination is told apart from one blocked on the way.
 
     Returns a short, actionable constraint string for the next episode's prompt.
     """
@@ -488,6 +552,10 @@ def analyse_command_failure(failed_step: Dict[str, Any],
                     f"Try a different approach pose -- raise z, change xy, or "
                     f"re-orient the wrist.")
         if code == 2:
+            carried = _carried_collision_constraint(x, y, z, refusal,
+                                                    prev_command, registry, yaw)
+            if carried:
+                return carried
             body_msg = _move_to_body_aware_constraint(x, y, z, registry)
             if body_msg:
                 return body_msg
@@ -853,8 +921,11 @@ class EpisodeRetry:
                 idx, failed = cmd_failure
                 planned = result.get("commands", [])[idx] if idx < len(
                     result.get("commands", [])) else {}
-                constraint = analyse_command_failure(failed, planned,
-                                                    registry=self.registry)
+                cmds = result.get("commands", [])
+                constraint = analyse_command_failure(
+                    failed, planned, registry=self.registry,
+                    refusal=getattr(self.arm, "last_refusal", "") or "",
+                    prev_command=cmds[idx - 1] if 0 < idx <= len(cmds) else None)
                 ctx.add_constraint(constraint)
                 ctx.failure_history.append({
                     "episode": ctx.episode_num, "kind": "command",

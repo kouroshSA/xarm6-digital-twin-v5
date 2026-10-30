@@ -171,7 +171,13 @@ def test_passthrough_rooms_are_the_scene_unchanged():
 
 def test_primitive_variant_builds():
     m, ctx = build_room("empty_bench", variant="primitive", write=False)
-    assert m.nmesh == 0 and ctx.mjcf("joint6", "joint") == "arm0/joint6"
+    # The primitive variant swaps the ARM for boxes and cylinders; the gripper's
+    # meshes are the tool, shared by both variants, so `nmesh == 0` no longer
+    # says what this test means.
+    arm_links = {m.body(f"arm0/link{i}").id for i in range(1, 7)}
+    assert not [g for g in range(m.ngeom) if m.geom_bodyid[g] in arm_links
+                and m.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH]
+    assert ctx.mjcf("joint6", "joint") == "arm0/joint6"
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +323,7 @@ def _carry(weld_on: bool):
     cube = m.body("obj/cube").id
     g = m.body(arm.mjcf("gripper")).id
     p0, g0 = d.xpos[cube].copy(), d.xpos[g].copy()
+    in_grip0 = d.xmat[g].reshape(3, 3).T @ (d.xpos[cube] - d.xpos[g])
     if weld_on:
         eq = m.equality(ctx.objects["cube"].welds["arm0"]).id
         gq_inv = np.zeros(4)
@@ -330,23 +337,26 @@ def _carry(weld_on: bool):
     for k in range(int(1.5 / m.opt.timestep)):
         d.ctrl[rail_a] = rail_q + 0.2 * min(1.0, k * m.opt.timestep / 1.0)
         mujoco.mj_step(m, d)
-    return d.xpos[cube] - p0, d.xpos[g] - g0
+    in_grip = d.xmat[g].reshape(3, 3).T @ (d.xpos[cube] - d.xpos[g])
+    return d.xpos[cube] - p0, d.xpos[g] - g0, in_grip - in_grip0
 
 
 def test_grippable_object_is_carried_by_its_weld():
-    """The cube must move WITH the gripper (same displacement within 5 mm), and
-    the gripper must actually have travelled. The bare PD arm sags a little
-    under the load, which moves both together and is not a carry failure."""
-    cube, grip = _carry(weld_on=True)
+    """The cube must move WITH the gripper (fixed in the gripper's frame within
+    5 mm), and the gripper must actually have travelled. Measured in the
+    gripper frame, not as equal world displacements: the cube sits at the TCP,
+    184.5 mm from the gripper body, and the wrist tilts ~3 deg as the rail
+    accelerates, which swings a rigidly held cube 11 mm against the body origin."""
+    cube, grip, drift = _carry(weld_on=True)
     assert grip[0] > 0.15, f"the rail did not move the gripper: {grip}"
-    assert np.linalg.norm(cube - grip) < 0.005, (cube, grip)
+    assert np.linalg.norm(drift) < 0.005, (cube, grip, drift)
 
 
 def test_without_the_weld_the_cube_is_left_behind():
     """Negative control for the test above: same motion, weld off."""
-    cube, grip = _carry(weld_on=False)
+    cube, grip, drift = _carry(weld_on=False)
     assert grip[0] > 0.15, grip
-    assert np.linalg.norm(cube - grip) > 0.1, (cube, grip)
+    assert np.linalg.norm(drift) > 0.1, (cube, grip, drift)
 
 
 def test_two_robots_of_one_type():

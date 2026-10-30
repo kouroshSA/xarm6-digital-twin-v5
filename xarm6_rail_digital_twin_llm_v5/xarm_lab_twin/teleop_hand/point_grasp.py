@@ -34,6 +34,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from sim.tool import TCP_FROM_FLANGE_M
 from teleop_hand import config
 from teleop_hand.pointing import PointTarget
 
@@ -136,8 +137,8 @@ class PointGraspExecutor:
                                    np.asarray(rail_axis, float), float(rail_mm))
         if self.abort_fn():
             return self._fail("look", "aborted by the operator")
-        rc = self._move(prior[0], prior[1], prior[2] + config.GRASP_LOOK_ABOVE_MM,
-                        config.GRASP_SPEED_MM_S)
+        look_z = prior[2] + config.GRASP_LOOK_ABOVE_MM - TCP_FROM_FLANGE_M * 1000.0
+        rc = self._move(prior[0], prior[1], look_z, config.GRASP_SPEED_MM_S)
         if rc != 0:
             return self._fail("look", f"cannot get above {target.name}: "
                                       f"{getattr(self.arm, 'last_refusal', '') or f'rc={rc}'}")

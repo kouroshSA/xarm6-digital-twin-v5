@@ -63,6 +63,13 @@ When extending the loop:
   a deterministic starting state. If your change requires preserving state
   across episodes, that's a different feature (multi-objective episodes,
   not yet implemented).
+- **A drop is not a placement.** At `--stringency normal|strict` the gripper's
+  release is measured: an object let go more than 30 / 15 mm above the surface
+  under it (not over a bin or container) is reported `<name> dropped from N mm`,
+  and `check_outcome` fails it unless the task is to make something fall. Loose
+  (the default) reports nothing new. A live loop "succeeded" three times by
+  letting a cucumber fall 70 mm because the failure analyser said "lift z"; a
+  refusal to set a held object DOWN now says the spot is occupied instead.
 
 ## Learning architecture (Phases 1/2/3 + grader fallback)
 
@@ -149,6 +156,12 @@ xyz   = frame.pixel_to_world(320, 240)       # metres, base frame
 - `capture(align=True)` carries the **colour** intrinsics, because aligned depth
   has been reprojected into the colour frame. `RGBDFrame.intrinsics` always
   holds the right matrix so callers never pick.
+- **A camera vantage is a FLANGE height.** The camera rides on the flange, but
+  `set_position` takes the TCP, 214.5 mm further out. Write a look as a flange
+  height and subtract `sim.tool.TCP_FROM_FLANGE_M`: looks written as TCP heights
+  moved the camera 125 mm away when the tool became the real one, and GG-CNN
+  stopped proposing grasps on 40 mm cubes (point-to-grasp, the GG-CNN and
+  vision-dispatch tests, `vision_demo.py`, the planner's look guidance).
 - Sim depth is exact and 100% valid; the real device runs ~71% valid with
   dropouts on transparent and specular surfaces. Validate perception on the
   device, not only on the twin.
@@ -346,11 +359,13 @@ python scripts/run_kinesthetic_real.py --fake               # no robot
 - **`SimXArmAPI.register_key_handler(fn)`** gives a teleop first refusal on
   viewer keys (`fn(keycode) -> True` consumes). Empty by default, so the nudge
   keymap is unchanged. Handlers run on the viewer thread: queue, don't block.
-- **The twin sags 15–20 mm under gravity** in every interface (bare PD
-  actuators). Teach mode cancels it with a per-joint integral bias gated on the
-  joint being at rest; ctrl (the exported action) is the compensated setpoint.
-  Don't "fix" the gating by integrating during motion — that winds up on
-  tracking lag.
+- **The arm and tool are gravity-compensated** (`gravcomp="1"` on link1-6 and
+  the gripper subtree, as the real controller compensates its payload); without
+  it the bare PD arm sagged ~20 mm under the real tool and `set_position` landed
+  short while returning 0. A **held object is not compensated**: teach mode
+  cancels that with a per-joint integral bias gated on the joint being at rest;
+  ctrl (the exported action) is the compensated setpoint. Don't "fix" the
+  gating by integrating during motion — that winds up on tracking lag.
 - **IK is solved with the rail at its SETPOINT** (`TwinServo.rail_at_setpoint`, `teleop_kin/servo.py`). The rail
   deflects a few mm while the arm moves; solving on the deflected value left the
   tool 1.5–3 mm off once it sprang back. SpaceMouse/VR still solve on the live
@@ -451,6 +466,19 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
 - **Mesh objects:** `object_width_m` / `object_z_extent_m` bound a mesh geom by
   its vertices (`_geom_world_bounds`). The bounding sphere made a 52 mm cucumber
   read as 204 mm wide.
+- **Imported visuals are geom group 1, never 2.** The lab hides group 2 (its
+  backdrop) in the viewer, every offscreen renderer and `mj_ray`; in group 2 every
+  imported object was invisible to the viewer, recorded frames and the wrist camera.
+  `simready_import.test_importer` renders the demo room with the lab's own
+  `scene_option()` and requires every object in the picture.
+- **Articulated assets** (`fetch --articulated`): links with hinge/slide joints,
+  CoACD on every link plus thin support plates under floors and shelves (CoACD
+  left holes a dropped box fell through), handles from `--handle LINK=p0:p1[:normal]`
+  as capsule sites (x = outward normal). The gripper holds a handle with a CONNECT
+  (a point), so `SimXArmAPI.operate_part("incubator.Door", 0.7)` carries the grip
+  point along the hinge arc or slide line. Not a planner action yet.
+- **True scale, always** -- the robot is small next to real furniture, and the
+  recordings train VLAs. Do not rescale assets for looks.
 - **Recordings** carry `room_id` / `room_hash` (see Recording format), and
   replay rebuilds the room.
 - Tests: `python -m twin_rooms.test_schema`, `.test_robot`;
@@ -591,6 +619,12 @@ file's "Recording format" section so consumers can find them.
   `tools/sync_public.sh --push`. A direct push would upload the unfiltered
   history. The filter is deterministic, so routine syncs are fast-forwards;
   the script refuses a rewrite unless given `--force`.
+- **The tool is the cell's:** F/T sensor + camera adapter (42.5 mm, derived from
+  the measured 217 mm flange-to-tip) + UFACTORY xArm Gripper (TCP 172 mm), so the
+  TCP is 214.5 mm from the flange and the payload 1.247 kg (`CELL_TCP_LOAD`).
+  One source: `sim/tool.py`; the end_effector site in `lab_scene_primitive.xml`
+  is a hand-edited copy. The fingers are the gripper's real four-bar, cosmetic,
+  driven in radians; a grasp closes them to the object's width.
 - **Magnetic-gripper hack.** This sim doesn't have actuated gripper fingers.
   `gripper_close` activates a MuJoCo `<weld>` constraint between the
   gripper body and the nearest cube/tube/bin/rack. If you're adding a new

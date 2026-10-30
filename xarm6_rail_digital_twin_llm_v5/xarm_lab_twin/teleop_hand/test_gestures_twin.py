@@ -25,6 +25,7 @@ os.chdir(HERE)
 
 import numpy as np  # noqa: E402
 
+from sim.tool import TCP_FROM_FLANGE_M  # noqa: E402
 from teleop_hand import config  # noqa: E402
 from teleop_hand.camera_pose import HandCameraPose  # noqa: E402
 from teleop_hand.gesture_control import GestureController  # noqa: E402
@@ -169,7 +170,10 @@ def test_point_refuses_when_gg_cnn_proposes_nothing_near_the_target():
     res = tw.rx.last_point_result
     assert res is not None and not res.ok and res.stage == "detect", res
     assert tw.arm.verify_grasp()[0] == "empty"
-    assert tw.pose_mm()[2] > tw.body_mm(cube)[2] + 200, "it descended without a grasp"
+    # Still at the look: its TCP height is the flange look height less the tool,
+    # and the approach (GRASP_APPROACH_ABOVE_MM over the grasp) is lower than that.
+    look_tcp = config.GRASP_LOOK_ABOVE_MM - TCP_FROM_FLANGE_M * 1000.0
+    assert tw.pose_mm()[2] > tw.body_mm(cube)[2] + look_tcp - 25.0, "it descended without a grasp"
 
 
 def test_point_at_empty_bench_hovers_above_it():

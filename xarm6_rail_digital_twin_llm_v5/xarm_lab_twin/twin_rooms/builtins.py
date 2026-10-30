@@ -18,6 +18,9 @@ Body origins (what a room's `pose.pos` places):
   bin        the centre of the floor's underside (rests on a surface at that z)
   tube_rack  the centre of the base plate (base underside is 5 mm below)
   tube       the tube's centre
+  platform   the centre of its footprint at floor level (pose z = 0 stands it
+             on the floor); a solid static box for raising furniture. Not a
+             lab object, so it has no lab counterpart to match.
 """
 from __future__ import annotations
 
@@ -43,6 +46,7 @@ DEFAULTS: Dict[str, dict] = {
                   "rgba": [0.85, 0.85, 0.85, 0.7], "mass": 0.25},
     "tube": {"radius": 0.015, "length": 0.115, "rgba": [0.95, 0.95, 0.95, 0.5],
              "cap_rgba": [0.95, 0.55, 0.10, 1.0], "mass": 0.03},
+    "platform": {"size": [0.8, 0.8, 0.78], "rgba": [0.45, 0.47, 0.5, 1.0], "mass": 40.0},
 }
 
 # The lab's hand-set inertias at its default dimensions, scaled with mass and
@@ -139,5 +143,14 @@ def tube(parent, name: str, prefix: str, params: dict):
     return b
 
 
+def platform(parent, name: str, prefix: str, params: dict):
+    p = _params("platform", params)
+    sx, sy, h = p["size"]
+    b = parent.add_body(name=prefix + name)
+    _solid(b.add_geom(name=f"{prefix}{name}_geom", type=BOX, size=[sx / 2, sy / 2, h / 2],
+                      pos=[0, 0, h / 2], mass=p["mass"], rgba=p["rgba"]))
+    return b
+
+
 GENERATORS: Dict[str, Callable] = {"cube": cube, "bin": bin, "tube_rack": tube_rack,
-                                   "tube": tube}
+                                   "tube": tube, "platform": platform}

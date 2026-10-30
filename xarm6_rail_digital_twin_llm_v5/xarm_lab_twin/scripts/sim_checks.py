@@ -343,6 +343,44 @@ def check_joint_limits_match_scene(scene) -> list[CheckResult]:
                         "6 joint limits + rail travel match the scene")]
 
 
+#: Bodies that move with the arm and must carry gravcomp: the real controller
+#: compensates gravity for its configured payload, the twin's PD actuators do not.
+GRAVCOMP_BODIES = (*(f"link{i}" for i in range(1, 7)), "gripper",
+                   "finger_left", "finger_right", "finger_left_tip",
+                   "finger_right_tip", "knuckle_inner_left", "knuckle_inner_right")
+
+
+def check_tool_matches_scene(scene=None) -> list[CheckResult]:
+    """Both scene files must carry sim/tool.py's TCP and the arm's gravity
+    compensation.
+
+    The end_effector site in lab_scene_primitive.xml is a hand-edited copy of
+    TCP_FROM_FLANGE_M (build_mesh_scene.py derives the mesh scene's), and
+    gravcomp is written into both the primitive source and the generator's arm
+    template -- two copies of each, the shape defect class #1 takes. A missing
+    gravcomp is silent: the arm sags ~20 mm and set_position still returns 0.
+    """
+    import mujoco as mj
+    from sim.tool import TCP_FROM_FLANGE_M
+    here = os.path.dirname(os.path.abspath(__file__))
+    bad = []
+    for fname in ("lab_scene.xml", "lab_scene_primitive.xml"):
+        m = mj.MjModel.from_xml_path(os.path.join(here, "..", "envs", fname))
+        site = m.site("end_effector")
+        if m.body(site.bodyid[0]).name != "link6" or \
+                abs(site.pos[2] - TCP_FROM_FLANGE_M) > 1e-4 or abs(site.pos[:2]).max() > 1e-6:
+            bad.append(f"{fname}: end_effector at {site.pos.round(4).tolist()} on "
+                       f"{m.body(site.bodyid[0]).name}, want z={TCP_FROM_FLANGE_M} on link6")
+        missing = [b for b in GRAVCOMP_BODIES if m.body_gravcomp[m.body(b).id] != 1.0]
+        if missing:
+            bad.append(f"{fname}: no gravcomp on {', '.join(missing)}")
+    if bad:
+        return [CheckResult("arm.tool_matches_scene", FAIL, "; ".join(bad))]
+    return [CheckResult("arm.tool_matches_scene", PASS,
+                        f"both scenes: TCP {TCP_FROM_FLANGE_M * 1000:.1f} mm from the flange, "
+                        f"{len(GRAVCOMP_BODIES)} arm/tool bodies gravity-compensated")]
+
+
 def check_base_offset_matches_scene(scene) -> list[CheckResult]:
     """arm_backend's base offset and bench height must match the scene.
 
@@ -1221,6 +1259,7 @@ STATIC_CHECKS = [
     check_real_arm_contract,
     check_joint_limits_match_scene,
     check_base_offset_matches_scene,
+    check_tool_matches_scene,
     check_arm_backend_parity,
     check_plan_gate,
     check_preflight_level1,

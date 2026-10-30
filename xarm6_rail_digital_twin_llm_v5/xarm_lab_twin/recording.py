@@ -134,8 +134,13 @@ class Recorder:
                 )
 
         # Equality constraints (welds) — capture activation over time so the
-        # downstream pipeline knows when something was being grasped.
-        self.eq_ids = list(range(model.neq))
+        # downstream pipeline knows when something was being grasped. Only the
+        # grasp constraints: the gripper's finger linkage is coupled by JOINT
+        # equalities that are always active, and counting them made `gripper`
+        # read 1.0 ("holding") on every sample.
+        self.eq_ids = [i for i in range(model.neq)
+                       if model.eq_type[i] in (mujoco.mjtEq.mjEQ_WELD,
+                                               mujoco.mjtEq.mjEQ_CONNECT)]
         self.eq_names = [
             logical(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_EQUALITY, i))
             for i in self.eq_ids

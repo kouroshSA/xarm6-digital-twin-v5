@@ -140,13 +140,13 @@ difference.
 **Aim the camera before you look, and keep your distance.** It is on the wrist
 and sees only what the gripper faces, so a locate/grasp is answered from wherever
 the arm happens to be pointing. Before each one, move_to directly ABOVE where you
-expect the object -- use the registry xy as the prior, z ~ 1100-1200 mm, roll 180
+expect the object -- use the registry xy as the prior, z ~ 975-1075 mm, roll 180
 -- so the target is near the centre of frame.
 
 That height is not cosmetic. The camera needs at least ~250 mm of standoff to
 measure well: closer than ~150 mm it still returns a depth, but a wrong one, and
 the grasp lands inside the object. grasp_object refuses below that and tells you
-to back off, so looking from just above the bench (z ~ 900) wastes a turn. Looking from across the bench finds the wrong thing or
+to back off, so looking from just above the bench (z ~ 800) wastes a turn. Looking from across the bench finds the wrong thing or
 nothing: the object lands at the edge of a 55-degree field where it is small,
 oblique, and easily beaten by whatever is nearer the middle.
 
@@ -218,6 +218,40 @@ These are auto-appended after each task. Most recent first. Read them and
 avoid repeating mistakes (e.g. a height that previously caused a collision).
 {lessons_section}
 """
+
+
+def extract_command_list(raw: str):
+    """The plan's JSON command list from a model reply, or None.
+
+    Tried in order, so a reply that parsed before parses the same way now:
+    the whole reply; the span from the first "[" to the last "]"; then each
+    "[" in turn, keeping the LAST list of {"action": ...} objects that decodes.
+    The third step is new: a model that reasons before its plan writes "spans
+    [25, 77]" in the prose, the greedy span then starts there, and a valid plan
+    was thrown away as "Extra data" -- two episodes of a live loop run lost.
+    """
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    m = re.search(r"(\[.*\])", raw, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
+    dec, found = json.JSONDecoder(), None
+    for i, ch in enumerate(raw):
+        if ch != "[":
+            continue
+        try:
+            val, _ = dec.raw_decode(raw, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(val, list) and val and all(
+                isinstance(c, dict) and "action" in c for c in val):
+            found = val
+    return found
 
 
 class LLMBrain:
@@ -556,17 +590,12 @@ class LLMBrain:
               f"({in_tok}->{out_tok} tokens)")
         self.history.append({"role": "assistant", "content": raw})
 
-        try:
-            commands = json.loads(raw)
-        except json.JSONDecodeError:
-            m = re.search(r"(\[.*\])", raw, re.DOTALL)
-            if m:
-                commands = json.loads(m.group(1))
-            else:
-                if llm_log:
-                    llm_log.log_parse_error(f"No JSON array:\n{raw}")
-                    llm_log.close()
-                raise ValueError(f"LLM returned non-JSON:\n{raw}")
+        commands = extract_command_list(raw)
+        if commands is None:
+            if llm_log:
+                llm_log.log_parse_error(f"No JSON array:\n{raw}")
+                llm_log.close()
+            raise ValueError(f"LLM returned non-JSON:\n{raw}")
         if llm_log:
             llm_log.log_parsed(commands)
 
