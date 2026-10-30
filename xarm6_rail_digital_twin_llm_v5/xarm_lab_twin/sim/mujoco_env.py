@@ -1145,6 +1145,8 @@ class SimXArmAPI:
             cur = np.array([float(self.data.qpos[jid])
                             for jid in self.joint_ids], dtype=float)
             cur_rail_m = float(self.data.qpos[self.rail_jid])
+        if getattr(self, "_part_jids", None):
+            target = self._clear_home_target(cur, target)
 
         max_deg = float(np.max(np.abs(np.rad2deg(target - cur))))
         self._execute_paced_arm(target, max_deg / _AB_HOME_JOINT_SPEED_DEG_S)
@@ -1156,9 +1158,28 @@ class SimXArmAPI:
             self._wait_rail_settled(self.HOME_RAIL_M)
             # At rest, not merely near: reset_scene() ends here, and an episode
             # must start from a still arm.
-            self._wait_arm_settled(np.array(self.HOME_JOINTS_RAD),
-                                   tol_rad=0.002, rest_rad_s=0.002)
+            self._wait_arm_settled(target, tol_rad=0.002, rest_rad_s=0.002)
         return 0
+
+    def _clear_home_target(self, cur: np.ndarray, home: np.ndarray) -> np.ndarray:
+        """Rooms with doors and drawers only (the lab has none, so its go_home
+        is unchanged). go_home's joint sweep is not otherwise collision-
+        checked, and after opening the incubator door the arm sits at the home
+        pose with joint 1 one turn round: unwinding it swept the open door
+        shut. Take the true home when its path is clear, else the nearest
+        copy of it one turn round (the same pose) whose path is. reset_scene
+        closes the parts first, so episodes still start from the true home."""
+        if self._validate_swept_path(cur, home)[0]:
+            return home
+        lo1, hi1 = self.model.jnt_range[self.joint_ids[0]]
+        for k in sorted((-1, 1), key=lambda k: abs(home[0] + k * 2 * np.pi - cur[0])):
+            alt = home.copy(); alt[0] += k * 2 * np.pi
+            if lo1 <= alt[0] <= hi1 and self._validate_swept_path(cur, alt)[0]:
+                print(f"[SimXArm] go_home: path to home blocked; homing "
+                      f"{k:+d} turn round on joint 1 (the same pose)")
+                return alt
+        print("[SimXArm] go_home: WARNING no clear joint path home; sweeping anyway")
+        return home
 
     def place_tube_in_rack(self, rack_name: str, **kwargs) -> int:
         """Place currently-held tube in the first open slot of the named rack.
@@ -2283,13 +2304,32 @@ class SimXArmAPI:
             else:
                 rc = 2
                 break
-        reached = self.part_opening(part)
+        held_at = self.part_opening(part)
         self.open_gripper()
         self._back_off(speed)
+        # Judge the part where it ENDS, after the arm is home: measured while
+        # still holding the handle, the incubator door read "1.00 of its
+        # travel" and returned 0 -- then go_home swept the arm through it and
+        # it finished 2 deg open.
+        reached = self.part_opening(part)
         amount, unit = self._part_open_amount(jid)
         msg = f"{part} at {reached:.2f} of its travel ({amount:.0f} {unit} open)"
         if rc != 0:
             self.last_refusal = f"{part} stopped partway: {msg}; {self.last_refusal}"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        tol = step / abs(far) if far else 0.0
+        target = float(np.clip(opening, 0.0, 1.0))
+        msg += getattr(self, "_parked_note", "")
+        if abs(reached - target) > tol:
+            if abs(held_at - target) > tol:
+                why = f"stopped short of {target:.2f} while holding it"
+            elif self.model.jnt_stiffness[jid] > 0:
+                why = (f"reached {held_at:.2f} but springs back when let go "
+                       f"(it has a return spring)")
+            else:
+                why = f"reached {held_at:.2f} but moved after it was let go"
+            self.last_refusal = f"{part} {why}: {msg}"
             print(f"[SimXArm] {self.last_refusal}")
             return 2
         print(f"[SimXArm] {msg}")
@@ -2307,7 +2347,76 @@ class SimXArmAPI:
         for d in (HANDLE_STANDOFF_M, HANDLE_STANDOFF_M / 2):
             if self._move_tool(ee - z * d, None, speed) == 0:
                 break
-        self.go_home()
+        # Then to the HOME tool pose by validated Cartesian moves before the
+        # joint-space go_home: go_home is not collision-checked, and from
+        # beside an opened door it swept the arm through it (the incubator
+        # door went from 105 deg back to 2). set_position refuses a path into
+        # the door, so try straight there, then via a lift.
+        # Reaching the home tool POSE is not enough: IK can land on another
+        # elbow branch, and go_home's joint sweep from there still swung through
+        # the door (84 deg -> 25). So each candidate ends with the check
+        # set_position itself uses -- the joint-space path to the HOME JOINTS
+        # -- and go_home runs only once that path is clear.
+        home_p, home_R = self._home_tool_pose()
+        home_q = np.array(self.HOME_JOINTS_RAD, dtype=float)
+
+        def clear_home() -> bool:
+            with self.lock:
+                q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
+            return self._validate_swept_path(q, home_q)[0]
+
+        for target in (home_p, home_p + [0.0, 0.0, 0.15], home_p + [0.0, 0.0, 0.30]):
+            if clear_home():
+                break
+            self._move_tool(target, home_R, speed)
+        if not clear_home():
+            # The straight joint sweep is blocked (the home pose itself is
+            # clear at every door angle). Reaching the incubator door left
+            # joint 1 at 184 deg -- the base swings half a turn to get there --
+            # and every route back through -0.6 deg crosses the open door.
+            # Joint 1 has +-360 deg, so the home POSE also exists one turn
+            # round: fold everything but the base to home, then turn the base
+            # to whichever copy of home is nearer. That is physically home;
+            # unwinding the extra turn would sweep the door, so it is left to
+            # the next go_home (reset_scene closes the parts first).
+            with self.lock:
+                q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
+            lo1, hi1 = self.model.jnt_range[self.joint_ids[0]]
+            fold = q.copy(); fold[1:] = home_q[1:]
+            homes = [home_q[0] + k * 2 * np.pi for k in (-1, 0, 1)]
+            homes = sorted((h for h in homes if lo1 <= h <= hi1), key=lambda h: abs(h - q[0]))
+            for h1 in homes:
+                alt = home_q.copy(); alt[0] = h1
+                if self._validate_swept_path(q, fold)[0] and \
+                        self._validate_swept_path(fold, alt)[0]:
+                    self.set_servo_angle(np.rad2deg(fold).tolist(), speed=20.0)
+                    self.set_servo_angle(np.rad2deg(alt).tolist(), speed=20.0)
+                    break
+        if clear_home():
+            self.go_home()
+            self._parked_note = ""
+        else:
+            with self.lock:
+                q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
+            turns = (q[0] - home_q[0]) / (2 * np.pi)
+            if np.allclose(q[1:], home_q[1:], atol=0.02) and abs(turns - round(turns)) < 0.01:
+                self._parked_note = (f"; the arm is at the home pose with joint 1 "
+                                     f"{round(turns):+d} turn round (unwinding would sweep the part)")
+            else:
+                # Better parked than driven through the part it just opened.
+                self._parked_note = "; the arm is parked (no clear joint path home)"
+            print(f"[SimXArm] retreat:{self._parked_note[1:]}")
+
+    def _home_tool_pose(self):
+        """Tool position + rotation with the arm at its home joints and the rail
+        where it is now (go_home moves the joints first, the rail after)."""
+        d = mujoco.MjData(self.model)
+        with self.lock:
+            d.qpos[:] = self.data.qpos
+        for jid, q in zip(self.joint_ids, self.HOME_JOINTS_RAD):
+            d.qpos[self.model.jnt_qposadr[jid]] = q
+        mujoco.mj_kinematics(self.model, d)
+        return d.site_xpos[self.ee_site].copy(), d.site_xmat[self.ee_site].reshape(3, 3).copy()
 
     def _move_tool(self, pos_m, R, speed: float, part: Optional[str] = None,
                    correct_sag: bool = False) -> int:

@@ -160,6 +160,14 @@ Categorical events (exclusive per object -- only one per object per call):
                                     not over a bin: a drop, not a placement.
                                     Always a FAILURE unless the task is to
                                     make it fall.
+  - `<object> <part> open N deg` / `<object> <part> open N mm`
+                                 -- a door/lever (deg) or drawer/shelf (mm)
+                                    of an articulated object stands open by
+                                    N; absent when it is closed (under 5 deg
+                                    / 15 mm). For "open the X door", expect
+                                    `<object> <part> open`. A closed part has
+                                    no fact, so "close the X door" cannot be
+                                    matched: return it ungraded (empty list).
   - `<object> still in the gripper`
                                  -- the arm halted while holding it. This is
                                     almost always a FAILURE, including for a

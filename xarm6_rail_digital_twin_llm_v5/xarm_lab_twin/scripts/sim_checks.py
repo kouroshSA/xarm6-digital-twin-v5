@@ -1085,8 +1085,15 @@ def check_vision_actions_wired(scene=None) -> list[CheckResult]:
             f"all {len(DEFERRED)} vision action(s) dispatch and are known to "
             f"the pre-action gate"))
 
+    # Room-only actions (operate_part: only rooms with handles get it) are
+    # written into the prompt by room_prompt._generated_commands, not the base
+    # template; agent.test_operate_dispatch checks the RENDERED room prompt.
+    import inspect
+    from agent import room_prompt
+    room_vocab = inspect.getsource(room_prompt._generated_commands)
     undocumented = [a for a in sorted(DEFERRED)
-                    if f"- {a}" not in SYSTEM_PROMPT_TEMPLATE]
+                    if f"- {a}" not in SYSTEM_PROMPT_TEMPLATE
+                    and f"- {a}" not in room_vocab]
     if undocumented:
         results.append(CheckResult(
             "agent.vision_prompt", FAIL,

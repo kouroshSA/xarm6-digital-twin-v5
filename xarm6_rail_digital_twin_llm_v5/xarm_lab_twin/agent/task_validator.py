@@ -443,6 +443,20 @@ def check_graspable(arm, obj) -> tuple:
     if obj.is_container or obj.object_type in ("bin", "rack", "instrument"):
         return blockers, warnings, facts        # containers are not picked up
 
+    # Nor is anything the gripper cannot hold (a twin's grippable set). The
+    # grasp search below found no pose on the 490 mm incubator and warned
+    # "likely infeasible" -- for "open the incubator door", which never grasps
+    # the incubator -- and Layer 0 rejected the task on that warning. What the
+    # planner needs instead is what it CAN operate.
+    grippable = getattr(arm, "cube_bids", None)
+    if grippable is not None and obj.name not in grippable:
+        parts = sorted(p for p in (getattr(arm, "handles", None) or {})
+                       if p.startswith(obj.name + "."))
+        if parts:
+            facts.append(f"{obj.name}: not picked up; it has parts operate_part "
+                         f"can open or close by their handles: {', '.join(parts)}")
+        return blockers, warnings, facts
+
     if width > GRASP_APERTURE_BIO_M:
         blockers.append(f"{obj.name} is {width*1000:.0f} mm wide; the widest "
                         f"effector spans {GRASP_APERTURE_BIO_M*1000:.0f} mm")

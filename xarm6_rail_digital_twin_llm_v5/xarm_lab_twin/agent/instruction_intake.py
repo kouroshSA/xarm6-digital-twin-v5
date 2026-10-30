@@ -98,7 +98,8 @@ Rules:
   an object is unfamiliar or is not lab equipment: whether it exists and can be
   grasped is checked later, against the scene. Softness, fragility or an odd
   shape are not grounds either -- if handling needs care, state it as a
-  constraint. Relative moves ("80 mm to the left", "lift it 100 mm and hold
+  constraint. Opening or closing a door, drawer or lid by its handle is an
+  ordinary task too. Relative moves ("80 mm to the left", "lift it 100 mm and hold
   it there") are ordinary: the planner works out the positions and the arm
   keeps its grasp until told to release. "rejected" is ONLY for instructions
   no robot arm could carry out (physically impossible, self-contradictory) or
@@ -217,7 +218,8 @@ def check_contract(original: str, data: dict, feedback=None) -> tuple:
 
 def intake(task: str, model: str = INTAKE_MODEL_DEFAULT,
            call_model=None, interactive: bool = False,
-           feedback=None, allow_questions: bool = True) -> IntakeResult:
+           feedback=None, allow_questions: bool = True,
+           screen=None) -> IntakeResult:
     """Run Layer 0. Falls back to the original instruction on any doubt.
 
     `feedback` is what previous episodes actually did -- each entry pairing the
@@ -263,6 +265,14 @@ def intake(task: str, model: str = INTAKE_MODEL_DEFAULT,
         user += ("\n\nWhat previous attempts did, and what physically "
                  "resulted at the end of the action:\n"
                  + "\n".join(f"  - {f}" for f in feedback))
+    if screen:
+        # Layer 1's findings BEFORE anything moved. They used to be passed as
+        # `feedback` and arrived under "What previous attempts did", so the
+        # model cited "the previous attempt found no valid grasp pose" on a
+        # first run that had made no attempt at all.
+        user += ("\n\nA geometric screen of the scene (not an attempt; nothing "
+                 "has moved yet) noted:\n"
+                 + "\n".join(f"  - {f}" for f in screen))
     try:
         raw = call_model(system, user)
     except Exception as exc:                                # noqa: BLE001
@@ -275,7 +285,7 @@ def intake(task: str, model: str = INTAKE_MODEL_DEFAULT,
     except Exception:                                       # noqa: BLE001
         return IntakeResult(task, task, reason="intake returned unparseable JSON; using original")
 
-    ok, reason = check_contract(task, data, feedback=feedback)
+    ok, reason = check_contract(task, data, feedback=list(feedback or []) + list(screen or []))
     if not ok:
         return IntakeResult(task, task, reason=f"{reason}; using original")
 

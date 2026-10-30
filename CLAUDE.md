@@ -476,7 +476,16 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
   left holes a dropped box fell through), handles from `--handle LINK=p0:p1[:normal]`
   as capsule sites (x = outward normal). The gripper holds a handle with a CONNECT
   (a point), so `SimXArmAPI.operate_part("incubator.Door", 0.7)` carries the grip
-  point along the hinge arc or slide line. Not a planner action yet.
+  point along the hinge arc or slide line. It is a planner action
+  (`{"action": "operate_part", "params": {"part": "incubator.Door", "opening": 1.0}}`),
+  offered only in rooms with handles (`room_prompt._generated_commands`, which
+  lists the parts) and DEFERRED in the plan gate like the vision actions.
+  Success is judged where the part ENDS, after the arm is home: `go_home` is
+  not collision-checked, and from beside the opened incubator door it swept
+  the door shut. In rooms with parts, go_home/back-off take the home pose one
+  turn round on joint 1 when the direct joint path is blocked. Spring-return
+  parts (the toaster lever) are not offered. Test: `MUJOCO_GL=egl python -m
+  agent.test_operate_dispatch`.
 - **True scale, always** -- the robot is small next to real furniture, and the
   recordings train VLAs. Do not rescale assets for looks.
 - **Recordings** carry `room_id` / `room_hash` (see Recording format), and
