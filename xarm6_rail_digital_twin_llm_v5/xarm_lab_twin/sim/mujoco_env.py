@@ -1145,11 +1145,23 @@ class SimXArmAPI:
             cur = np.array([float(self.data.qpos[jid])
                             for jid in self.joint_ids], dtype=float)
             cur_rail_m = float(self.data.qpos[self.rail_jid])
+        route = [target]
         if getattr(self, "_part_jids", None):
-            target = self._clear_home_target(cur, target)
+            found = self._route_home(cur, target)
+            if found is None:
+                print("[SimXArm] go_home: WARNING no clear joint path home; sweeping anyway")
+            else:
+                route = found
+                if abs(route[-1][0] - target[0]) > 1e-6:
+                    print("[SimXArm] go_home: path to home blocked; homing one turn "
+                          "round on joint 1 (the same pose)")
+        target = route[-1]
 
-        max_deg = float(np.max(np.abs(np.rad2deg(target - cur))))
-        self._execute_paced_arm(target, max_deg / _AB_HOME_JOINT_SPEED_DEG_S)
+        for wp in route:
+            with self.lock:
+                now = np.array([float(self.data.qpos[jid]) for jid in self.joint_ids])
+            max_deg = float(np.max(np.abs(np.rad2deg(wp - now))))
+            self._execute_paced_arm(wp, max_deg / _AB_HOME_JOINT_SPEED_DEG_S)
 
         rail_mm = abs(self.HOME_RAIL_M - cur_rail_m) * 1000.0
         self._execute_paced_rail(self.HOME_RAIL_M,
@@ -1161,16 +1173,29 @@ class SimXArmAPI:
             self._wait_arm_settled(target, tol_rad=0.002, rest_rad_s=0.002)
         return 0
 
-    def _clear_home_target(self, cur: np.ndarray, home: np.ndarray) -> np.ndarray:
-        """Rooms with doors and drawers only (the lab has none, so its go_home
-        is unchanged). go_home's joint sweep is not otherwise collision-
-        checked, and after opening the incubator door the arm sits at the home
-        pose with joint 1 one turn round: unwinding it swept the open door
-        shut. Take the true home when its path is clear, else the nearest
-        copy of it one turn round (the same pose) whose path is. reset_scene
-        closes the parts first, so episodes still start from the true home."""
-        if self._validate_swept_path(cur, home)[0]:
-            return home
+    def _route_home(self, cur: np.ndarray, home: np.ndarray):
+        """Joint waypoints from `cur` to home, every leg sweep-checked, or None.
+        Rooms with doors and drawers only (the lab has none, so its go_home is
+        unchanged): go_home's joint sweep is not otherwise collision-checked,
+        and from beside an opened door it swept the door shut. In order: the
+        true home straight, then folded first (everything but the base to its
+        home angle, then the base); then the same two to the copy of home one
+        turn round on joint 1 (the same pose). Reaching the cabinet's right
+        door left joint 1 at -263 deg, and the straight sweep back crosses the
+        cabinet; a reset that took the one-turn-round copy started the next
+        episode wound, so the true home is always preferred."""
+        lo1, hi1 = self.model.jnt_range[self.joint_ids[0]]
+        homes = [home] + [home + np.r_[k * 2 * np.pi, np.zeros(len(home) - 1)]
+                          for k in sorted((-1, 1), key=lambda k: abs(home[0] + k * 2 * np.pi - cur[0]))]
+        fold = cur.copy(); fold[1:] = home[1:]
+        for h in homes:
+            if not lo1 <= h[0] <= hi1:
+                continue
+            for route in ([h], [fold, h]):
+                legs = [cur, *route]
+                if all(self._validate_swept_path(a, b)[0] for a, b in zip(legs, legs[1:])):
+                    return route
+        return None
         lo1, hi1 = self.model.jnt_range[self.joint_ids[0]]
         for k in sorted((-1, 1), key=lambda k: abs(home[0] + k * 2 * np.pi - cur[0])):
             alt = home.copy(); alt[0] += k * 2 * np.pi
@@ -2252,7 +2277,19 @@ class SimXArmAPI:
             (a + t * (b - a))[1:] - shoulder[1:])))
         rc = 1
         tried = []
-        for t, off, phi in [(t, off, phi) for t in order[:2] for off in HANDLE_RAIL_OFFSETS_M
+        # Rail offsets whose base stays clear of the part's own sweep to the
+        # target opening come first. Cabinet door_02 swings its 420 mm panel
+        # toward the robot; with the rail clamped to 0 at the cabinet's end of
+        # the bench the panel hit the arm's base at 61 deg, and the grasp from
+        # there succeeded, so no other rail was ever tried.
+        offsets = list(HANDLE_RAIL_OFFSETS_M) + [0.30, -0.30]
+        def rail_for(off):
+            m0, _ = pose_at((q0 + q1) / 2, a, np.eye(3))
+            return float(np.clip(m0[0] + off - base_x0, lo_r, hi_r))
+        clear = [o for o in offsets if not self._part_sweep_hits_base(jid, rail_for(o), q0, q1)]
+        if clear:
+            offsets = clear
+        for t, off, phi in [(t, off, phi) for t in order[:2] for off in offsets
                             for phi in HANDLE_APPROACH_DEG]:
             if tried:
                 tried[-1] += f": {self.last_refusal or 'IK failed'}"
@@ -2298,7 +2335,11 @@ class SimXArmAPI:
             q = q0 + (q1 - q0) * k / n
             for f in dict.fromkeys((follow, 0.5, 1.0, 0.0)):
                 p, R = pose_at(q, grip, R_grasp, f)
-                if self._move_tool(p, R, speed, part=part) == 0:
+                # Corrected like the grasp: pulling the incubator's upper shelf
+                # at full reach, the tool fell 16-42 mm behind each command
+                # while the move reported success, and the shelf stopped at
+                # 35 of its 80 mm.
+                if self._move_tool(p, R, speed, part=part, correct_sag=True) == 0:
                     follow = f
                     break
             else:
@@ -2335,6 +2376,31 @@ class SimXArmAPI:
         print(f"[SimXArm] {msg}")
         return 0
 
+    def _part_sweep_hits_base(self, jid: int, rail_m: float, q0: float, q1: float) -> bool:
+        """Would the part on joint `jid`, swung from q0 to q1, touch the arm's
+        base or first link with the rail at `rail_m`? Kinematic check on a
+        scratch copy (arm at its home joints: those links barely move)."""
+        m = self.model
+        d = mujoco.MjData(m)
+        with self.lock:
+            d.qpos[:] = self.data.qpos
+        for j, q in zip(self.joint_ids, self.HOME_JOINTS_RAD):
+            d.qpos[m.jnt_qposadr[j]] = q
+        d.qpos[m.jnt_qposadr[self.rail_jid]] = rail_m
+        low = {m.body(self._mj(n, "body")).id for n in ("xarm_base", "link1")}
+        part_root = int(m.jnt_bodyid[jid])
+        adr = m.jnt_qposadr[jid]
+        for q in np.linspace(q0, q1, 8):
+            d.qpos[adr] = q
+            mujoco.mj_forward(m, d)
+            for i in range(d.ncon):
+                c = d.contact[i]
+                b1, b2 = int(m.geom_bodyid[c.geom1]), int(m.geom_bodyid[c.geom2])
+                if ((b1 in low and self._is_descendant(b2, part_root)) or
+                        (b2 in low and self._is_descendant(b1, part_root))):
+                    return True
+        return False
+
     def _back_off(self, speed: float) -> None:
         """After letting go of a handle: straight back along the tool axis,
         then home. A door swung to 90 deg stands beside the arm, and a rail
@@ -2363,48 +2429,26 @@ class SimXArmAPI:
         def clear_home() -> bool:
             with self.lock:
                 q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
-            return self._validate_swept_path(q, home_q)[0]
+            return self._route_home(q, home_q) is not None
 
         for target in (home_p, home_p + [0.0, 0.0, 0.15], home_p + [0.0, 0.0, 0.30]):
             if clear_home():
                 break
             self._move_tool(target, home_R, speed)
-        if not clear_home():
-            # The straight joint sweep is blocked (the home pose itself is
-            # clear at every door angle). Reaching the incubator door left
-            # joint 1 at 184 deg -- the base swings half a turn to get there --
-            # and every route back through -0.6 deg crosses the open door.
-            # Joint 1 has +-360 deg, so the home POSE also exists one turn
-            # round: fold everything but the base to home, then turn the base
-            # to whichever copy of home is nearer. That is physically home;
-            # unwinding the extra turn would sweep the door, so it is left to
-            # the next go_home (reset_scene closes the parts first).
+        with self.lock:
+            q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
+        route = self._route_home(q, home_q)
+        if route is not None:
+            self.go_home()                    # takes the same route
             with self.lock:
                 q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
-            lo1, hi1 = self.model.jnt_range[self.joint_ids[0]]
-            fold = q.copy(); fold[1:] = home_q[1:]
-            homes = [home_q[0] + k * 2 * np.pi for k in (-1, 0, 1)]
-            homes = sorted((h for h in homes if lo1 <= h <= hi1), key=lambda h: abs(h - q[0]))
-            for h1 in homes:
-                alt = home_q.copy(); alt[0] = h1
-                if self._validate_swept_path(q, fold)[0] and \
-                        self._validate_swept_path(fold, alt)[0]:
-                    self.set_servo_angle(np.rad2deg(fold).tolist(), speed=20.0)
-                    self.set_servo_angle(np.rad2deg(alt).tolist(), speed=20.0)
-                    break
-        if clear_home():
-            self.go_home()
-            self._parked_note = ""
+            turns = round((q[0] - home_q[0]) / (2 * np.pi))
+            self._parked_note = ("" if turns == 0 else
+                                 f"; the arm is at the home pose with joint 1 {turns:+d} turn "
+                                 f"round (unwinding would sweep the part)")
         else:
-            with self.lock:
-                q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
-            turns = (q[0] - home_q[0]) / (2 * np.pi)
-            if np.allclose(q[1:], home_q[1:], atol=0.02) and abs(turns - round(turns)) < 0.01:
-                self._parked_note = (f"; the arm is at the home pose with joint 1 "
-                                     f"{round(turns):+d} turn round (unwinding would sweep the part)")
-            else:
-                # Better parked than driven through the part it just opened.
-                self._parked_note = "; the arm is parked (no clear joint path home)"
+            # Better parked than driven through the part it just opened.
+            self._parked_note = "; the arm is parked (no clear joint path home)"
             print(f"[SimXArm] retreat:{self._parked_note[1:]}")
 
     def _home_tool_pose(self):

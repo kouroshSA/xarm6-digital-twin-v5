@@ -482,8 +482,13 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
   lists the parts) and DEFERRED in the plan gate like the vision actions.
   Success is judged where the part ENDS, after the arm is home: `go_home` is
   not collision-checked, and from beside the opened incubator door it swept
-  the door shut. In rooms with parts, go_home/back-off take the home pose one
-  turn round on joint 1 when the direct joint path is blocked. Spring-return
+  the door shut. In rooms with parts, go_home and the back-off route home by
+  `_route_home`: the true home straight or folded first, else the same pose
+  one turn round on joint 1, every leg sweep-checked (a reset therefore still
+  ends at the true home); with no clear route the arm stays parked and says
+  so. The approach prefers rail positions where the part's swing clears the
+  arm's base (cabinet door_02 hit it at 61 deg), and each step re-commands
+  the tool's residual error (the upper shelf stalled at 35 of 80 mm). Spring-return
   parts (the toaster lever) are not offered. Test: `MUJOCO_GL=egl python -m
   agent.test_operate_dispatch`.
 - **True scale, always** -- the robot is small next to real furniture, and the
