@@ -82,7 +82,10 @@ DEFERRED = {"locate_object", "move_to_object", "grasp_object",
             # joint at dispatch and validates every step of the hinge arc or
             # slide itself (set_position refuses a bad one, the part is
             # released where it got to). Twin-only; the real arm refuses it.
-            "operate_part"}
+            "operate_part",
+            # put_in plans its grasp, the spot inside and every waypoint from
+            # the scene at dispatch, and checks each sweep before it moves.
+            "put_in"}
 
 
 def scene_limits(scene_xml: str = "envs/lab_scene.xml"):

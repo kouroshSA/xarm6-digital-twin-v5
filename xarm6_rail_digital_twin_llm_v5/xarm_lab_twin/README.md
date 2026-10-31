@@ -289,6 +289,41 @@ the same cap on all of its internal sub-moves. The pacing is what makes
 "slow" actually look slow on screen; without it the cap would just be
 a number in the log.
 
+### Testing a task: snapshots and parallel live sessions
+
+A long task fails somewhere in the middle, and the log alone rarely says what
+the arm looked like when it did. Two tools make the failure visible:
+
+```bash
+# 1) Save the sim state after every planner command, and at stages inside the
+#    door (paw) and put_in primitives, then render the ones you care about.
+python scripts/run_task.py "<task>" --room simready_demo --loop \
+    --snapshot-dir /tmp/run1/snap
+python scripts/render_snapshots.py /tmp/run1/snap --failed        # rc != 0 only
+python scripts/render_snapshots.py /tmp/run1/snap --only 007 sub0012
+#    -> /tmp/run1/snap/png/*.png, four views each: overview, incubator,
+#       cabinet, bench. Rendered offscreen AFTER the run: a second GL context
+#       beside the live viewer races it.
+
+# 2) Run the same task as N live sessions side by side instead of N
+#    episodes one after another. Each session has its own folder (log,
+#    summary, snapshots) and viewer window; when all have finished the
+#    script renders every failed command and each final scene, and writes
+#    OUT/summary.md (commands + return codes, doors that fell back to the
+#    handle, objects disturbed, physical outcome, grader verdict).
+python scripts/run_parallel_sessions.py "<task>" --room simready_demo \
+    --sessions 3 --speed-tier fast --out /tmp/round1
+#    exit 0 only if every session passed; --no-render for headless CI.
+```
+
+Sessions default to **one episode each**: they share the room's
+`lessons.md` / `reviews.md` / `world_model.md`, and the end-of-session review
+that writes the last two only runs on sessions of 3+ episodes. In Claude Code
+the same round can be driven by a master agent with one sub-agent per
+session (each runs one `run_task.py` into its own folder, renders and LOOKS at
+the screenshots of anything that went wrong, and reports a diagnosis); the
+script above is the same thing without the reading of pictures.
+
 ### Learning architecture (Phase 1 / 2 / 3)
 
 Beyond the per-episode failure analyser that the `--loop` flag has had

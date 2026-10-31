@@ -63,6 +63,18 @@ When extending the loop:
   a deterministic starting state. If your change requires preserving state
   across episodes, that's a different feature (multi-objective episodes,
   not yet implemented).
+- **Test a task with snapshots and parallel sessions.** `run_task.py --snapshot-dir`
+  saves state after every command and at stages inside the paw/put_in primitives;
+  `scripts/render_snapshots.py` renders them offscreen (four views) afterwards;
+  `scripts/run_parallel_sessions.py` runs N live sessions side by side (one folder,
+  one episode each -- they share the room's memory files) and writes a summary with
+  the failure screenshots. Use `--speed-tier fast`; in Claude Code run one sub-agent
+  per session that looks at the screenshots. See the README section.
+- **The grader judges the END state, in the scene's words** (`dynamic_grader._drop_reclosed`,
+  `outcome_checker._matches_with_swap`): a door the task opens and later closes is not
+  expected open (only the task's own words count, not the appended scene facts);
+  "X closed" becomes `NOT X open`; a bare "X moved" is met by "X in/on ..."; objects by
+  scene name ("pastry" is the cupcake). Each of these failed a run that did everything.
 - **A drop is not a placement.** At `--stringency normal|strict` the gripper's
   release is measured: an object let go more than 30 / 15 mm above the surface
   under it (not over a bin or container) is reported `<name> dropped from N mm`,
@@ -491,6 +503,33 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
   the tool's residual error (the upper shelf stalled at 35 of 80 mm). Spring-return
   parts (the toaster lever) are not offered. Test: `MUJOCO_GL=egl python -m
   agent.test_operate_dispatch`.
+- **Doors use the paw_approach** (user's design, `SimXArmAPI._paw`): the handle only
+  cracks a door (`PAW_CRACK_DEG`); the closed gripper's BODY then sweeps it open from
+  inside the gap, and closing never uses the handle (outer face, or the palm beside the
+  handle bar). Held by the handle all the way, the arm followed the door's arc through
+  contorted poses. The sweep is planned in full first, in PUSHES (the paw is set again
+  between them, like a cat), as joint waypoints on one elbow branch, each pose checked
+  on a scratch scene with the door patched to the angle it will have reached
+  (`_solve_at_rail(patch=)`, `_scratch_validator`); only the gripper may touch that door
+  (`FKValidator.contact_ok_bodies`) -- allowed for the whole arm, the forearm shoved a
+  door shut. A door is opened only as far as the paw can push it shut again
+  (`_paw_closable`: cabinet door_01 75 deg); the handle is the fallback. Geometry is
+  measured, not assumed: panel axes by PCA, outward judged with the door turned SHUT,
+  box geoms by their ORIENTED corners (`_geom_points`; a world AABB made a 66 mm door
+  read 290 mm thick). Upright unwinding (`UPRIGHT_JOINTS_DEG`) keeps go_home off the
+  one-turn-round home.
+- **`put_in(object, container)`** is a planner action (offered for articulated objects
+  with a vertical-hinge door; slide parts are its shelves): a horizontal side grasp
+  (`close_lite6_gripper(side=True)`; tipped 15-30 deg for flat objects -- a 48 mm
+  cucumber is lower than the 75 mm hand), turned only about the vertical so the object
+  arrives standing; the shelf found from collision-geom columns (5-ray cross: wire
+  shelves have 11 mm holes; collision geoms are alpha 0 so `mj_ray` skips them); every
+  waypoint planned as a joint chain before moving (`_chain`), rail moves made tucked
+  over the base facing the back of the bench, several releases kept for the one grasp.
+  Refuses naming a closed door; re-takes an object the planner already picked from
+  above; reports anything it knocked. Shelves 165 mm apart against a 214.5 mm tool are
+  why it exists. Tests: `agent.test_operate_dispatch` (put_in cases),
+  `python -m agent.test_grader_end_state`.
 - **True scale, always** -- the robot is small next to real furniture, and the
   recordings train VLAs. Do not rescale assets for looks.
 - **Recordings** carry `room_id` / `room_hash` (see Recording format), and

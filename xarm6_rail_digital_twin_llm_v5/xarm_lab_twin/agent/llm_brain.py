@@ -285,6 +285,12 @@ class LLMBrain:
         # and ~700 MB of GPU to construct, so a session that never asks to look
         # at anything must not pay for it. See agent/vision_targeting.py.
         self._vision = None
+        # Optional directory for a qpos snapshot after every dispatched command
+        # (run_task.py --snapshot-dir). Saving state is cheap and needs no GL;
+        # scripts/render_snapshots.py renders the pictures offscreen afterwards,
+        # because a second GL context beside the live viewer races it.
+        self.snapshot_dir = None
+        self._snapshot_seq = 0
         print(f"[LLMBrain] Using model: {self.model_short} ({self.model_full})")
 
     @property
@@ -644,11 +650,33 @@ class LLMBrain:
                 self.recorder.log_command("llm_dispatch",
                     {"action": action, "params": params, "result": result})
             print(f"[Agent] {action}({params}) -> {result}")
+            self._snapshot(action, params, result)
             if result != 0 and action not in ("done", "wait", "get_pose",
                                                 "get_body_pose"):
                 print("[Agent] Command failed - halting sequence")
                 break
         return results
+
+    def _snapshot(self, action, params, result):
+        """Write the sim state after one command to ``snapshot_dir``."""
+        if not self.snapshot_dir or not hasattr(self.arm, "data"):
+            return
+        try:
+            import json, os, time
+            os.makedirs(self.snapshot_dir, exist_ok=True)
+            self.arm.snapshot_dir = self.snapshot_dir      # stages inside primitives too
+            with self.arm.lock:
+                qpos = [float(v) for v in self.arm.data.qpos]
+            self._snapshot_seq += 1
+            name = f"{self._snapshot_seq:03d}_{action}_rc{result}.json"
+            with open(os.path.join(self.snapshot_dir, name), "w") as fh:
+                json.dump({"seq": self._snapshot_seq, "t_wall": time.time(),
+                           "action": action, "params": params,
+                           "result": result,
+                           "scene_xml": getattr(self.arm, "scene_xml", None),
+                           "final_qpos": qpos}, fh, default=str)
+        except Exception as exc:  # noqa: BLE001 - a snapshot must not fail a run
+            print(f"[LLMBrain] snapshot failed ({exc})")
 
     def _move_to(self, p):
         speed = p.get("speed_mm_s", p.get("speed", 100.0))
@@ -909,8 +937,25 @@ class LLMBrain:
             self.arm.last_refusal = f"operate_part: opening {p.get('opening')!r} is not a number"
             print(f"[Agent] {self.arm.last_refusal}")
             return 1
-        speed = self._effective_speed_mm_s(p.get("speed_tier"), default=60.0)
+        speed = self._effective_speed_mm_s(p.get("speed_tier"), default=120.0)
         return self.arm.operate_part(part, opening, speed=speed)
+
+    def _put_in(self, p):
+        """Pick an object and set it down inside a container through its open
+        door (SimXArmAPI.put_in). Deferred like operate_part: the grasp, the
+        spot inside and every waypoint are planned from the scene at dispatch."""
+        name, container = p.get("object"), p.get("container")
+        if not name or not container:
+            self.arm.last_refusal = ('put_in needs an "object" and a "container", e.g. '
+                                     '{"object": "cupcake", "container": "incubator"}')
+            print(f"[Agent] {self.arm.last_refusal}")
+            return 1
+        if not hasattr(self.arm, "put_in"):
+            self.arm.last_refusal = "put_in is twin-only; this arm cannot run it"
+            print(f"[Agent] {self.arm.last_refusal}")
+            return 1
+        speed = self._effective_speed_mm_s(p.get("speed_tier"), default=120.0)
+        return self.arm.put_in(name, container, speed=speed)
 
     def _dispatch(self, action, params):
         d = {
@@ -942,6 +987,7 @@ class LLMBrain:
             "move_to_object":   self._move_to_object,
             "grasp_object":     self._grasp_object,
             "operate_part":     self._operate_part,
+            "put_in":           self._put_in,
         }
         h = d.get(action)
         if h is None:

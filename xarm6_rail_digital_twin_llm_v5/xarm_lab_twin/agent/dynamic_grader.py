@@ -168,6 +168,18 @@ Categorical events (exclusive per object -- only one per object per call):
                                     `<object> <part> open`. A closed part has
                                     no fact, so "close the X door" cannot be
                                     matched: return it ungraded (empty list).
+                                    Grade the END state: a door the task
+                                    opens and LATER closes again ("open the
+                                    door, put X in, close the door") is
+                                    closed at the end -- never expect it
+                                    open; expect `NOT <object> <part> open`
+                                    and what was put inside. There is NO
+                                    "closed" fact: write a closed part as
+                                    `NOT <object> <part> open`.
+  Name objects by the scene's own names (the object list you are given),
+  never by the task's words: a "pastry" the scene calls cupcake is
+  `cupcake in ...`; a substring naming something the scene does not have
+  can never match.
   - `<object> still in the gripper`
                                  -- the arm halted while holding it. This is
                                     almost always a FAILURE, including for a
@@ -380,6 +392,45 @@ def _parse_criteria(raw: str) -> Optional[Tuple[str, List[str]]]:
     return (mode, subs)
 
 
+def _drop_reclosed(task: str, spec):
+    """Drop "<object> <part> open" expectations the task itself undoes.
+    Asked to "open the incubator door, put the cucumber in, close the
+    incubator door", Haiku expected "incubator Door open" -- and a run that did
+    everything, doors closed at the end, graded as a failure."""
+    if spec is None:
+        return None
+    mode, subs = spec
+    # The task's own words only: the intake appends scene facts ("Measured
+    # from the scene: ... parts operate_part can open or close ..."), whose
+    # "open" came after the task's "close" and kept the door expected open.
+    low = re.split(r"measured from the scene|requirements:", task.lower())[0]
+    keep = []
+    for s in subs:
+        # "X part closed" is not in the vocabulary; its fact is the absence
+        # of "X part open".
+        c = re.match(r"\s*(\w+)\s+(\w+)\s+closed\s*$", s)
+        if c:
+            s = f"NOT {c.group(1)} {c.group(2)} open"
+        m = re.match(r"\s*(\w+)\s+(\w+)\s+open\b", s)
+        if m:
+            obj = m.group(1).lower()
+            opened = [k.end() for k in re.finditer(rf"\bopen\b[^.;]*?\b{obj}\b", low)]
+            closed = [k.end() for k in re.finditer(rf"\bclose\b[^.;]*?\b{obj}\b", low)]
+            if closed and (not opened or max(closed) > max(opened)):
+                continue
+        if s not in keep:
+            keep.append(s)
+    # "X moved" with no numbers is not a fact physical_outcome reports for
+    # an object that went INTO something ("clock in cabinet"); asked for
+    # beside "clock in cabinet", it failed a run that did everything.
+    placed = {k.split(" in ", 1)[0].strip() for k in keep if " in " in k}
+    keep = [k for k in keep if not (re.fullmatch(r"\s*(\w+)\s+moved\s*", k)
+                                    and k.split()[0] in placed)]
+    if not keep:
+        return None
+    return (mode, keep)
+
+
 def infer_criteria(task: str, registry=None,
                    model: str = GRADER_MODEL_DEFAULT,
                    client: Optional[anthropic.Anthropic] = None,
@@ -428,7 +479,7 @@ def infer_criteria(task: str, registry=None,
     print(f"[DynamicGrader] Haiku graded task in {latency:.1f}s "
           f"({in_tok}->{out_tok} tokens)")
 
-    parsed = _parse_criteria(raw)
+    parsed = _drop_reclosed(task, _parse_criteria(raw))
     if parsed is None:
         # Try to extract reasoning for the log even when criteria parse failed.
         m = _JSON_OBJ_RE.search(raw)

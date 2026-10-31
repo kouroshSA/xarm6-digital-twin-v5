@@ -90,6 +90,9 @@ class FKValidator:
         self.model = model
         self.data  = data
         self.lock  = lock
+        # Bodies the arm may touch on purpose: the door a paw is pushing
+        # (SimXArmAPI._paw). Empty except during such a move.
+        self.contact_ok_bodies = frozenset()
         self.joint_ids = [model.joint(n).id for n in (joint_names or JOINT_NAMES)]
         self.rail_jid  = model.joint(rail_joint).id
         self.ee_site   = model.site(ee_site).id
@@ -167,6 +170,15 @@ class FKValidator:
                             if not other_set:
                                 continue
                             other = next(iter(other_set))
+                            # The paw (the gripper) may touch the door it is
+                                # pushing; no other link may. Allowed for the
+                                # whole arm, the forearm shoved cabinet door_01
+                                # shut on the way round its free edge.
+                            if self.contact_ok_bodies and (
+                                    int(self.model.geom_bodyid[c.geom1]) in self.contact_ok_bodies
+                                    or int(self.model.geom_bodyid[c.geom2]) in self.contact_ok_bodies) \
+                                    and ({g1, g2} & self._gripper_geoms):
+                                continue
                             # Ignore gripper<->held-cube contacts (see HELD_CUBE_GEOMS)
                             weld_name = self.HELD_CUBE_GEOMS.get(other)
                             if weld_name is not None:
