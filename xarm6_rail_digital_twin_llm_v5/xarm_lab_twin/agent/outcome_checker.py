@@ -317,6 +317,27 @@ def _matches_with_swap(physical: str, expected: str) -> bool:
     alphabetical-first first, but graders (especially Haiku) often
     name objects in semantic-subject-first order. Rather than force
     every prompt edit to win that fight, we just accept both."""
+    # "NOT <fact>" is met when the fact is absent: a closed door has no fact
+    # of its own ("incubator Door open" is simply not reported).
+    if expected.startswith("NOT "):
+        return not _matches_with_swap(physical, expected[4:])
+    # A bare "X moved": an object put IN or ON something has moved, but the
+    # report says where ("clock in cabinet"), never "moved". Asked for "clock
+    # moved", a run that put the clock in the cabinet graded as a failure.
+    # "X closer to Y" is met by "X in Y": once inside, the report says so
+    # instead of "closer to" (a run that put the clock in the cabinet failed
+    # on "clock closer to cabinet").
+    near = re.fullmatch(r"\s*(\w+)\s+closer to\s+(\w+)\s*", expected)
+    if near and any(seg.strip().startswith(f"{near.group(1)} in {near.group(2)}")
+                    for seg in physical.split(";")):
+        return True
+    bare = re.fullmatch(r"\s*(\w+)\s+moved\s*", expected)
+    if bare:
+        obj = bare.group(1)
+        segs = [seg.strip() for seg in physical.split(";")]
+        if any(seg.startswith(f"{obj} in ") or seg.startswith(f"{obj} on ")
+               or seg.startswith(f"{obj} moved") for seg in segs):
+            return True
     # Numbers decide a numeric displacement, before the substring test: as a
     # substring "moved (150" also matches "moved (1500".
     moved = _displacement_met(physical, expected)

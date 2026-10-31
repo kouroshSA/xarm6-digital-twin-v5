@@ -238,7 +238,38 @@ def _generated_commands(arm) -> str:
             "A part behind a closed door (a shelf) needs that door opened first. Afterwards "
             "the scene reports '<object> <part> open N deg|mm'. Parts in this room: "
             f"{names}.")
+    boxes = _containers(arm)
+    if boxes:
+        lines.append(
+            '- put_in         params: {"object": "<name>", "container": "<object>[.<part>]"}  — '
+            "pick the object off the bench with a sideways grasp and set it down inside the "
+            "container (on a shelf, through the side facing the robot), then back out and go "
+            "home. ONE action, called with the gripper EMPTY and the object still on the "
+            "bench: do NOT pick the object up first, and do not set_rail, move_to, "
+            "gripper_close or gripper_open around it -- put_in chooses its own rail "
+            "positions, grasp and route. The container's door must be OPEN first "
+            "(operate_part); if it is closed the action refuses and names the door. Shelves "
+            "inside are too low for a gripper pointing down, which is why this exists. "
+            "Afterwards the scene reports '<name> in <container> [part]'. Containers in this "
+            f"room: {'; '.join(boxes)}.")
     return "\n".join(lines)
+
+
+def _containers(arm) -> list:
+    """Room objects put_in can fill (articulated, with a door), and their
+    shelf parts, as the names put_in takes."""
+    spec_of = getattr(arm, "_container_spec", None)
+    if spec_of is None:
+        return []
+    out = []
+    for o in sorted(getattr(arm.room, "objects", {}).values(), key=lambda o: o.name):
+        if spec_of(o.name) is None:
+            continue
+        shelves = sorted(lbl.split(" ", 1)[1] for lbl, owner, *_ in getattr(arm, "_part_boxes", [])
+                         if owner == o.name and " " in lbl and spec_of(lbl.replace(" ", ".")) is not None)
+        out.append(o.name + (f" (shelves: {', '.join(o.name + '.' + s for s in shelves)})"
+                             if shelves else ""))
+    return out
 
 
 def _operable_parts(arm) -> list:

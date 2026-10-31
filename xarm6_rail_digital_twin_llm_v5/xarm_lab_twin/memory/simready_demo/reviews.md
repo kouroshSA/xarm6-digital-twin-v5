@@ -7,6 +7,161 @@ whole session. Most recent first. Capped at 10 entries.
 Entries below are HYPOTHESES, not rules. They reference episodes by
 number so future sessions can corroborate or refute them.
 
+### 2026-10-31 12:27 [opus-4-7] "Open the incubator door, grasp the cucumber and place it in the incubator, grasp the pastry and place it in the incubator, close the incubator door. Then open the cabinet door, grasp the clock and place it in the cabinet, close the cabinet door, and return to the home position. Requirements: When placing the cucumber in the incubator, avoid collision with the cabinet door frame or structure during approach and insertion; When placing the pastry in the incubator, avoid collision with the cabinet door frame or structure during approach and insertion; When placing the clock in the cabinet, approach with sufficient clearance from the cabinet door structure to avoid collisions; The arm must clear all static obstacles during all moves between the incubator and cabinet stations. Measured from the scene: cucumber: at (-99, -264, 771) mm, 54 mm wide; cucumber: grasp at z=798 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); cucumber: reachable with the rail at 0, 100, 200, 300, 400 mm; incubator: at (0, 782, 1106) mm, 490 mm wide; incubator: not picked up; it has parts operate_part can open or close by their handles: incubator.Door, incubator.LowerShelf, incubator.UpperShelf; clock: at (580, -624, 831) mm, 63 mm wide; clock: grasp at z=858 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); clock: reachable with the rail at 300, 400, 500, 600, 700 mm; cabinet: at (-948, -300, 1220) mm, 372 mm wide; cabinet: not picked up; it has parts operate_part can open or close by their handles: cabinet.door_01, cabinet.door_02."
+
+# Review: Multi-stage incubator + cabinet task (session 4, 3 failures)
+
+## Summary
+Fourth consecutive session on this task family with 0/3 success. This session's failure modes shifted again -- away from command-level failures (IK/validator refusals that previous sessions produced) toward **grader-level failures with high-quality plan execution**. Episode 1 actually executed the full task physically (cucumber in incubator, cupcake in incubator, clock in cabinet) but the grader rejected it for missing door-open states. Episodes 2 and 3 both produced no-op plans (0mm ee path, "no objects displaced").
+
+## Observations
+
+- **Episode 1 is the first episode across four sessions (12 episodes total) to achieve the three placement outcomes**: cucumber in incubator, cupcake in incubator, clock in cabinet. Quality was still low (0.16) with 29744mm ee path and 24 direction reversals, and the clock was disturbed 1532mm during planning. The grader rejected only on the door-state checks: `['incubator Door open', 'incubator Door open', 'cabinet door_01 open', 'cabinet door_01 open']` -- notably listed *twice each*, suggesting the grader checks door-open as a pre-condition for each put_in independently.
+
+- **Episodes 2 and 3 produced empty/no-op plans** (0mm ee path, "no objects displaced"). This matches the bail-out pattern previously seen on the cucumber+cupcake task when the planner couldn't resolve conflicts. The learned_constraint from ep 1 ("Re-check the task target and use registry coordinates rather than estimating positions") appears to have been interpreted so conservatively that no plan was emitted.
+
+- **The grader's door-check phrasing is informative**: it reports *missing* `'incubator Door open'` even though the physical outcome in ep 1 shows the cucumber and cupcake landed in the incubator. This suggests either (a) the planner used `put_in` which teleports/magics placement without requiring the door open, or (b) the grader checks the final door state and the plan closed the doors before the grader snapshot. Either way, the LLM-grader scores the door state independently from object-in-container state.
+
+- **The learned_constraint text pinned from ep 1 ("Re-check the task target") appears to have been counter-productive**: eps 2 and 3 emitted no-op plans, worse than ep 1's actual-execution failure. The constraint text didn't convey the specific missing requirement (door-open states) that ep 1 actually missed.
+
+- **This session breaks the pattern of prior Opus writeups** (sessions 1-3) which observed command-level failures (move_to collisions, set_rail refusals, put_in IK/precondition). Here, ep 1 successfully executed all the manipulations the prior sessions couldn't even reach -- suggesting the planner may have used higher-level primitives that bypass the approach-collision problems. But in doing so, it skipped door operations entirely.
+
+- **Clock disturbed 1532mm during execution in ep 1** suggests the clock was knocked or dragged significantly during motion, possibly by a collision envelope during traversal. The physical outcome still accepted "clock in cabinet", so the grader tolerated the disturbance.
+
+## Cross-session note
+Eps 2 and 3's no-op bail-out matches prior-session patterns on simpler tasks (cucumber+cupcake session 1), where overly-general learned_constraints suppressed attempts. This corroborates the pattern that pinned constraint text can regress planner behavior rather than refine it. The door-state grader finding is new for this task family -- prior sessions never got far enough physically to observe it.
+
+**Observations:**
+- Episode 1 is the first episode across 4 sessions (12 episodes) to achieve all three placements (cucumber in incubator, cupcake in incubator, clock in cabinet); it still failed on grader missing door-open states, not on object placement.  _(high; ep 1)_
+- Episodes 2 and 3 emitted no-op plans (0mm ee path, 'no objects displaced'), suggesting the ep-1-pinned learned_constraint 'Re-check the task target' was interpreted as a reason to bail out rather than refine the plan.  _(high; ep 2, 3)_
+- Episode 1's grader_reason lists each door-open requirement twice (incubator Door open x2, cabinet door_01 open x2), suggesting the grader checks door-open as a separate requirement per put_in rather than as a single global state.  _(medium; ep 1)_
+- Episode 1 placed all three objects without observable use of a door-open step -- the grader's 'Door open' misses together with successful object-in-container outcomes suggest the planner's put_in primitive may complete placement without first opening the container door, or the plan closed doors before the grader snapshot.  _(medium; ep 1)_
+- Episode 1's quality was 0.16 with 29744mm ee path, 24 direction reversals, and clock disturbed 1532mm -- the plan succeeded physically but was highly inefficient and perturbed the clock substantially before placing it.  _(high; ep 1)_
+- Four consecutive sessions on this task family have produced zero successes but exhibited distinct dominant failure modes each session (move_to collisions, set_rail refusals, put_in preconditions, now grader door-state misses), suggesting pinned constraints redirect between failure categories rather than converging on completion.  _(high; ep 1, 2, 3)_
+
+**Exploration diagnoses:**
+- Episode 1 -- deviation: Used primitives that completed all three placements but did not include open-door steps before each container access (or closed them before plan end).; diagnosis: Grader-level failure on missing 'incubator Door open' and 'cabinet door_01 open' (each listed twice). Physical placements succeeded, so the task primitive clearly can bypass door state, but the grader scores door-open independently.
+- Episode 2 -- deviation: Emitted a plan with 0mm ee path -- effectively a no-op -- after the ep-1 constraint 'Re-check the task target' was pinned.; diagnosis: Constraint text was too general to point at the specific missing requirement (door state); planner regressed from executing-and-failing to not attempting.
+- Episode 3 -- deviation: Same no-op bail-out as episode 2 despite task text explicitly listing door-open/close requirements.; diagnosis: Both pinned constraints from eps 1 and 2 say 'Re-check the task target' / 'no objects displaced' -- neither points at how to fix the door-open gap, so the planner remained in bail-out mode.
+
+---
+
+### 2026-10-31 12:01 [opus-4-7] "Open the incubator door, grasp the cucumber and place it in the incubator, grasp the pastry and place it in the incubator, close the incubator door. Then open the cabinet door, grasp the clock and place it in the cabinet, close the cabinet door, and return to the home position. Requirements: Avoid collisions with the arm structure when opening and closing doors; Plan door opening positions carefully to prevent arm interference; Ensure clear paths between the arm's current position and target objects. Measured from the scene: cucumber: at (-99, -264, 771) mm, 54 mm wide; cucumber: grasp at z=798 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); cucumber: reachable with the rail at 0, 100, 200, 300, 400 mm; incubator: at (0, 782, 1106) mm, 490 mm wide; incubator: not picked up; it has parts operate_part can open or close by their handles: incubator.Door, incubator.LowerShelf, incubator.UpperShelf; clock: at (580, -624, 831) mm, 63 mm wide; clock: grasp at z=858 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); clock: reachable with the rail at 300, 400, 500, 600, 700 mm; cabinet: at (-948, -300, 1220) mm, 372 mm wide; cabinet: not picked up; it has parts operate_part can open or close by their handles: cabinet.door_01, cabinet.door_02."
+
+# Review: Multi-stage incubator + cabinet task (3 failures, no completed stages)
+
+## Summary
+Third consecutive session of 3 episodes with zero successes on this task family. Nine consecutive episodes across three sessions have now failed in the first half of the plan, none reaching a release, door-close, or home step. This session's failures: ep 1 and ep 2 refused at `move_to` above the cucumber (z=950, z=1050; collision/FK), ep 3 refused at `put_in cucumber -> incubator` with "gripper is already holding something" at step 10.
+
+## Observations
+
+- **Episodes 1 and 2 both failed at a `move_to` directly above the cucumber at (x=-99, y=-264)** -- ep 1 at z=950 (step 3), ep 2 at z=1050 (step 4). Each learned constraint lifted the next attempt by 100mm but the validator refused the new height too. This matches the prior session's pattern where incremental z-lifts near the cucumber footprint kept hitting new envelopes.
+
+- **Episode 3 progressed further (step 10) but failed on `put_in` with code 1 and message "gripper is already holding something"** -- this is a semantic/state error, not IK or collision. The planner apparently called `put_in cucumber -> incubator` while something was already grasped (likely the cucumber itself), suggesting the primitive expects the object to NOT yet be grasped (it does its own grasp internally), OR the planner double-sequenced a grasp.
+
+- **The learned-constraint text for ep 3's failure explicitly contradicts the pattern used in eps 1-2**: it says "Keep using put_in for anything going inside a container -- a gripper pointing down cannot reach its shelves". This suggests prior sessions' explicit move_to-based placements may have been structurally wrong, and the primitive is the intended path -- but the primitive has its own precondition (empty gripper) that the planner didn't satisfy.
+
+- **The failure mode has now shifted across three sessions**: session 1 was move_to collisions during traversal; session 2 was set_rail refusals; this session mixes move_to-above-cucumber collisions (eps 1,2) with a put_in precondition violation (ep 3). The planner oscillates between "explicit motions" and "high-level primitive" strategies without settling.
+
+- **No episode in 9 consecutive attempts has observed what happens past the first put_in** -- so whether the door-open before put_in is actually required, what rail position put_in needs, and whether release/close-door primitives work remain entirely untested in this evidence base.
+
+- **The z=950 and z=1050 refusals above the cucumber at rail unspecified are a recurring motif** (seen in session 1 at z=950, this session at both heights). The constraint-text suggestion "change rail position so the arm approaches from a less obstructed side" has not been exercised across any session, consistent with existing primitive entry [3].
+
+## Cross-session notes
+This corroborates existing primitive entry [2] (3-episode cap vs multi-container envelopes), [3] (rail-change mitigation untested), and [5] (put_in has preconditions beyond IK). The put_in "gripper already holding" failure is new evidence refining entry [5]: the primitive takes an un-grasped object and performs the whole pick-and-place, so pre-grasping the object breaks it.
+
+**Observations:**
+- Episodes 1 and 2 failed at move_to directly above the cucumber (x=-99, y=-264) at z=950 and z=1050 respectively; each learned constraint lifted z by 100mm but validator still refused -- the obstacle envelope above the cucumber zone extends higher than incremental 100mm lifts have probed.  _(high; ep 1, 2)_
+- Episode 3 reached step 10 and failed on put_in with code 1 and message 'gripper is already holding something' -- a precondition violation, not IK/collision, suggesting the planner grasped the cucumber manually before invoking put_in which expects to do its own grasp.  _(high; ep 3)_
+- Across three sessions (9 consecutive episodes) no plan has reached a release, door-close, or home step; the task is bottlenecked entirely in the cucumber-approach / first-put_in region.  _(high; ep 1, 2, 3)_
+- The learned_constraint text for ep 3 explicitly instructs continued use of put_in rather than move_to+gripper_open for container placement, which contradicts the explicit-motion strategy that eps 1-2 (and prior sessions) attempted; the planner has oscillated between strategies without a converged approach.  _(medium; ep 1, 2, 3)_
+- No episode in this session attempted a rail-position change as mitigation for the cucumber-above collision, despite the learned_constraint text suggesting it; only the z-lift mitigation has been exercised across all three sessions.  _(medium; ep 1, 2)_
+- The three sessions on this task have each exhibited a different dominant early-failure mode (move_to collisions, set_rail refusals, put_in precondition), suggesting pinned constraints are redirecting the planner between failure categories rather than converging toward completion.  _(medium; ep 1, 2, 3)_
+
+**Exploration diagnoses:**
+- Episode 1 -- deviation: Attempted move_to at (-99, -264, 950) early in the plan, likely as part of an explicit approach to the cucumber.; diagnosis: Validator refused -- z=950 at the cucumber xy is inside some arm/environment collision envelope; the specific obstacle (likely bench shelving above cucumber or an incubator-side structure) was not identified before trying.
+- Episode 2 -- deviation: Lifted the above-cucumber traversal to z=1050 per ep-1 constraint, but kept the same xy approach.; diagnosis: Validator still refused; the obstacle envelope above the cucumber extends past z=1050 at that xy, so the +100mm step was insufficient. Rail-change path remained unexplored.
+- Episode 3 -- deviation: Switched to the high-level put_in primitive but pre-grasped the cucumber (reaching step 10 before failing).; diagnosis: put_in returned code 1 with 'gripper is already holding something' -- the primitive expects to perform the grasp itself; manually grasping first breaks its precondition.
+
+---
+
+### 2026-10-31 11:50 [opus-4-7] "Open the incubator door, grasp the cucumber and place it in the incubator, grasp the pastry and place it in the incubator, close the incubator door. Open the cabinet door, grasp the clock and place it in the cabinet, close the cabinet door, and return to the home position. Measured from the scene: cucumber: at (-99, -264, 771) mm, 54 mm wide; cucumber: grasp at z=798 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); cucumber: reachable with the rail at 0, 100, 200, 300, 400 mm; incubator: at (0, 782, 1106) mm, 490 mm wide; incubator: not picked up; it has parts operate_part can open or close by their handles: incubator.Door, incubator.LowerShelf, incubator.UpperShelf; clock: at (580, -624, 831) mm, 63 mm wide; clock: grasp at z=858 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); clock: reachable with the rail at 300, 400, 500, 600, 700 mm; cabinet: at (-948, -300, 1220) mm, 372 mm wide; cabinet: not picked up; it has parts operate_part can open or close by their handles: cabinet.door_01, cabinet.door_02."
+
+# Review: Multi-stage incubator + cabinet task (3 failures, zero progress on put_in)
+
+## Summary
+All 3 episodes failed before completing even the first placement. Failures were all command-level (not grader-level): one `put_in` IK failure at step 2, and two `set_rail` validator refusals at steps 7 and 17. Notably, the depth of progress *decreased* across the session (steps 2 → 17 → 7), opposite the pattern Opus observed in the previous 3-episode run on this same task where depth increased.
+
+## Observations
+
+- **Episode 1 failed on the very first `put_in`** (step 2, code 1 = IK failure). This is a different failure mode than the previous session, where the planner used explicit `move_to` sequences. Suggests the planner tried a high-level primitive this time and the primitive's internal pose solver couldn't reach the incubator interior.
+
+- **Episodes 2 and 3 both failed on `set_rail`** (code 2 = collision/FK) -- ep 2 at rail=350, ep 3 at rail=0. Both of these rail values are *outside* the stated reachable sets for the object being approached at that step: rail=350 is not in cucumber's reachable set {0,100,200,300,400} nor clock's {300,400,500,600,700}; rail=0 is only in cucumber's set, so if ep 3 was transitioning toward clock/cabinet, rail=0 would be unreachable for clock.
+
+- **The three distinct failures (put_in IK, set_rail 350, set_rail 0) exhaust three different primitive-level error modes** without the plan ever reaching a release, door-close, or home step. Together with the previous session's writeup, 6 consecutive episodes on this task have failed in the first half.
+
+- **Rail selection appears to be a recurring friction point**: ep 2's rail=350 is almost exactly between the cucumber and clock reachable bands but in neither; ep 3's rail=0 is cucumber-reachable but likely attempted mid-task when clock was the current target. The learned_constraint hint "choose a rail closer to optimal_rail_mm" was emitted twice but doesn't appear to have changed subsequent rail-selection strategy within the session.
+
+- **No episode in this session or the prior one has reached a `release` or door-close step**, so whether `put_in` on incubator/cabinet eventually works (given a valid approach rail) remains untested here.
+
+- **Episode 1's single-step failure is especially cheap feedback**: it indicates the high-level `put_in` primitive does not auto-solve the full approach for a tall container (incubator at z=1106) from the home/default rail; the planner probably needs to pre-position the rail before invoking it.
+
+## Cross-session note
+Prior Opus writeup flagged that pinned constraints were pushing progress depth forward. This session, with only `set_rail` constraints getting pinned (not `move_to` z-lifts), the planner regressed to earlier failure points -- suggesting the two constraint categories don't compose cleanly, or that rail-constraint pinning is less informative than z-constraint pinning for forward progress.
+
+**Observations:**
+- Episode 1 failed at step 2 on put_in (code 1, IK), while eps 2 and 3 failed on set_rail (code 2) at steps 17 and 7 -- three distinct early-stage failure modes with no episode reaching a release or door-close.  _(high; ep 1, 2, 3)_
+- Ep 2's rail=350 and ep 3's rail=0 both fall outside the reachable rail set for at least one of the two target objects (cucumber {0,100,200,300,400}, clock {300,400,500,600,700}); rail=350 is in neither set.  _(high; ep 2, 3)_
+- Progress depth decreased across the session (step 2 -> 17 -> 7), opposite the previous session's monotonic-forward pattern -- suggesting rail-level learned constraints did not compose into forward progress the way z-level move_to constraints did previously.  _(medium; ep 1, 2, 3)_
+- Episode 1's put_in failing at step 2 (immediately after presumed door-open) suggests the put_in primitive on a tall container like incubator (z=1106) does not auto-solve approach from the default rail position without an explicit prior set_rail.  _(medium; ep 1)_
+- Across 6 consecutive episodes on this task (this session + the prior Opus-reviewed session), no episode has reached a release, door-close, or return-home step; the task is bottlenecked entirely in the first-half approach phase.  _(high; ep 1, 2, 3)_
+- The learned_constraint text about rail selection was emitted twice (eps 2 and 3) but the second rail choice (0) was still outside the clock's reachable set, suggesting the planner did not use the constraint text to intersect reachable-rail sets across pending targets.  _(medium; ep 2, 3)_
+
+**Exploration diagnoses:**
+- Episode 1 -- deviation: Used high-level put_in primitive directly as step 2 rather than an explicit move_to approach sequence.; diagnosis: put_in returned code 1 (IK) -- the primitive could not solve a full approach-and-release into the incubator from whatever pose/rail followed door-opening; this is a different failure mode than the move_to-sequenced prior session which reached step 7-33.
+- Episode 2 -- deviation: Chose rail=350 at step 17, likely as a compromise position mid-plan between cucumber (<=400) and clock (>=300) workspaces.; diagnosis: 350 is not in either object's listed reachable set; FK/collision validator refused -- rail positions between reachable bands are not themselves valid for transit.
+- Episode 3 -- deviation: Chose rail=0 at step 7, early in the plan.; diagnosis: If the active target at that step was anything other than cucumber (e.g. transitioning toward clock), rail=0 is unreachable for it; failure at a much earlier step than ep 2 suggests the planner may have reshuffled task order rather than fixing the specific set_rail that failed in ep 2.
+
+---
+
+### 2026-10-31 10:32 [opus-4-7] "Open the incubator door, grasp the cucumber and place it in the incubator, grasp the pastry and place it in the incubator, close the incubator door. Then open the cabinet door, grasp the clock and place it in the cabinet, close the cabinet door, and return to the home position. Requirements: Avoid collisions with the arm structure and the environment throughout all movements; Plan paths that do not cause carried objects to strike obstacles or the incubator and cabinet structures; When placing objects in the incubator and cabinet, release them above the rim or opening rather than inserting the gripper deep inside. Measured from the scene: cucumber: at (-99, -264, 771) mm, 54 mm wide; cucumber: grasp at z=798 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); cucumber: reachable with the rail at 0, 100, 200, 300, 400 mm; incubator: at (0, 782, 1106) mm, 490 mm wide; incubator: not picked up; it has parts operate_part can open or close by their handles: incubator.Door, incubator.LowerShelf, incubator.UpperShelf; clock: at (580, -624, 831) mm, 63 mm wide; clock: grasp at z=858 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); clock: reachable with the rail at 300, 400, 500, 600, 700 mm; cabinet: at (-948, -300, 1220) mm, 372 mm wide; cabinet: not picked up; it has parts operate_part can open or close by their handles: cabinet.door_01, cabinet.door_02."
+
+# Review: Multi-stage incubator + cabinet task (3 failures)
+
+## Summary
+All 3 episodes failed, each at a different `move_to` step with validator refusal (code 2). The failures occurred progressively later in the plan sequence: step 7 (ep 1), step 11 (ep 2), step 33 (ep 3). This suggests the planner is incrementally learning from each pinned constraint and making it further through the multi-stage task before hitting the next collision envelope.
+
+## Observations
+
+- **Each episode failed at a `move_to` targeting a position above/near a container structure at z ≈ 50mm above the container's base reference**: ep 1 at (-100, -264, 950) approaching cucumber zone, ep 2 at (0, 500, 900) approaching incubator, ep 3 at (-900, -300, 1050) approaching cabinet. Each learned constraint pushes z up by 50mm but the planner then hits a different structure next time.
+
+- **Progress through the task extended with each episode**: ep 1 failed at step 7/38 (never got past approach), ep 2 reached step 11/41 (into the incubator-side motion), ep 3 reached step 33/39 (near the end, approaching the cabinet). The cumulative pinned constraints appear to be redirecting the planner successfully past the earlier obstacles.
+
+- **The failing moves are all at z-heights 50-100mm above the stated container/object top**: incubator at z=1106 was approached at z=900 (below the opening), cabinet at z=1220 was approached at z=1050 (below rim). This suggests the planner is routing the TCP *below* the container top during lateral traverse, which pulls the arm into the container's wall/frame.
+
+- **Rail-position variation unknown from the trace**, but the recurring collision theme suggests the arm structure (not just the gripper) is intersecting container frames when approaching containers from a rail position that puts the shoulder/elbow near the obstacle.
+
+- **No episode reached a release or close-door step**, so there's no evidence yet whether the "release above the rim" requirement or door-closing primitives work as expected. The task is bottlenecked on reaching the containers, not on manipulating them.
+
+- **Cumulative learned constraints across the 3 episodes** form a corridor hint: z ≥ 1000 near cucumber zone, z ≥ 950 near incubator, z ≥ 1100 near cabinet. Future runs that lift traverse height uniformly to ~1150mm might clear all three in one plan, but this is untested here.
+
+## Cross-session note
+Prior Opus writeups on the cucumber-only task repeatedly identified that *release/approach poses near obstacle footprints get refused by the validator even at reasonable z-clearance*. This session extends that observation to large static structures (incubator and cabinet) at much higher z, consistent with the carried-envelope principle but now applied to the arm itself near container frames.
+
+**Observations:**
+- All 3 episodes failed at move_to with validator code 2, each at a different approach pose near a container (incubator at step 11, cabinet at step 33) or above the cucumber (step 7).  _(high; ep 1, 2, 3)_
+- Progress depth increased each episode (step 7, 11, 33 of ~40), suggesting pinned learned_constraints redirected the planner past earlier failure points but new collision envelopes appeared further in.  _(high; ep 1, 2, 3)_
+- Failing z-heights (950 near cucumber, 900 near incubator at z=1106, 1050 near cabinet at z=1220) are each roughly 150-200mm below the container's reference z; the planner appears to traverse laterally below the container top and hit its frame.  _(medium; ep 1, 2, 3)_
+- No episode in this session reached a release or door-close step, so the back half of the plan (release-above-rim, close-door, return-home) remains entirely unexercised.  _(high; ep 1, 2, 3)_
+- Cumulative pinned constraints across the 3 episodes form an approximate safe-corridor hint (z >= 1000 near cucumber, >= 950 near incubator, >= 1100 near cabinet) but no single plan has tried a uniformly high traverse height.  _(medium; ep 1, 2, 3)_
+- The learned_constraint text suggests two mitigations (lift z OR change rail position); all 3 episodes appear to have attempted only the z-lift path, leaving rail-position variation as an unexplored dimension.  _(low; ep 1, 2, 3)_
+
+**Exploration diagnoses:**
+- Episode 2 -- deviation: Planner lifted z to 1000+ near cucumber per ep-1 constraint, successfully reached step 11, then approached the incubator at (0, 500, 900).; diagnosis: The incubator at (0, 782, 1106) has structure extending down; z=900 at y=500 pulls the arm into the incubator's front frame before clearing it.
+- Episode 3 -- deviation: Planner cleared both cucumber and incubator approach constraints and reached step 33 before failing at the cabinet approach (-900, -300, 1050).; diagnosis: Cabinet at z=1220 with 372mm width means the arm needed higher clearance (>=1100) to approach from outside the cabinet's footprint; z=1050 was still inside its vertical envelope.
+
+---
+
 ### 2026-10-30 23:41 [opus-4-7] "Pick up the cucumber and put it down 150 mm to the right, avoiding collision with the cupcake Requirements: the cucumber must be kept upright throughout; the path must not pass through or contact the cupcake. Measured from the scene: cucumber: at (-99, -264, 771) mm, 54 mm wide; cucumber: grasp at z=798 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); cucumber: reachable with the rail at 0, 100, 200, 300, 400 mm; cupcake: at (120, -250, 789) mm, 75 mm wide; cupcake: grasp at z=816 mm (jaws reach ~45 mm below the tool, so descending lower drives the gripper into it); cupcake: reachable with the rail at 0, 100, 200, 300, 400, 500, 600, 700 mm."
 
 # Review: cucumber +150mm with cupcake obstacle (third run)

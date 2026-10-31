@@ -56,6 +56,9 @@ def main():
                         help="write the loop/run summary as JSON. Lets a "
                              "harness read results instead of screen-scraping "
                              "stdout, which changes whenever a print does.")
+    parser.add_argument("--snapshot-dir", metavar="DIR",
+                        help="save the sim state after every dispatched command "
+                             "(render with scripts/render_snapshots.py)")
     parser.add_argument("--no-intake", action="store_true",
                         help="skip Layer 0 (decomposition, class constraints, "
                              "pushback). Layer 0 runs on every prompt by "
@@ -181,6 +184,8 @@ def main():
     registry = registry_for(arm)
     brain = LLMBrain(arm=arm, registry=registry, recorder=recorder,
                      model=model_short)
+    brain.snapshot_dir = args.snapshot_dir
+    arm.snapshot_dir = args.snapshot_dir   # stages inside primitives (paw sweep, put_in)
 
     # Pre-action gate (A8). On real hardware, replay the plan against real
     # controller firmware in Docker before any of it reaches the arm. Refusing to

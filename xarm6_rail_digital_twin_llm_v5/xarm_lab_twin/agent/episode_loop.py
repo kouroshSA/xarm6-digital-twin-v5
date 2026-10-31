@@ -618,6 +618,18 @@ def analyse_command_failure(failed_step: Dict[str, Any],
                 "the most common cause -- the printed reason says which "
                 "condition failed, so read it rather than guessing.")
 
+    if action == "put_in":
+        # "Avoid this exact step" sent the next attempt back to top-down
+        # move_to drops, which cannot reach a shelf (165 mm apart against a
+        # 214.5 mm tool) -- the one action that can do it was abandoned.
+        why = f" The simulator said: {refusal}." if refusal else ""
+        return (f"put_in {params.get('object')} -> {params.get('container')} failed "
+                f"(code {code}).{why} Keep using put_in for anything going inside a "
+                f"container -- a gripper pointing down cannot reach its shelves -- and "
+                f"fix what it names: open the door it names first with operate_part, "
+                f"or name another shelf or container. Do not replace it with move_to "
+                f"and gripper_open.")
+
     return f"Action '{action}' failed with code {code}. Avoid this exact step."
 
 
@@ -694,9 +706,15 @@ def analyse_physical_failure(task: str, physical: str,
         return None
 
     # Unknown task family: give a generic nudge so something is logged.
-    return (f"Physical state doesn't match the task: {phys}. Re-check the "
-            "task target and use registry coordinates rather than "
-            "estimating positions.")
+    # Say plainly that this was LAST time: "Physical state doesn't match:
+    # cucumber in incubator; ..." read as the current scene, and two episodes
+    # closed the (already closed) doors and declared the objects "already
+    # placed from prior episode".
+    return (f"The last attempt ended with: {phys} -- not what the task asks. "
+            "The scene has been RESET since: every object is back where it "
+            "started and every door is closed, so do the WHOLE task again from "
+            "the start. Re-check the task target and use registry coordinates "
+            "rather than estimating positions.")
 
 
 class EpisodeRetry:

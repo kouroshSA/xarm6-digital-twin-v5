@@ -3,6 +3,7 @@ import colorsys
 import mujoco
 import mujoco.viewer
 import numpy as np
+import os
 import threading
 import time
 from typing import Optional
@@ -27,7 +28,7 @@ RAIL_ACT    = 0
 BIN_BODIES = ("green_bin", "blue_bin", "translucent_cup")
 
 from arm_backend import unsupported
-from sim.tool import (GRIPPER_DRIVER_CLOSED as _TOOL_DRIVER_CLOSED,
+from sim.tool import (TCP_FROM_FLANGE_M, GRIPPER_DRIVER_CLOSED as _TOOL_DRIVER_CLOSED,
                       GRIPPER_DRIVER_OPEN as _TOOL_DRIVER_OPEN, driver_for_gap)
 
 GRIPPABLE_BODIES = {
@@ -144,6 +145,61 @@ HANDLE_STEP_M = 0.025
 # A part reads "open" in physical_outcome beyond these.
 PART_OPEN_DEG = 5.0
 PART_OPEN_M = 0.015  # deepest contact tolerated at the grasp pose
+
+# --- paw_approach: doors the way a cat does them ------------------------------
+# Held by the handle all the way round, the arm had to follow the door's arc
+# through contorted poses. Instead the handle only cracks a door open; then the
+# closed gripper goes edge-on into the gap between door and frame and its flat
+# side sweeps the door open toward the robot. Closing never uses the handle:
+# the paw pushes the door's outer face shut, below the handle. The fingers have
+# no collision geoms, so the gripper BODY (69-181 mm behind the TCP) is the paw.
+# Joints 2-6 with the arm pointing straight up: every link from link3 out
+# within 31 mm of joint 1's axis and above 1.40 m (searched, not assumed --
+# all-zero joints fold the hand forward to bench height), so a full turn of
+# joint 1 there sweeps almost nothing.
+UPRIGHT_JOINTS_DEG = (-10.0, -160.0, 0.0, 20.0, 0.0)
+PAW_CRACK_DEG = 30.0        # opened by the handle this far first
+PAW_INSETS_M = (0.03, 0.0, 0.06, 0.10)   # hand's centre this far in from the free edge (tried in turn): near the edge, or link5-6 hit the incubator
+PAW_ENOUGH_FRACTION = 0.75  # an opening sweep the arm can only finish this far is kept
+PAW_MAX_SEGMENTS = 4        # pushes, the paw set again between them
+PAW_GOOD_PUSH_STEPS = 6       # a push this long ends the search for the segment's pose
+PAW_EDGE_INSETS_M = (-0.04,)
+PAW_PALM_INSETS_M = (-0.03, -0.05)   # palm push: hand's centre this far PAST the free edge
+PAW_PLAN_BUDGET_S = 45.0      # per push; the best push found by then is used
+PAW_REACH_M = 0.85            # flange from the shoulder, past which a pose is not tried
+PAW_CLOSE_FROM_DEG = (75.0, 60.0)
+PAW_HANDLE_PHI_DEG = (0.0, 35.0, -35.0, 70.0, -70.0)   # as operate_part's handle approaches   # narrower openings tried when fully open cannot be pushed shut   # closing may push on the very edge, the hand half past it
+PAW_ENTRY_M = 0.20          # slid in edge-on from this far past the free edge
+PAW_STANDOFF_M = 0.004      # paw side this far off the door face before it pushes
+PAW_STEP_DEG = 6.0
+PAW_LEAD_DEG = 3.0          # paw this far ahead of the door's angle while pushing
+PAW_HANDLE_CLEAR_M = 0.07   # closing paw this far below (or above) the handle bar
+PAW_RAIL_OFFSETS_M = (0.0, -0.15, 0.15, -0.30, 0.30)
+
+# --- put_in: an object onto a shelf through an opened door -------------------
+# A shelf inside an incubator or cabinet is reached SIDEWAYS: the incubator's
+# shelves are 165 mm apart and the tool is 214.5 mm long, so a gripper pointing
+# down cannot get its object onto one, and a cabinet has a roof. The object is
+# taken with a horizontal grasp and only ever turned about the vertical, so it
+# arrives standing the way it stood on the bench (tilting a top-down grasp to
+# horizontal would lay a cupcake on its side).
+PUT_IN_CLEARANCE_M = 0.006     # object bottom above its support at release
+PUT_IN_CARRY_LIFT_M = 0.012    # extra height while sliding in over the support
+PUT_IN_ENTRY_M = 0.06          # object fully this far outside the opening first
+PUT_IN_FRONT_MARGIN_M = 0.025  # object's near face behind the support's front edge
+PUT_IN_GAP_M = 0.020           # free space kept round objects already inside
+PUT_IN_LATERAL_STEP_M = 0.04
+PUT_IN_RAIL_OFFSETS_M = (0.0, -0.15, 0.15, -0.30, 0.30)
+SIDE_GRASP_BENCH_CLEAR_M = 0.008   # gripper body's lowest point above the bench
+SIDE_GRASP_STANDOFF_M = 0.10
+PUT_IN_DISTURB_M = 0.020           # another object shifted this far is reported
+SIDE_GRASP_DIRECTIONS = 12         # horizontal approach directions tried
+# Tool tipped down by this much: a 48 mm cucumber is lower than the hand is
+# thick (75 mm), so a level hand cannot clear the bench. Released at the same
+# tilt it lands level again (grasp and release frames differ by a yaw only).
+SIDE_GRASP_TILTS_DEG = (0.0, 15.0, 30.0)
+SIDE_GRASP_MAX_TILT_DEG = 40.0
+PUT_IN_YAWS_DEG = (0.0, 25.0, -25.0, 40.0, -40.0)   # way in, turned off the front's normal
 
 # --- Swept-path validation ---------------------------------------------------
 # Motion primitives used to validate only their ENDPOINT. The pose you asked
@@ -371,11 +427,14 @@ class SimXArmAPI:
         names = dict(joint_names=[self._mj(n, "joint") for n in JOINT_NAMES],
                      rail_joint=self._mj("rail", "joint"),
                      ee_site=self._mj("end_effector", "site"))
-        self.validator = FKValidator(
-            self.model, self.data, self.lock, **names,
-            arm_geom_names=[self._mj(n, "geom") for n in FKValidator.ARM_GEOM_NAMES],
+        self._fk_kwargs = dict(
+            names, arm_geom_names=[self._mj(n, "geom") for n in FKValidator.ARM_GEOM_NAMES],
             gripper_body=self._mj("gripper", "body"))
+        self.validator = FKValidator(self.model, self.data, self.lock, **self._fk_kwargs)
+        self._scratch_val = None          # what-if validator on the scratch IK data
         self.ik_solver = IKSolver(self.model, self.data, self.lock, **names)
+        self._ik_names = names
+        self._scratch_ik = None           # put_in's what-if IK, built on first use
 
         # Vortex-Genie 2 orbital-platform actuators + body. Looked up
         # lazily so the rest of the code stays valid for scenes that
@@ -1188,23 +1247,21 @@ class SimXArmAPI:
         homes = [home] + [home + np.r_[k * 2 * np.pi, np.zeros(len(home) - 1)]
                           for k in sorted((-1, 1), key=lambda k: abs(home[0] + k * 2 * np.pi - cur[0]))]
         fold = cur.copy(); fold[1:] = home[1:]
+        # Upright: everything but the base straight up, where a full turn of
+        # joint 1 sweeps almost nothing. Without it, an arm parked one turn
+        # round beside an open door stayed wound, and the next put_in swung its
+        # forearm through the incubator unwinding.
+        upright = np.deg2rad(UPRIGHT_JOINTS_DEG)
+        up_cur = cur.copy(); up_cur[1:] = upright
         for h in homes:
             if not lo1 <= h[0] <= hi1:
                 continue
-            for route in ([h], [fold, h]):
+            up_h = h.copy(); up_h[1:] = upright
+            for route in ([h], [fold, h], [up_cur, up_h, h]):
                 legs = [cur, *route]
                 if all(self._validate_swept_path(a, b)[0] for a, b in zip(legs, legs[1:])):
                     return route
         return None
-        lo1, hi1 = self.model.jnt_range[self.joint_ids[0]]
-        for k in sorted((-1, 1), key=lambda k: abs(home[0] + k * 2 * np.pi - cur[0])):
-            alt = home.copy(); alt[0] += k * 2 * np.pi
-            if lo1 <= alt[0] <= hi1 and self._validate_swept_path(cur, alt)[0]:
-                print(f"[SimXArm] go_home: path to home blocked; homing "
-                      f"{k:+d} turn round on joint 1 (the same pose)")
-                return alt
-        print("[SimXArm] go_home: WARNING no clear joint path home; sweeping anyway")
-        return home
 
     def place_tube_in_rack(self, rack_name: str, **kwargs) -> int:
         """Place currently-held tube in the first open slot of the named rack.
@@ -2191,7 +2248,440 @@ class SimXArmAPI:
         return 0.0 if far == 0 else float(np.clip(q / far, 0.0, 1.0))
 
     def operate_part(self, part: str, opening: float = 1.0, speed: float = 60.0,
-                     **kwargs) -> int:
+                     method: str = "auto", **kwargs) -> int:
+        """Open or close a door, drawer or lever to `opening` (fraction of its
+        travel, 0 closed .. 1 fully open). Returns 0 / 1 / 2 as
+        _operate_by_handle documents.
+
+        Doors (vertical hinges) use the paw_approach (see PAW_CRACK_DEG): the
+        handle only to crack the door open, then the closed gripper's side to
+        sweep it open or push it shut. Drawers, shelves and levers, and
+        method="handle", are carried by the handle the whole way. If the paw
+        fails partway, the handle finishes the job from where it got to.
+        """
+        h = self.handles.get(part)
+        if (method == "handle" or h is None or h["jid"] is None
+                or not self._is_door(h["jid"])):
+            return self._operate_by_handle(part, opening, speed)
+        jid = h["jid"]
+        lo, hi = (float(v) for v in self.model.jnt_range[jid])
+        far = hi if abs(hi) >= abs(lo) else lo
+        target = float(np.clip(opening, 0.0, 1.0))
+        cur = self.part_opening(part)
+        tol = np.deg2rad(PAW_STEP_DEG) / abs(far)
+        crack = min(np.deg2rad(PAW_CRACK_DEG) / abs(far), 1.0)
+        if abs(target - cur) <= tol / 2:
+            print(f"[SimXArm] {part} already at {cur:.2f}")
+            return 0
+        if target > cur:
+            if target <= crack + tol:
+                return self._operate_by_handle(part, target, speed)
+            if cur < crack - tol:
+                rc = self._operate_by_handle(part, crack, speed)
+                if rc != 0:
+                    return rc
+        goal = target
+        if target > cur:
+            # Only as far as the paw can push it shut again: a cabinet door
+            # swung flat along the bench (90 deg) has its outer face out of
+            # the arm's reach, and nothing but the handle could close it.
+            goal = min(target, self._paw_closable(part, far))
+            if goal < target - tol:
+                print(f"[SimXArm] opening {part} to {goal:.2f} of its travel "
+                      f"({np.degrees(goal * abs(far)):.0f} deg): as far as the paw can "
+                      f"push it shut again")
+        rc = self._paw(part, goal, speed)
+        if rc != 0:
+            print(f"[SimXArm] paw_approach on {part} failed ({self.last_refusal}); "
+                  f"finishing with the handle")
+            return self._operate_by_handle(part, goal, speed)
+        return rc
+
+    def _paw_closable(self, part: str, far: float) -> float:
+        """The widest opening (fraction of travel) the paw can push the door
+        shut from, planned once per part and remembered: full, then 75, 60 deg."""
+        cache = self.__dict__.setdefault("_paw_close_from", {})
+        if part in cache:
+            return cache[part]
+        g = self._paw_geometry(part, 0.0)        # a closing paw, geometry as the door is now
+        frac = None
+        for deg in sorted({abs(np.degrees(far))} | set(PAW_CLOSE_FROM_DEG), reverse=True):
+            if deg > abs(np.degrees(far)) + 1e-6:
+                continue
+            gq = dict(g, q0=float(np.sign(far) * np.deg2rad(deg)))
+            plan, _ = self._plan_paw(part, gq)
+            if plan is not None and plan["done"] == plan["n"]:
+                frac = deg / abs(np.degrees(far))
+                break
+        cache[part] = frac if frac is not None else 1.0   # none closable: the handle closes it
+        return cache[part]
+
+    def _snap(self, label: str) -> None:
+        """State at a stage inside a primitive, for scripts/render_snapshots.py,
+        when the run saves snapshots (run_task.py --snapshot-dir). A command's
+        own snapshot only shows where it ended; a paw that loses the door
+        mid-sweep needs the sweep."""
+        d = getattr(self, "snapshot_dir", None)
+        if not d:
+            return
+        try:
+            import json
+            import os
+            os.makedirs(d, exist_ok=True)
+            with self.lock:
+                q = [float(v) for v in self.data.qpos]
+            self._sub_seq = getattr(self, "_sub_seq", 0) + 1
+            with open(os.path.join(d, f"sub{self._sub_seq:04d}_{label}.json"), "w") as fh:
+                json.dump({"seq": f"sub{self._sub_seq}", "action": label, "params": {},
+                           "result": 0, "scene_xml": getattr(self, "scene_xml", None),
+                           "final_qpos": q}, fh)
+        except Exception as exc:  # noqa: BLE001 - never fail a move over a picture
+            print(f"[SimXArm] snapshot failed ({exc})")
+
+    def _is_door(self, jid: int) -> bool:
+        return (self.model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_HINGE
+                and abs(self.model.jnt_axis[jid][2]) > 0.9)
+
+    def _paw_geometry(self, part: str, target: float) -> dict:
+        """The door as a paw sees it: hinge, panel axes and face planes, and a
+        pose(q, inset, z, follow) for the hand against the face (inside of the
+        gap when opening, the outer face when closing) with the door at angle q."""
+        h = self.handles[part]
+        jid = h["jid"]
+        adr = self.model.jnt_qposadr[jid]
+        lo, hi = (float(v) for v in self.model.jnt_range[jid])
+        far = hi if abs(hi) >= abs(lo) else lo
+        door = h["body"]
+        door_bodies = frozenset(b for b in range(self.model.nbody) if self._is_descendant(b, door))
+        root = self.model.body(self.room.objects[h["object"]].body).id
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            q0 = float(self.data.qpos[adr])
+            A = self.data.xanchor[jid].copy()
+            u = self.data.xaxis[jid] / np.linalg.norm(self.data.xaxis[jid])
+            zh = float(self.data.site_xpos[h["site"]][2])
+            half_bar = float(self.model.site_size[h["site"]][1])
+            pts = np.vstack([self._geom_points(g) for g in range(self.model.ngeom)
+                             if self.model.geom_bodyid[g] in door_bodies
+                             and (self.model.geom_contype[g] or self.model.geom_conaffinity[g])])
+            tool_lo, tool_hi = self._tool_extent()
+            body_c = self.data.xpos[root].copy()
+        # The panel's own axes, from its geometry: the long horizontal extent
+        # is its width (hinge -> free edge), the thin one its face normal. From
+        # the handle site's frame instead, the axes came out wrong for these
+        # assets and the "inside" paw went in front of the door.
+        rel = pts - A
+        flat = rel - np.outer(rel @ u, u)
+        ev, vecs = np.linalg.eigh(np.cov(flat.T))
+        e0 = vecs[:, int(np.argmax(ev))]
+        e0 = e0 - u * float(np.dot(e0, u))
+        e0 /= np.linalg.norm(e0)
+        if float(np.mean(rel @ e0)) < 0:
+            e0 = -e0
+        o0 = np.cross(u, e0)
+        # Outward = away from the container's body (judged by the handle's
+        # side, cabinet door_01 came out reversed and was pushed shut), and
+        # judged with the door turned back SHUT: standing open at 90 deg the
+        # panel is off to the body's side and the test can come out either way.
+        quat, Rb = np.zeros(4), np.zeros(9)
+        mujoco.mju_axisAngle2Quat(quat, u, -q0)
+        mujoco.mju_quat2Mat(Rb, quat)
+        Rb = Rb.reshape(3, 3)
+        if float(np.dot(A + Rb @ flat.mean(0) - body_c, Rb @ o0)) < 0:
+            o0 = -o0
+        w = float((rel @ e0).max())
+        panel = rel[(rel @ e0) < w - 0.10]      # leave the handle out of the face planes
+        f_in, f_out = float((panel @ o0).min()), float((panel @ o0).max())
+        zmin, zmax = float(pts[:, 2].min()), float(pts[:, 2].max())
+        q1 = float(np.clip(target, 0.0, 1.0)) * far
+        opening = abs(q1) > abs(q0)
+        side = -1.0 if opening else 1.0
+        # The hand (gripper + link6) as a box in the tool frame. The paw is
+        # placed by this BODY, not the TCP: the fingers have no collision geoms,
+        # and a TCP-placed paw the arm could not turn with the door swung its
+        # body off the face (the incubator door stopped at 80 of 105 deg).
+        hand_c = (np.asarray(tool_lo) + np.asarray(tool_hi)) / 2
+        hand_h = (np.asarray(tool_hi) - np.asarray(tool_lo)) / 2
+        if opening:
+            zs = [zh, zh - 0.10, zh + 0.10]
+        else:                                    # clear of the handle bar, or beside it
+            zs = [zh - half_bar - PAW_HANDLE_CLEAR_M, zh + half_bar + PAW_HANDLE_CLEAR_M, zh]
+        zs = [float(np.clip(z, zmin + 0.06, zmax - 0.06)) for z in zs]
+
+        def rot(dq):
+            quat, R = np.zeros(4), np.zeros(9)
+            mujoco.mju_axisAngle2Quat(quat, u, dq)
+            mujoco.mju_quat2Mat(R, quat)
+            return R.reshape(3, 3)
+        R0 = np.column_stack([o0, np.cross(-e0, o0), -e0])   # z toward the hinge, x across the door
+
+        def variant(v):
+            """The paw's turn about its own axis (v % 4 quarter turns) and,
+            for v >= 4, the tool pointing the other way along the door. A paw
+            has no preferred side: with one fixed roll, IK missed the closing
+            pose for cabinet door_01 by 42-125 deg."""
+            c, s_ = np.cos(np.pi / 2 * (v % 4)), np.sin(np.pi / 2 * (v % 4))
+            Rz = np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]])
+            if v >= 12:
+                # Palm at the HANDLE, approached as the handle grasp is (straight
+                # on, or turned about the bar): wherever the arm can grab the
+                # handle it can push there. Offering only poses flat along the
+                # face, the planner found no way to shut a cabinet door at 90 deg.
+                phi = np.deg2rad(PAW_HANDLE_PHI_DEG[(v - 12) % len(PAW_HANDLE_PHI_DEG)])
+                z_ = rot(phi) @ (-side * o0)
+                return np.column_stack([u, np.cross(z_, u), z_])
+            if v >= 8:
+                # Palm on the face: tool z INTO the door (closing only). The
+                # fingers are collision-free; set at the free edge (PAW_PALM_INSETS_M)
+                # they stick out past it, not through the panel. A cabinet door
+                # open flat along the bench can only be pulled back this way.
+                z_ = -side * o0
+                x_ = e0
+                return np.column_stack([x_, np.cross(z_, x_), z_]) @ Rz
+            Rx = np.diag([1.0, -1.0, -1.0]) if v >= 4 else np.eye(3)
+            return R0 @ Rx @ Rz
+
+        def pose(q, inset, z, f=1.0, v=0):
+            Rq = rot(q - q0)
+            e, o = Rq @ e0, Rq @ o0
+            Rt = rot(f * (q - q0)) @ variant(v)
+            face = f_in if side < 0 else f_out
+            half_o = float(np.abs(Rt.T @ o) @ hand_h)       # the hand's reach toward the face
+            body = A + e * max(w - inset, 0.4 * w) + o * (face + side * (half_o + PAW_STANDOFF_M))
+            body[2] = z
+            return body - Rt @ hand_c, Rt
+
+        d0 = mujoco.MjData(self.model)
+        with self.lock:
+            d0.qpos[:] = self.data.qpos
+        d0.qpos[self.rail_jid] = 0.0
+        mujoco.mj_kinematics(self.model, d0)
+        shoulder0 = d0.xpos[self.model.body(self._mj("link2", "body")).id].copy()
+        with self.lock:
+            hp = self.data.site_xpos[h["site"]].copy()
+        return {"jid": jid, "adr": adr, "lo": lo, "hi": hi, "far": far, "q0": q0, "q1": q1,
+                "shoulder0": shoulder0, "handle_inset": float(w - (hp - A) @ e0),
+                "opening": opening, "zs": zs, "pose": pose, "rot": rot, "o0": o0,
+                "door_bodies": door_bodies}
+
+    def _plan_paw(self, part: str, g: dict):
+        """(segments, None) or (None, why). The sweep in SEGMENTS, the way a cat
+        does it: push as far as one paw position reaches, back off, set the paw
+        again at the door's new angle, push on. Following a wide-open door
+        round its whole arc from one position is the contortion the handle
+        method made. Each segment is joint waypoints on one elbow branch, every
+        pose checked against the scene as it WILL be (the door patched to the
+        angle the paw will have pushed it to), only the gripper allowed to
+        touch it."""
+        q0, q1 = g["q0"], g["q1"]
+        n = max(int(np.ceil(abs(q1 - q0) / np.deg2rad(PAW_STEP_DEG))), 1)
+        segs, done = [], 0
+        home_q = np.array(self.HOME_JOINTS_RAD, float)
+        while done < n and len(segs) < PAW_MAX_SEGMENTS:
+            # the first push from the arm as it is; later ones from home, where
+            # the arm goes between pushes (re-planned then from the live state)
+            seg = self._plan_paw_segment(g, done, n, seed=None if not segs else home_q)
+            if seg is None or not seg["steps"]:
+                break
+            segs.append(seg)
+            done += len(seg["steps"])
+        if not segs:
+            return None, "no rail position gets the paw to the door"
+        return {"segments": segs, "n": n, "done": done}, None
+
+    def _plan_paw_segment(self, g: dict, k0: int, n: int, seed=None):
+        """The longest push from step k0 that one paw position manages, reached
+        from joints `seed` (the arm as it is, by default: planned from the true
+        home while the arm stood one turn round on joint 1, the first move was
+        a 360 deg swing through the incubator)."""
+        jid, adr, q0, q1 = g["jid"], g["adr"], g["q0"], g["q1"]
+        pose = g["pose"]
+        sgn = 1.0 if q1 > q0 else -1.0
+        q_start = q0 + (q1 - q0) * k0 / n
+        base_x0 = self._rail_x0_mm / 1000.0
+        lo_r, hi_r = (v / 1000.0 for v in self._rail_limits_mm)
+        if seed is None:
+            with self.lock:
+                seed = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
+        home_q = np.asarray(seed, float)
+        lead = np.deg2rad(PAW_LEAD_DEG)
+        best = None
+        deadline = time.time() + PAW_PLAN_BUDGET_S      # a hopeless search took 7 min
+        self.validator.contact_ok_bodies = g["door_bodies"]
+        try:
+            cands = [(i, v) for i in PAW_INSETS_M for v in range(8)]
+            if not g["opening"]:
+                cands += [(i, v) for i in PAW_EDGE_INSETS_M for v in range(8)]
+                cands += [(i, v) for i in PAW_PALM_INSETS_M for v in (8, 9, 10, 11)]
+                # beside the handle bar, either side, approached like the grasp
+                handle = [(g["handle_inset"] + d_, 12 + k)
+                          for d_ in (-0.06, 0.06) for k in range(len(PAW_HANDLE_PHI_DEG))]
+                # A door less than ~50 deg open is pushed home from beside its
+                # handle (the plan found from 33 deg); try that first, or the
+                # search spends its budget on poses along the face.
+                cands = (handle + cands) if abs(q_start) < np.deg2rad(50.0) else cands + handle
+            shoulder0 = g["shoulder0"]
+            for z in g["zs"]:
+                for inset in sorted({i for i, _ in cands}, key=lambda i: [c[0] for c in cands].index(i)):
+                    mid = pose((q_start + q1) / 2, inset, z)[0]
+                    rails = list(dict.fromkeys(float(np.clip(mid[0] + o - base_x0, lo_r, hi_r))
+                                               for o in PAW_RAIL_OFFSETS_M))
+                    rails = [r for r in rails
+                             if not self._part_sweep_hits_base(jid, r, q_start, q1)] or rails
+                    for rail, v in [(r_, v_) for r_ in rails for (i_, v_) in cands if i_ == inset]:
+                        if time.time() > deadline:
+                            return best
+                        at = {adr: q_start}
+                        p_far, R_far = pose(q_start, inset - PAW_ENTRY_M, z, 1.0, v)
+                        p_in, R_in = pose(q_start, inset, z, 1.0, v)
+                        # Cheap reach test before any IK: the flange within the
+                        # arm's reach of the shoulder. Without it, poses the arm
+                        # could never reach cost 5+ minutes of failed solves.
+                        sh = shoulder0 + [rail, 0.0, 0.0]
+                        if any(np.linalg.norm(pp - R_[:, 2] * TCP_FROM_FLANGE_M - sh) > PAW_REACH_M
+                               for pp, R_ in ((p_far, R_far), (p_in, R_in))):
+                            continue
+                        legs = [(p_far, R_far, None, at), (p_in, R_in, 40, at)]
+                        entry = self._chain(legs, rail, home_q)
+                        if entry is None and not g["opening"]:
+                            # Come at the outer face from the open side: from home
+                            # straight to beside the free edge swept the arm through
+                            # a door standing open next to the base. (A cabinet door
+                            # open along the bench has its open side out of reach,
+                            # so this is the second try, not the first.)
+                            off = g["rot"](q_start - q0) @ g["o0"] * 0.15 + [0.0, 0.0, 0.05]
+                            entry = self._chain([(p_far + off, R_far, None, at)] + legs[:1]
+                                                + [(p_in, R_in, 40, at)], rail, home_q)
+                        if entry is None:
+                            continue
+                        steps, prev, follow = [], entry[-1], 1.0
+                        for k in range(k0 + 1, n + 1):
+                            qk = q0 + (q1 - q0) * k / n
+                            goal = qk + sgn * lead
+                            if g["opening"]:
+                                goal = float(np.clip(goal, min(g["lo"], g["hi"]), max(g["lo"], g["hi"])))
+                            q_step = None
+                            for f in dict.fromkeys((follow, 1.0, 0.5, 0.0)):
+                                pk, Rk = pose(goal, inset, z, f, v)
+                                got = self._chain([(pk, Rk, 30, {adr: qk})], rail, prev)
+                                if got is not None:
+                                    q_step, follow = got[0], f
+                                    break
+                            if q_step is None:
+                                break
+                            steps.append((qk, q_step))
+                            prev = q_step
+                        if best is None or len(steps) > len(best["steps"]):
+                            best = {"rail": rail, "z": z, "inset": inset, "entry": entry,
+                                    "steps": steps, "q_start": q_start}
+                        if k0 + len(steps) == n or len(steps) >= PAW_GOOD_PUSH_STEPS:
+                            return best         # a decent push: no need to try every pose
+        finally:
+            self.validator.contact_ok_bodies = frozenset()
+        return best
+
+    def _paw(self, part: str, target: float, speed: float) -> int:
+        """Sweep a door to `target` with the side of the closed gripper, along a
+        sweep planned in full first (_plan_paw), then driven joint by joint
+        with contact allowed with that door only, for the gripper only."""
+        g = self._paw_geometry(part, target)
+        jid, adr = g["jid"], g["adr"]
+        t0 = time.time()
+        plan, why = self._plan_paw(part, g)
+        if plan is None:
+            self.last_refusal = f"{part}: {why or 'the paw cannot push it from any reachable pose'}"
+            return 2
+        frac = plan["done"] / plan["n"]
+        segs = plan["segments"]
+        print(f"[SimXArm] paw on {part} ({'inside the gap' if g['opening'] else 'outer face'}): "
+              f"{len(segs)} push(es), {plan['done']}/{plan['n']} steps planned in "
+              f"{time.time() - t0:.1f} s")
+        if frac < 1.0 and not (g["opening"] and frac >= PAW_ENOUGH_FRACTION):
+            self.last_refusal = (f"{part}: the paw reaches only {frac:.0%} of the sweep "
+                                 f"from any pose")
+            return 2
+        self.last_refusal = None
+        with self.lock:
+            self._set_finger_ctrl(GRIPPER_CLOSED_CTRL_M)          # a paw, not a grip
+        swept = []
+        ok = True
+        q0 = g["q0"]
+        for si, seg in enumerate(segs, 1):
+            if si > 1:
+                self._back_off(speed, retrace=swept)              # set the paw again
+                swept = []
+                # from where the arm and the door ACTUALLY are now
+                with self.lock:
+                    q_now = float(self.data.qpos[adr])
+                g_now = dict(g, q0=q_now)
+                n_now = max(int(np.ceil(abs(g["q1"] - q_now) / np.deg2rad(PAW_STEP_DEG))), 1)
+                again = self._plan_paw_segment(g_now, 0, n_now)
+                if again is not None and again["steps"]:
+                    seg = again
+                elif abs(seg["q_start"] - q_now) > np.deg2rad(5.0):
+                    # The push planned up front assumed another door angle: run
+                    # from 33 deg it reached round the free edge and never
+                    # touched the panel (sessions G, I).
+                    self.last_refusal = (f"{part}: no pose for push {si} from "
+                                         f"{np.degrees(q_now):.0f} deg")
+                    ok = False
+                    break
+            self.validator.contact_ok_bodies = g["door_bodies"]
+            try:
+                self._snap(f"paw_{part}_push{si}_start")
+                if (self._rail_to(seg["rail"], speed) != 0
+                        or self._go_joints(seg["entry"][:-1], speed) != 0
+                        or self._go_joints(seg["entry"][-1:], speed / 2) != 0):
+                    self.last_refusal = (f"{part}: could not set the paw for push {si} "
+                                         f"({self.last_refusal})")
+                    ok = False
+                    break
+                self._snap(f"paw_{part}_push{si}_entered")
+                for k, (qk, q) in enumerate(seg["steps"], 1):
+                    if self._go_joints([q], speed / 2) != 0:
+                        ok = False
+                        break
+                    with self.lock:
+                        mujoco.mj_forward(self.model, self.data)
+                        q_now = float(self.data.qpos[adr])
+                        swept.append((self.data.site_xpos[self.ee_site].copy(),
+                                      self.data.site_xmat[self.ee_site].reshape(3, 3).copy()))
+                    self._snap(f"paw_{part}_push{si}_step{k}_door{np.degrees(q_now):.0f}")
+                    if abs(q_now - q0) + np.deg2rad(12.0) < abs(qk - q0):
+                        self.last_refusal = (f"the door fell behind the paw "
+                                             f"({np.degrees(q_now):.0f} deg, push {si} step {k})")
+                        ok = False
+                        break
+                # out the way it came: back along the tool, or off the face
+                with self.lock:
+                    q_now = float(self.data.qpos[adr])
+                    R_now = self.data.site_xmat[self.ee_site].reshape(3, 3).copy()
+                    p_now = self.data.site_xpos[self.ee_site].copy()
+                if g["opening"]:
+                    self._move_tool(p_now - R_now[:, 2] * PAW_ENTRY_M, R_now, speed / 2)
+                else:
+                    self._move_tool(p_now + g["rot"](q_now - q0) @ g["o0"] * 0.10, R_now, speed / 2)
+            finally:
+                self.validator.contact_ok_bodies = frozenset()
+            if not ok:
+                break
+        self._back_off(speed, retrace=swept)
+        reached = self.part_opening(part)
+        amount, unit = self._part_open_amount(jid)
+        msg = f"{part} at {reached:.2f} of its travel ({amount:.0f} {unit} open)"
+        msg += getattr(self, "_parked_note", "")
+        tol = np.deg2rad(PAW_STEP_DEG) / abs(g["far"])
+        enough = g["opening"] and frac < 1.0 and reached >= PAW_ENOUGH_FRACTION * target - tol
+        if not ok or (abs(reached - target) > tol and not enough):
+            self.last_refusal = f"{part}: paw stopped short: {msg}; {self.last_refusal or ''}".rstrip("; ")
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        note = " -- as far as the paw reaches" if enough and abs(reached - target) > tol else ""
+        print(f"[SimXArm] {msg} (paw){note}")
+        return 0
+
+    def _operate_by_handle(self, part: str, opening: float = 1.0, speed: float = 60.0,
+                           **kwargs) -> int:
         """Open or close a door/drawer by its handle: approach the handle from
         the front, grasp it, carry the grip point along the joint's own path
         (an arc about the hinge, or the slide line) in validated steps, then
@@ -2331,6 +2821,7 @@ class SimXArmAPI:
         n = max(int(np.ceil(abs(q1 - q0) / step)), 1)
         rc = 0
         follow = 1.0
+        carried = []                      # tool poses along the part's path, for the way out
         for k in range(1, n + 1):
             q = q0 + (q1 - q0) * k / n
             for f in dict.fromkeys((follow, 0.5, 1.0, 0.0)):
@@ -2341,13 +2832,14 @@ class SimXArmAPI:
                 # 35 of its 80 mm.
                 if self._move_tool(p, R, speed, part=part, correct_sag=True) == 0:
                     follow = f
+                    carried.append((p, R))
                     break
             else:
                 rc = 2
                 break
         held_at = self.part_opening(part)
         self.open_gripper()
-        self._back_off(speed)
+        self._back_off(speed, retrace=carried)
         # Judge the part where it ENDS, after the arm is home: measured while
         # still holding the handle, the incubator door read "1.00 of its
         # travel" and returned 0 -- then go_home swept the arm through it and
@@ -2401,7 +2893,7 @@ class SimXArmAPI:
                     return True
         return False
 
-    def _back_off(self, speed: float) -> None:
+    def _back_off(self, speed: float, retrace=()) -> None:
         """After letting go of a handle: straight back along the tool axis,
         then home. A door swung to 90 deg stands beside the arm, and a rail
         move with the elbow still out sweeps it into the door -- every later
@@ -2435,6 +2927,33 @@ class SimXArmAPI:
             if clear_home():
                 break
             self._move_tool(target, home_R, speed)
+        # Still boxed in: go back along the path the part was carried, held off
+        # by the standoff. That space is free -- the part has just left it.
+        # Opened to 90 deg, cabinet door_02's handle faces the incubator and the
+        # arm had wrapped round the door's end to hold it; every joint route
+        # home crossed the door, and sliding the rail put the hand into the
+        # incubator.
+        if not clear_home() and retrace:
+            for p, R in list(retrace)[-2::-2]:
+                if self._move_tool(p - R[:, 2] * HANDLE_STANDOFF_M, R, speed) != 0:
+                    continue
+                if clear_home():
+                    break
+        # Then slide the rail away along the bench, the arm as it is, and look
+        # again. Cabinet door_02 opened to 90 deg stands along the
+        # bench right beside the base at rail 0; every joint route home crossed
+        # it, the arm parked there, and every later move was refused.
+        if not clear_home():
+            with self.lock:
+                r0 = float(self.data.qpos[self.rail_jid])
+            lo_r, hi_r = (v / 1000.0 for v in self._rail_limits_mm)
+            for r in sorted({float(np.clip(r0 + d, lo_r, hi_r)) for d in
+                             (0.15, -0.15, 0.30, -0.30, 0.45, -0.45)} - {r0},
+                            key=lambda r: abs(r - r0)):
+                if self.set_rail_position(r * 1000.0, speed_mm_s=speed) != 0:
+                    continue
+                if clear_home():
+                    break
         with self.lock:
             q = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
         route = self._route_home(q, home_q)
@@ -2450,6 +2969,770 @@ class SimXArmAPI:
             # Better parked than driven through the part it just opened.
             self._parked_note = "; the arm is parked (no clear joint path home)"
             print(f"[SimXArm] retreat:{self._parked_note[1:]}")
+
+    # ---- put_in: onto a shelf through an opened door -----------------------
+    def put_in(self, name: str, container: str, speed: float = 60.0, **kwargs) -> int:
+        """Pick `name` off the bench and set it down inside `container` ("cabinet",
+        "incubator", or one part of it, "incubator.LowerShelf"), through the
+        side that faces the robot, whose door must already be open.
+
+        The object is taken with a HORIZONTAL side grasp and only ever turned
+        about the vertical, so it arrives standing as it stood (see
+        PUT_IN_CLEARANCE_M). Everything is planned before anything moves: a
+        support inside with headroom for the object and the hand, a grasp the
+        jaws span, and joints for every pose at some rail position (IK with
+        orientation checked, plus the validator); then each move still goes
+        through set_position's swept checks. Success is where the object ENDS:
+        resting inside the container after the arm has gone home.
+
+        Returns 0 on success, 1 when nothing was moved (unknown name, nothing
+        fits, door closed -- last_refusal says which), 2 when a move was
+        refused or the object did not end up inside.
+        """
+        self.last_refusal = None
+        if name not in self.cube_bids:
+            self.last_refusal = f"put_in: {name!r} is not something the gripper can pick up"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 1
+        spec = self._container_spec(container)
+        if spec is None:
+            names = sorted({o.name for o in getattr(self.room, "objects", {}).values()
+                            if self._container_spec(o.name) is not None})
+            self.last_refusal = f"put_in: unknown container {container!r}; containers: {names}"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 1
+        t0 = time.time()
+        with self.lock:
+            held = [o for o, e in self.weld_eqids.items() if self.data.eq_active[e]]
+        if held and held != [name]:
+            self.last_refusal = (f"put_in: the gripper is holding {held[0]}, not {name}; "
+                                 f"put it down first")
+            print(f"[SimXArm] {self.last_refusal}")
+            return 1
+        if held and self._set_down_here(name, speed) != 0:
+            self.last_refusal = (f"put_in: {name} was already held from above and could "
+                                 f"not be set down to re-take it from the side "
+                                 f"({self.last_refusal})")
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        plan, why = self._plan_put_in(name, spec)
+        print(f"[SimXArm] put_in planned in {time.time() - t0:.1f} s")
+        if plan is None:
+            self.last_refusal = f"put_in {name} -> {container}: {why}"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 1
+        g, p = plan["grasp"], plan["place"]
+        others0 = self._object_positions(exclude=name)
+        self._snap_label = f"put_in_{name}"
+        try:
+            return self._put_in_run(name, container, spec, plan, others0, speed)
+        finally:
+            self._snap_label = None
+
+    def _object_positions(self, exclude=None) -> dict:
+        with self.lock:
+            return {o: self.data.xpos[b].copy() for o, b in self.cube_bids.items() if o != exclude}
+
+    def _put_in_run(self, name, container, spec, plan, others0, speed) -> int:
+        g, p = plan["grasp"], plan["place"]
+        print(f"[SimXArm] put_in {name} -> {p['label']}: side grasp from "
+              f"{g['dir_deg']:.0f} deg at rail {g['rail']*1000:.0f}, release at "
+              f"({p['pos'][0]*1000:.0f}, {p['pos'][1]*1000:.0f}, {p['pos'][2]*1000:.0f}) mm "
+              f"from rail {p['rail']*1000:.0f}")
+
+        # --- pick -----------------------------------------------------------
+        self.open_lite6_gripper()
+        a, Rg, pg = g["dir"], g["R"], g["pos"]
+        if self._rail_to(g["rail"], speed) != 0 or \
+                self._go_joints(g["pick"][:-1], speed) != 0 or \
+                self._go_joints(g["pick"][-1:], speed / 2) != 0 or \
+                self._move_tool(pg, Rg, speed / 2, correct_sag=True) != 0:
+            why = self.last_refusal or "IK/validation failed"
+            self._back_off(speed)
+            self.last_refusal = f"put_in {name}: could not reach the side grasp ({why})"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        if self.close_lite6_gripper(side=True) != 0 or not self._holding(name):
+            why = self.last_refusal
+            self.open_lite6_gripper()
+            self._back_off(speed)
+            self.last_refusal = f"put_in {name}: the side grasp did not take it ({why})"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+
+        # --- carry in, set down, back out -----------------------------------
+        # Rail moves are made with the object tucked over the base (see
+        # _carry_chain): carried at arm's length over the bench edge, a rail
+        # move from the clock to the cabinet swept link5 through the toaster.
+        if self._go_joints(g["up"] + [g["carry"][1]], speed) != 0:
+            why = self.last_refusal or "IK/validation failed"
+            self._return_object(name, g, speed)
+            self.last_refusal = f"put_in {name}: could not lift it clear ({why}); it was put back"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        tried = []
+        for p in plan["places"]:
+            path = [p["carry"][1]] + p["into"]
+            done = 0
+            ok = self._rail_to(p["rail"], speed) == 0
+            if ok:
+                for q in path:
+                    if self._go_joints([q], speed if done < 3 else speed / 3) != 0:
+                        ok = False
+                        break
+                    done += 1
+            if ok and self._move_tool(p["pos"], p["R"], speed / 3, correct_sag=True) == 0:
+                break
+            tried.append(f"({p['pos'][0]*1000:.0f}, {p['pos'][1]*1000:.0f}, "
+                         f"{p['pos'][2]*1000:.0f}): {self.last_refusal or 'IK/validation failed'}")
+            print(f"[SimXArm] put_in {name}: that way in was refused; backing out")
+            # back the way it came, to where it was carried from
+            self._go_joints(list(reversed(path[:max(done - 1, 0)])), speed)
+            self._rail_to(g["rail"], speed)
+            self._go_joints([g["carry"][1]], speed)
+        else:
+            self._return_object(name, g, speed)
+            self.last_refusal = (f"put_in {name}: every way into {plan['place']['label']} "
+                                 f"was refused ({'; '.join(tried)}); it was put back")
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        self.open_lite6_gripper()
+        # out the way it went in, then home
+        self._go_joints([p["into"][3], p["into"][2], p["into"][1], p["into"][0]], speed / 2)
+        self._back_off(speed)
+
+        # --- judge where it ended -------------------------------------------
+        time.sleep(0.5)
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            pos = self.data.xpos[self.cube_bids[name]].copy()
+        inside = self._container_part_of(name, pos)
+        where = f"{name} at ({pos[0]*1000:.0f}, {pos[1]*1000:.0f}, {pos[2]*1000:.0f}) mm"
+        if inside is None or not inside.startswith(spec["object"]):
+            self.last_refusal = f"put_in {name}: it did not stay in {container} ({where})"
+            print(f"[SimXArm] {self.last_refusal}")
+            return 2
+        # Anything else it knocked (session D: the cucumber's side grasp left the
+        # lab bottle lying 78 mm away, and nothing said so).
+        moved = {o: float(np.linalg.norm(p1 - others0[o])) for o, p1 in
+                 self._object_positions(exclude=name).items() if o in others0}
+        knocked = {o: d for o, d in moved.items() if d > PUT_IN_DISTURB_M}
+        note = ("; it disturbed " + ", ".join(f"{o} ({d*1000:.0f} mm)" for o, d in knocked.items())
+                if knocked else "")
+        print(f"[SimXArm] {name} in {inside}{getattr(self, '_parked_note', '')}{note}")
+        return 0
+
+    def _set_down_here(self, name: str, speed: float) -> int:
+        """Lower a held object straight down onto whatever is under it, let go
+        and lift clear. put_in re-takes it from the side: a planner picked the
+        cucumber from above and then called put_in, which refused with the
+        object in hand."""
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            gap, under = self._release_gap(name)
+            ee = self.data.site_xpos[self.ee_site].copy()
+        if gap is None or under[1]:
+            self.last_refusal = f"nothing to set {name} down on under it"
+            return 2
+        print(f"[SimXArm] put_in: {name} is already held; setting it down on "
+              f"{under[0]} to re-take it from the side")
+        if gap > 0.004 and self._move_tool(ee - [0, 0, gap - 0.004], None, speed / 2) != 0:
+            return 2
+        self.open_lite6_gripper()
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            ee = self.data.site_xpos[self.ee_site].copy()
+        self._move_tool(ee + [0, 0, 0.08], None, speed)
+        time.sleep(0.3)
+        return 0
+
+    def _holding(self, name: str) -> bool:
+        with self.lock:
+            return bool(self.data.eq_active[self.weld_eqids[name]])
+
+    def _rail_to(self, rail_m: float, speed: float) -> int:
+        with self.lock:
+            now = float(self.data.qpos[self.rail_jid])
+        if abs(rail_m - now) <= 0.003:
+            return 0
+        return self.set_rail_position(rail_m * 1000.0, speed_mm_s=speed)
+
+    def _go_joints(self, qs, speed: float) -> int:
+        """Drive the arm through planned joint waypoints, each sweep checked
+        (arm and anything carried) and paced at `speed` mm/s of tool travel."""
+        for q in qs:
+            q = np.asarray(q, float)
+            with self.lock:
+                start = np.array([float(self.data.qpos[j]) for j in self.joint_ids])
+                mujoco.mj_forward(self.model, self.data)
+                ee0 = self.data.site_xpos[self.ee_site].copy()
+            ok, why = self._validate_swept_path(start, q)
+            if not ok:
+                self.last_refusal = f"move refused: path blocked {why}"
+                print(f"[SimXArm] Path blocked {why}")
+                return 2
+            d = mujoco.MjData(self.model)
+            with self.lock:
+                d.qpos[:] = self.data.qpos
+            for i, j in enumerate(self.joint_ids):
+                d.qpos[j] = q[i]
+            mujoco.mj_kinematics(self.model, d)
+            dist = float(np.linalg.norm(d.site_xpos[self.ee_site] - ee0))
+            turn = float(np.degrees(np.max(np.abs(q - start))))
+            # mm/s of tool travel, but never faster than 60 deg/s at a joint
+            self._execute_paced_arm(q, max(dist * 1000.0 / max(speed, 1.0), turn / 60.0, 0.3))
+            self._wait_arm_settled(q)
+            if getattr(self, "_snap_label", None):
+                self._snap(self._snap_label)
+        return 0
+
+    def _run_steps(self, steps, speed: float) -> int:
+        for st in steps:
+            if isinstance(st[0], str):
+                with self.lock:
+                    now = float(self.data.qpos[self.rail_jid])
+                if abs(st[1] - now) > 0.003 and \
+                        self.set_rail_position(st[1] * 1000.0, speed_mm_s=speed) != 0:
+                    return 2
+            elif self._move_tool(st[0], st[1], speed) != 0:
+                return 2
+        return 0
+
+    def _return_object(self, name: str, g: dict, speed: float) -> None:
+        """Put a carried object back where it was picked, then go home."""
+        self._rail_to(g["rail"], speed)
+        self._go_joints(list(reversed(g["up"])) + [g["pick"][-1]], speed / 2)
+        self.open_lite6_gripper()
+        self._go_joints([g["pick"][-2]], speed / 2)
+        self._back_off(speed)
+
+    def _container_spec(self, container: str):
+        """The geometry put_in needs of a container: its walls (collision geoms
+        of the object minus its hinged doors), its doors, and the side facing
+        the robot. None if `container` is not an articulated room object."""
+        obj, _, link = container.partition(".")
+        o = getattr(self.room, "objects", {}).get(obj)
+        if o is None:
+            return None
+        try:
+            root = self.model.body(o.body).id
+        except KeyError:
+            return None
+        sub = [b for b in range(self.model.nbody) if self._is_descendant(b, root)]
+        hinged = {int(self.model.jnt_bodyid[j]) for j in range(self.model.njnt)
+                  if self.model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE}
+        # A door swings about a vertical axis; the toaster's lever does not.
+        doorlike = {int(self.model.jnt_bodyid[j]) for j in range(self.model.njnt)
+                    if self.model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE
+                    and abs(self.model.jnt_axis[j][2]) > 0.9}
+        if not any(b in doorlike for b in sub):
+            return None                       # no door: not a container put_in knows
+
+        def is_door(b):
+            while b != root:
+                if b in hinged:
+                    return True
+                b = int(self.model.body_parentid[b])
+            return False
+        target = None
+        if link:
+            target = next((b for b in sub if self._logical(
+                self.model.body(b).name).split("/")[-1] == link), None)
+            # a part to put things ON is a shelf or drawer: it slides
+            slides = any(self.model.jnt_bodyid[j] == target and self.model.jnt_type[j] ==
+                         mujoco.mjtJoint.mjJNT_SLIDE for j in range(self.model.njnt)) \
+                if target is not None else False
+            if target is None or is_door(target) or not slides:
+                return None
+        coll = [g for g in range(self.model.ngeom) if self.model.geom_bodyid[g] in sub
+                and (self.model.geom_contype[g] or self.model.geom_conaffinity[g])]
+        walls = [g for g in coll if not is_door(int(self.model.geom_bodyid[g]))]
+        doors = [g for g in coll if is_door(int(self.model.geom_bodyid[g]))]
+        return {"object": obj, "root": root, "target": target, "walls": walls,
+                "doors": doors, "label": container}
+
+    def _ray_geoms(self, geoms, pnt, vec, bounds=None):
+        """(distance, geom) of the first of `geoms` a ray meets, or (-1, None).
+        Collision geoms are invisible (alpha 0) and mj_ray skips those, so each
+        geom is intersected directly. Caller holds the lock."""
+        pnt = np.asarray(pnt, float)
+        vec = np.asarray(vec, float)
+        best, hit = -1.0, None
+        for g in geoms:
+            if bounds is not None:
+                lo, hi = bounds[g]
+                # vertical rays only need the footprint test
+                if vec[2] != 0 and vec[0] == 0 and vec[1] == 0 and not (
+                        lo[0] <= pnt[0] <= hi[0] and lo[1] <= pnt[1] <= hi[1]):
+                    continue
+            if int(self.model.geom_type[g]) == int(mujoco.mjtGeom.mjGEOM_MESH):
+                dist = mujoco.mj_rayMesh(self.model, self.data, g, pnt, vec)
+            else:
+                dist = mujoco.mju_rayGeom(self.data.geom_xpos[g], self.data.geom_xmat[g],
+                                          self.model.geom_size[g], pnt, vec,
+                                          int(self.model.geom_type[g]))
+            if dist >= 0 and (best < 0 or dist < best):
+                best, hit = dist, g
+        return best, hit
+
+    def _column_gaps(self, geoms, bounds, x: float, y: float, z_lo: float, z_hi: float,
+                     spread: float = 0.012):
+        cache = getattr(self, "_gap_cache", None)
+        key = (id(geoms), round(x, 3), round(y, 3), z_lo, z_hi)
+        if cache is not None and key in cache:
+            return cache[key]
+        gaps = self._column_gaps_uncached(geoms, bounds, x, y, z_lo, z_hi, spread)
+        if cache is not None:
+            cache[key] = gaps
+        return gaps
+
+    def _column_gaps_uncached(self, geoms, bounds, x: float, y: float, z_lo: float,
+                              z_hi: float, spread: float = 0.012):
+        """Free vertical intervals [(bottom, top)] at (x, y) between z_lo and
+        z_hi, among `geoms` (each a convex hull, so a vertical line crosses it
+        once: its top from a ray down, its bottom from a ray up). Five rays, in
+        a cross `spread` wide, count as one column: the incubator's shelves are
+        wire racks with 11 mm holes, and a single ray fell through them to the
+        floor below."""
+        solid = []
+        for dx, dy in ((0, 0), (spread, 0), (-spread, 0), (0, spread), (0, -spread)):
+            px, py = x + dx, y + dy
+            for g in [g for g in geoms if bounds[g][0][0] <= px <= bounds[g][1][0]
+                      and bounds[g][0][1] <= py <= bounds[g][1][1]]:
+                dn, _ = self._ray_geoms([g], [px, py, z_hi + 0.05], [0, 0, -1.0])
+                if dn < 0:
+                    continue
+                up, _ = self._ray_geoms([g], [px, py, z_lo - 0.05], [0, 0, 1.0])
+                top = z_hi + 0.05 - dn
+                solid.append((z_lo - 0.05 + up if up >= 0 else top, top))
+        solid.sort()
+        gaps, z = [], z_lo
+        for b, t in solid:
+            if b > z:
+                gaps.append((z, min(b, z_hi)))
+            z = max(z, t)
+            if z >= z_hi:
+                break
+        if z < z_hi:
+            gaps.append((z, z_hi))
+        return [(b, t) for b, t in gaps if t - b > 1e-3]
+
+    def _plan_put_in(self, name: str, spec: dict):
+        """(plan, None) or (None, why): a side grasp of `name` and a release
+        pose inside the container, each with a rail position the arm reaches
+        it from. Nothing moves."""
+        self._gap_cache = {}              # columns repeat across grasps and ways in
+        try:
+            return self._plan_put_in_inner(name, spec)
+        finally:
+            self._gap_cache = None
+
+    def _plan_put_in_inner(self, name: str, spec: dict):
+        up = np.array([0.0, 0.0, 1.0])
+        base_x0 = self._rail_x0_mm / 1000.0
+        lo_r, hi_r = (v / 1000.0 for v in self._rail_limits_mm)
+        aperture = GRASP_APERTURE_M - 0.002
+        with self.lock:
+            mujoco.mj_forward(self.model, self.data)
+            verts = self._object_vertices(name)
+            bounds = {g: self._geom_world_bounds(g) for g in spec["walls"] + spec["doors"]}
+            Rr = self.data.xmat[spec["root"]].reshape(3, 3).copy()
+            wall_pts = np.array([c for g in spec["walls"] for c in bounds[g]])
+            others = {o: self._object_vertices(o) for o in self.cube_bids if o != name}
+            base = self.data.xpos[self.model.body(self._mj("xarm_base", "body")).id].copy()
+            tool_lo, tool_hi = self._tool_extent()
+            # Supports nearest the shoulder first: the arm reaches them with the
+            # most room, and a shelf beats the floor beneath it.
+            shoulder_z = float(self.data.xpos[self.model.body(self._mj("link2", "body")).id][2])
+        # The side facing the robot: of the container's own horizontal axes,
+        # the one pointing most nearly at the rail's middle.
+        mid_rail = base.copy()
+        mid_rail[0] = base_x0 + (lo_r + hi_r) / 2
+        box_c = (wall_pts.min(0) + wall_pts.max(0)) / 2
+        v = Rr.T @ (mid_rail - box_c)
+        k = int(np.argmax(np.abs(v[:2])))
+        n = Rr[:, k] * np.sign(v[k])
+        n[2] = 0.0
+        n /= np.linalg.norm(n)
+        lat = np.cross(up, n)
+        front = float((wall_pts @ n).max())
+        lat_lo, lat_hi = float((wall_pts @ lat).min()), float((wall_pts @ lat).max())
+        z_lo, z_hi = float(wall_pts[:, 2].min()), float(wall_pts[:, 2].max())
+        depth_max = front - float((wall_pts @ n).min())
+        # Closed doors: a panel lying flat across the front. A spot behind one
+        # is out of reach whatever the way in (a ray test let angled ways in
+        # slip past a closed door's edge, and IK then failed slowly).
+        closed = []
+        for b in {int(self.model.geom_bodyid[g]) for g in spec["doors"]}:
+            pts = np.array([c for g in spec["doors"] if self.model.geom_bodyid[g] == b
+                            for c in bounds[g]])
+            if (pts @ n).min() > front - 0.08 and np.ptp(pts @ n) < 0.08:
+                closed.append((self._logical(self.model.body(b).name).split("/")[-1],
+                               float((pts @ lat).min()), float((pts @ lat).max())))
+
+        # --- grasp candidates: horizontal approach directions the jaws span --
+        c = (verts.min(0) + verts.max(0)) / 2
+        bottom, top = float(verts[:, 2].min()), float(verts[:, 2].max())
+        body_front = max(-float(tool_hi[2]), 0.0)   # the hand starts this far behind the TCP
+        hand_box = np.array([[x, y, z] for x in (tool_lo[0], tool_hi[0])
+                             for y in (tool_lo[1], tool_hi[1]) for z in (tool_lo[2], tool_hi[2])])
+        grasps = []
+        away = c[:2] - base[:2]
+        for beta in SIDE_GRASP_TILTS_DEG:
+            for i in range(SIDE_GRASP_DIRECTIONS):
+                th = 2 * np.pi * i / SIDE_GRASP_DIRECTIONS
+                a = np.array([np.cos(th), np.sin(th), 0.0])
+                Rg = self._side_frame(a, beta)
+                if float(np.ptp(verts @ Rg[:, 1])) > aperture:
+                    continue
+                along = verts @ a
+                h_back = float(c @ a - along.min())
+                t = min(0.0, body_front * np.cos(np.deg2rad(beta)) - h_back - 0.010)
+                if t < -h_back + 0.015:
+                    continue                      # the hand would hit it before the jaws reach it
+                # the hand's underside clears the surface the object stands on
+                hand_low = float((hand_box @ Rg.T)[:, 2].min())
+                zt = max(float(c[2]), bottom - hand_low + SIDE_GRASP_BENCH_CLEAR_M)
+                if zt > top - 0.006 or zt - float(c[2]) > GRASP_MAX_LATERAL_M:
+                    continue
+                pg = np.array([c[0], c[1], zt]) + a * t
+                grasps.append(((beta, -float(np.dot(a[:2], away))), th, a, Rg, pg, beta))
+            if grasps:
+                break                             # the least tilt that works
+        grasps.sort(key=lambda r: r[0])
+        if not grasps:
+            return None, (f"no horizontal grasp fits: {name} is wider than the "
+                          f"{GRASP_APERTURE_M*1000:.0f} mm jaws from every side")
+
+        # --- release candidates ---------------------------------------------
+        # Insertion straight along the front's normal first, then turned
+        # through the doorway: at the cabinet, beyond the end of the rail, the
+        # straight-in pose outside the opening puts the flange right over the
+        # arm's own base, and IK answered it on another elbow branch.
+        why = "no support inside with room for it"
+        tried_door = None
+        cand_places = []
+        seen = set()
+        target_top = None
+        if spec["target"] is not None:
+            tb = [bounds[g] for g in spec["walls"]
+                  if self.model.geom_bodyid[g] == spec["target"]]
+            target_top = max(float(h[2]) for _, h in tb) if tb else None
+        for gi, (_, th, a, Rg, pg, beta) in enumerate(grasps[:6]):
+            for psi in PUT_IN_YAWS_DEG:
+                cpsi, spsi = np.cos(np.deg2rad(psi)), np.sin(np.deg2rad(psi))
+                d = -n * cpsi + lat * spsi              # the way in
+                Rp = self._side_frame(d, beta)
+                hand_w = hand_box @ Rp.T                # the hand round the TCP, at release
+                # The object relative to the TCP, turned about the vertical from
+                # the grasp direction to the way in.
+                rel = (verts - pg) @ Rg @ Rp.T
+                rel_n, rel_l = rel @ n, rel @ lat
+                obj_h = float(rel[:, 2].max() - rel[:, 2].min())
+                need = (obj_h + PUT_IN_CLEARANCE_M + PUT_IN_CARRY_LIFT_M + 0.008)
+                for depth in np.arange(PUT_IN_FRONT_MARGIN_M + float(rel_n.max()) + 0.01,
+                                       depth_max, 0.02):
+                    for u in sorted(np.arange(lat_lo + 0.03, lat_hi - 0.03, PUT_IN_LATERAL_STEP_M),
+                                    key=lambda u: abs(u - (lat_lo + lat_hi) / 2)):
+                        pp_xy = ((front - depth) * n + u * lat)[:2]
+                        skey = (th, psi, round(u, 3))
+                        foot = [(rel_n.min() - 0.01, rel_l.min() - 0.01),
+                                (rel_n.min() - 0.01, rel_l.max() + 0.01),
+                                (rel_n.max() + PUT_IN_FRONT_MARGIN_M, rel_l.min() - 0.01),
+                                (rel_n.max() + PUT_IN_FRONT_MARGIN_M, rel_l.max() + 0.01), (0.0, 0.0)]
+                        with self.lock:
+                            centre = self._column_gaps(spec["walls"], bounds, *pp_xy, z_lo, z_hi)
+                        levels = [(sb, st) for sb, st in centre if st - sb >= need
+                                  and sb > z_lo + 0.01 and skey + (round(sb, 2),) not in seen]
+                        if not levels:
+                            continue              # nothing new: each level keeps its shallowest spot
+                        with self.lock:
+                            cols = [self._column_gaps(spec["walls"], bounds,
+                                                      *(pp_xy + dn * n[:2] + dl * lat[:2]),
+                                                      z_lo, z_hi) for dn, dl in foot]
+                        for sb, st in levels:
+                            if spec["target"] is not None and (
+                                    target_top is None or abs(sb - target_top) > 0.010):
+                                continue
+                            if not all(any(abs(b - sb) < 0.008 and t - b >= need for b, t in col)
+                                       for col in cols):
+                                continue
+                            pz = sb + PUT_IN_CLEARANCE_M - float(rel[:, 2].min())
+                            pp = np.array([pp_xy[0], pp_xy[1], pz])
+                            # the hand, behind the TCP, must fit the gaps it is over
+                            hand_ok = True
+                            for frac in (0.0, 0.5, 1.0):
+                                sl = hand_w[np.isclose(hand_box[:, 2], tool_hi[2] + frac * (
+                                    tool_lo[2] - tool_hi[2]))] if frac in (0.0, 1.0) else hand_w
+                                off = (sl.min(0) + sl.max(0)) / 2
+                                hx, hy = pp_xy + off[:2]
+                                if float(np.dot([hx, hy, 0], n)) > front:
+                                    continue
+                                with self.lock:
+                                    col = self._column_gaps(spec["walls"], bounds, hx, hy, z_lo, z_hi)
+                                if not any(b <= pz + float(sl[:, 2].min()) - 0.003
+                                           and t >= pz + float(sl[:, 2].max())
+                                           + PUT_IN_CARRY_LIFT_M + 0.003 for b, t in col):
+                                    hand_ok = False
+                                    break
+                            if not hand_ok:
+                                continue
+                            inside = (spec["label"].replace(".", " ") if spec["target"] is not None
+                                      else self._part_label_at(spec, pp + [0, 0, float(rel[:, 2].mean())]))
+                            placed = pp + rel
+                            if any(len(ov) and np.all(placed.max(0) + PUT_IN_GAP_M > ov.min(0))
+                                   and np.all(placed.min(0) - PUT_IN_GAP_M < ov.max(0))
+                                   for ov in others.values()):
+                                why = "every spot with room for it is taken"
+                                continue
+                            # backed out along the way in until it is clear of the front
+                            entry = float((front + PUT_IN_ENTRY_M - (placed @ n).min()) / cpsi)
+                            # no closed door across it
+                            span = (float((placed @ lat).min()), float((placed @ lat).max()))
+                            shut = next((nm for nm, l0, l1 in closed
+                                         if span[0] < l1 and span[1] > l0), None)
+                            if shut is not None:
+                                tried_door = shut
+                                continue
+                            seen.add(skey + (round(sb, 2),))
+                            cand_places.append(((round(abs(sb - shoulder_z), 2), abs(psi), gi, depth,
+                                                 abs(u - (lat_lo + lat_hi) / 2)),
+                                                (th, a, Rg, pg, beta, pp, d, Rp, entry,
+                                                 inside or spec["label"])))
+        cand_places = [c for _, c in sorted(cand_places, key=lambda r: r[0])]
+        if not cand_places:
+            if tried_door:
+                return None, (f"the {spec['object']} {tried_door} is closed in front of "
+                              f"every spot with room for it; open it first")
+            return None, why
+
+        # --- joints for every pose, on one elbow branch ------------------------
+        # Each waypoint is solved seeded from the one before and the sweep
+        # between them checked at that rail, and put_in then drives exactly
+        # these joints: solving each pose afresh at run time can land on
+        # another branch, and the swing between branches went through a door.
+        def rail_near(x, off):
+            return float(np.clip(x + off - base_x0, lo_r, hi_r))
+        home_q = np.array(self.HOME_JOINTS_RAD, float)
+        lift = np.array([0.0, 0.0, PUT_IN_CARRY_LIFT_M])
+        grasp_chain = {}
+        chosen = None
+        for th, a, Rg, pg, beta, pp, d, Rp, entry, label in cand_places[:16]:
+            key = (round(th, 3), tuple(np.round(pg, 4)))
+            if chosen is not None and (key != chosen[0] or len(chosen[2]) >= 4):
+                continue
+            if key not in grasp_chain:
+                grasp_chain[key] = None
+                pre = pg - a * SIDE_GRASP_STANDOFF_M
+                transit = pg + [0, 0, 0.12] - a * 0.06
+                for r in dict.fromkeys(rail_near(pg[0], o) for o in PUT_IN_RAIL_OFFSETS_M):
+                    pick = self._chain([(pre + [0, 0, 0.10], Rg, None), (pre, Rg, 30),
+                                        (pg, Rg, 30)], r, home_q)
+                    if pick is None:
+                        continue
+                    up = self._chain([(pg + [0, 0, 0.04], Rg, 20), (pg + [0, 0, 0.04] - a * 0.06, Rg, 20),
+                                      (transit, Rg, 40)], r, pick[-1])
+                    if up is None:
+                        continue
+                    carry = self._carry_chain(r, beta, up[-1], None)
+                    if carry is None:
+                        continue
+                    grasp_chain[key] = (r, pick, up, carry)
+                    break
+            gc = grasp_chain[key]
+            if gc is None:
+                why = f"no rail position reaches a side grasp of {name} and lifts it clear"
+                continue
+            g_rail, pick, up, carry_g = gc
+            place = None
+            for r in dict.fromkeys(rail_near(pp[0] - d[0] * entry, o) for o in PUT_IN_RAIL_OFFSETS_M):
+                ok, _ = self._validate_swept_path(carry_g[1], carry_g[1], g_rail, r)
+                if not ok:
+                    continue
+                outside = pp - d * entry + lift
+                carry_p = self._carry_chain(r, beta, carry_g[1], d, line=outside)
+                if carry_p is None:
+                    continue
+                # The slide in, in thirds: one 200-300 mm leg legitimately turns
+                # the shoulder and elbow 50-70 deg, and a joint-space sweep that
+                # long strays off the straight line into the doorway.
+                slide = [(outside + (pp + lift - outside) * k / 3, Rp, 35) for k in (1, 2, 3)]
+                into = self._chain([(outside + [0, 0, 0.03], Rp, 150), (outside, Rp, 30)]
+                                   + slide + [(pp, Rp, 15)], r, carry_p[1])
+                if into is None:
+                    continue
+                place = {"rail": r, "carry": carry_p, "into": into, "pos": pp, "R": Rp,
+                         "d": d, "label": label, "outside": outside}
+                break
+            if place is None:
+                why = f"no rail position reaches into {spec['label']} at a spot with room"
+                continue
+            if chosen is None:
+                chosen = (key, {"dir": a, "dir_deg": np.degrees(th), "R": Rg, "pos": pg,
+                                "rail": g_rail, "tilt": beta, "pick": pick, "up": up,
+                                "carry": carry_g}, [])
+            chosen[2].append(place)
+        if chosen is None:
+            return None, why
+        # Several releases for the one grasp: a carry can still be refused on
+        # the way, and once the object is held the grasp is fixed, so the
+        # alternatives must share it.
+        return {"grasp": chosen[1], "place": chosen[2][0], "places": chosen[2]}, None
+
+    def _chain(self, poses, rail_m: float, seed, max_step_deg=None):
+        """Joints for each (pos, R, max joint step in deg or None) in turn at
+        rail_m, each seeded from the last and the sweep from the last checked;
+        None if any fails. The first is reached from `seed`."""
+        qs, prev = [], np.asarray(seed, float)
+        for p, R, lim, *rest in poses:
+            patch = rest[0] if rest else None
+            q = self._solve_at_rail(p, R, rail_m, seed=prev, quick=lim is not None, patch=patch)
+            if q is None:
+                return None
+            if lim is not None and np.degrees(np.max(np.abs(q - prev))) > lim:
+                return None
+            ok, _ = self._validate_swept_path(prev, q, rail_m, rail_m,
+                                              validator=self._scratch_validator() if patch else None)
+            if not ok:
+                return None
+            qs.append(q)
+            prev = q
+        return qs
+
+    def _carry_chain(self, rail_m: float, tilt: float, seed, face, line=None):
+        """((pos, R), joints) to hold a side-grasped object in while the rail
+        moves: tucked over the base, facing `face` if given, else the BACK of the
+        bench (carried facing along it, the forearm hung over its front and a
+        rail move swept link4 through the 231 mm bottle). Reached from `seed`."""
+        # At a release rail, first on the way-in line itself, drawn back toward
+        # the robot: tucked over the base and facing in, the arm sat on an elbow
+        # branch 170-280 deg (joint 1) from the pose outside the opening.
+        if line is not None and face is not None:
+            R = self._side_frame(face, tilt)
+            for k in (0.12,):
+                for dz in (0.0, 0.08):
+                    p = np.asarray(line) - np.asarray(face) * k + [0.0, 0.0, dz]
+                    qs = self._chain([(p, R, None)], rail_m, seed)
+                    if qs is not None:
+                        return (p, R), qs[0]
+        home_p, _ = self._home_tool_pose()
+        with self.lock:
+            r_now = float(self.data.qpos[self.rail_jid])
+        base = home_p + [rail_m - r_now, 0.0, 0.0]
+        dirs = [[0, 1, 0], [1, 0, 0], [-1, 0, 0]]
+        if face is not None:
+            dirs.insert(0, list(face))
+        for dv in dirs:
+            R = self._side_frame(dv, tilt)
+            for dz in (0.10, 0.20):
+                p = base + [0.0, 0.0, dz]
+                qs = self._chain([(p, R, None)], rail_m, seed)
+                if qs is not None:
+                    return (p, R), qs[0]
+        return None
+
+    def _part_label_at(self, spec: dict, p) -> Optional[str]:
+        for label, owner, b, lo, hi in self._part_boxes:
+            if owner != spec["object"]:
+                continue
+            R = self.data.xmat[b].reshape(3, 3)
+            q = R.T @ (np.asarray(p) - self.data.xpos[b])
+            if np.all(q > lo) and np.all(q < hi):
+                return label
+        return None
+
+    @staticmethod
+    def _side_frame(a, tilt_deg: float = 0.0):
+        """Tool frame approaching along horizontal `a`, tipped down by tilt_deg:
+        the jaws (tool y) close horizontally across it, and two such frames with
+        the same tilt differ only by a turn about the vertical."""
+        a = np.asarray(a, float) / np.linalg.norm(a)
+        up = np.array([0.0, 0.0, 1.0])
+        b = np.deg2rad(tilt_deg)
+        z = np.cos(b) * a - np.sin(b) * up
+        y = np.cross(up, a)
+        return np.column_stack([np.cross(y, z), y, z])
+
+    def _tool_extent(self):
+        """(lo, hi) of the hand's collision geoms (gripper subtree + link6) in
+        the TOOL frame, measured from the model. Caller holds the lock."""
+        p = self.data.site_xpos[self.ee_site]
+        R = self.data.site_xmat[self.ee_site].reshape(3, 3)
+        l6 = self.model.body(self._mj("link6", "body")).id
+        pts = []
+        for g in range(self.model.ngeom):
+            b = int(self.model.geom_bodyid[g])
+            if not (self._is_descendant(b, self.gripper_bid) or b == l6) or not (
+                    self.model.geom_contype[g] or self.model.geom_conaffinity[g]):
+                continue
+            pts.append(self._geom_points(g))
+        loc = (np.vstack(pts) - p) @ R
+        return loc.min(0), loc.max(0)
+
+    def _scratch_validator(self):
+        """A validator over the scratch IK data, for checking a pose against
+        the scene as it WILL be (a door at the angle a paw will have pushed it
+        to), not as it is."""
+        from sim.fk_validator import FKValidator
+        if self._scratch_val is None:
+            self._solve_at_rail(np.zeros(3), np.eye(3), 0.0, quick=True, seed=np.zeros(6),
+                                dry=True)
+            self._scratch_val = FKValidator(self.model, self._scratch_ik.data,
+                                            threading.RLock(), **self._fk_kwargs)
+        self._scratch_val.contact_ok_bodies = self.validator.contact_ok_bodies
+        return self._scratch_val
+
+    def _solve_at_rail(self, pos_m, R, rail_m: float, seed=None, quick: bool = False,
+                       patch=None, dry: bool = False):
+        """Joints that put the tool at (pos_m, R) with the rail at rail_m, or
+        None. Nothing moves: IK runs on a scratch MjData, and the answer must
+        meet the ORIENTATION too (IKSolver treats it as best-effort and returns
+        rotation misses as successes) and pass the validator's limit and
+        collision check at that rail."""
+        from sim.ik_solver import IKSolver
+        if self._scratch_ik is None:
+            import contextlib
+            import io
+            with contextlib.redirect_stdout(io.StringIO()):   # pink's init notice
+                self._scratch_ik = IKSolver(self.model, mujoco.MjData(self.model),
+                                            threading.RLock(), **self._ik_names)
+        ik = self._scratch_ik
+        if dry:
+            return None
+        d = ik.data
+        with self.lock:
+            d.qpos[:] = self.data.qpos
+        d.qpos[self.rail_jid] = rail_m
+        for adr, v in (patch or {}).items():          # the scene as it will be
+            d.qpos[adr] = v
+        mujoco.mj_kinematics(self.model, d)
+        val = self._scratch_validator() if patch else self.validator
+        cur = np.array([d.qpos[j] for j in self.joint_ids])
+        # quick: the given seed only. A leg with a joint-step limit wants the
+        # answer next to its seed; one found from a far seed breaks the limit
+        # anyway, and failed solves from four seeds were most of put_in's
+        # 25-60 s of planning.
+        seeds = [seed] if quick and seed is not None else [
+            seed, None, np.deg2rad([0.0, 20.0, 0.0, 0.0, 50.0, 0.0]),
+            np.array(self.HOME_JOINTS_RAD, float)]
+        pos_m = np.asarray(pos_m, float)
+        for sd in seeds:
+            for i, j in enumerate(self.joint_ids):
+                d.qpos[j] = cur[i]
+            q = ik.solve(pos_m, target_rot=R, seed_q=sd, max_iter=200)
+            if q is None:
+                continue
+            for i, j in enumerate(self.joint_ids):
+                d.qpos[j] = q[i]
+            mujoco.mj_kinematics(self.model, d)
+            perr = float(np.linalg.norm(d.site_xpos[self.ee_site] - pos_m))
+            Rq = d.site_xmat[self.ee_site].reshape(3, 3)
+            rerr = np.degrees(np.arccos(np.clip((np.trace(Rq.T @ R) - 1) / 2, -1, 1)))
+            if perr > IK_POS_TOL_M or rerr > 3.0:
+                continue
+            if val.validate(q, pos_m, rail_pos_m=rail_m).is_valid:
+                return q
+        return None
 
     def _home_tool_pose(self):
         """Tool position + rotation with the arm at its home joints and the rail
@@ -2655,6 +3938,46 @@ class SimXArmAPI:
                 width = max(width, 2.0 * min(ext_x, ext_y))
         return width
 
+    def _object_vertices(self, name: str):
+        """World points bounding `name`'s collision geoms (mesh vertices, box
+        corners). Caller holds the lock."""
+        bid = self.model.body(self._mj(name, "body")).id
+        pts = [self._geom_points(g) for g in range(self.model.ngeom)
+               if self.model.geom_bodyid[g] == bid
+               and (self.model.geom_contype[g] or self.model.geom_conaffinity[g])]
+        return np.vstack(pts) if pts else np.zeros((0, 3))
+
+    def _geom_points(self, g: int):
+        """World points bounding geom g: a mesh's vertices, else its box
+        corners. Caller holds the lock."""
+        if int(self.model.geom_type[g]) == int(mujoco.mjtGeom.mjGEOM_MESH):
+            mid = int(self.model.geom_dataid[g])
+            a = int(self.model.mesh_vertadr[mid])
+            return (self.model.mesh_vert[a:a + int(self.model.mesh_vertnum[mid])]
+                    @ self.data.geom_xmat[g].reshape(3, 3).T + self.data.geom_xpos[g])
+        # The ORIENTED corners. A world-aligned box round a door panel turned
+        # 27 deg measured it 290 mm thick instead of 66, and the paw meant
+        # to slide in behind it stood 190 mm back, inside the incubator.
+        t = int(self.model.geom_type[g])
+        sz = self.model.geom_size[g]
+        if t in (int(mujoco.mjtGeom.mjGEOM_BOX), int(mujoco.mjtGeom.mjGEOM_ELLIPSOID)):
+            half = np.array([sz[0], sz[1], sz[2]])
+        elif t in (int(mujoco.mjtGeom.mjGEOM_CYLINDER), int(mujoco.mjtGeom.mjGEOM_CAPSULE)):
+            half = np.array([sz[0], sz[0], sz[1] + (sz[0] if t == int(mujoco.mjtGeom.mjGEOM_CAPSULE) else 0)])
+        else:
+            lo, hi = self._geom_world_bounds(g)
+            return np.array([[x, y, z] for x in (lo[0], hi[0])
+                             for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+        R = self.data.geom_xmat[g].reshape(3, 3)
+        return np.array([self.data.geom_xpos[g] + R @ (half * [a, b, c])
+                         for a in (-1, 1) for b in (-1, 1) for c in (-1, 1)])
+
+    def _extent_along_m(self, name: str, axis) -> float:
+        """Width of `name` measured along a world direction (the jaw axis of
+        a side grasp). Caller holds the lock."""
+        v = self._object_vertices(name) @ np.asarray(axis, float)
+        return float(v.max() - v.min()) if len(v) else 0.0
+
     def object_z_extent_m(self, name: str) -> tuple:
         """(bottom_z, top_z) of `name` in world metres.
 
@@ -2792,7 +4115,7 @@ class SimXArmAPI:
 
     def _validate_swept_path(self, start_rad, target_rad,
                              start_rail_m=None, target_rail_m=None,
-                             n: int = None):
+                             n: int = None, validator=None):
         """Collision-check the configurations BETWEEN start and target.
 
         Returns (ok, reason). Endpoints are excluded -- the caller validates
@@ -2811,6 +4134,7 @@ class SimXArmAPI:
         # it does something.
         if n is None:
             n = SWEPT_PATH_SAMPLES
+        val = validator if validator is not None else self.validator
         start_rad = _np.asarray(start_rad, dtype=float)
         target_rad = _np.asarray(target_rad, dtype=float)
 
@@ -2822,7 +4146,7 @@ class SimXArmAPI:
         # module, so after the rail gained path validation EVERY rail move was
         # refused at the first sample and every episode died on its first
         # command.
-        pre = self.validator.validate(start_rad, _np.zeros(3),
+        pre = val.validate(start_rad, _np.zeros(3),
                                       rail_pos_m=start_rail_m,
                                       check_position=False)
         inherited = set(pre.contacts or ())
@@ -2832,7 +4156,7 @@ class SimXArmAPI:
             rail = None
             if start_rail_m is not None and target_rail_m is not None:
                 rail = start_rail_m + a * (target_rail_m - start_rail_m)
-            res = self.validator.validate(q, _np.zeros(3), rail_pos_m=rail,
+            res = val.validate(q, _np.zeros(3), rail_pos_m=rail,
                                           check_position=False)
             if res.is_valid:
                 continue
@@ -2842,6 +4166,8 @@ class SimXArmAPI:
             detail = (f"Collision: {new_hits[:3]}" if new_hits else res.reason)
             return False, f"at {a*100:.0f}% along the path: {detail}"
 
+        if validator is not None:
+            return True, "OK"            # a what-if: nothing is carried in it
         # The arm is clear. What it is carrying might not be.
         carried = self._held_body_path_hits(start_rad, target_rad,
                                             start_rail_m, target_rail_m, n)
@@ -2851,7 +4177,8 @@ class SimXArmAPI:
                            f"{held_name} would hit {other}")
         return True, "OK"
 
-    def _grasp_rejections(self, name: str, ee_pos, reach: float) -> list:
+    def _grasp_rejections(self, name: str, ee_pos, reach: float,
+                          side: bool = False) -> list:
         """Why `name` could NOT be grasped from the current pose. [] means it can.
 
         Caller must already hold self.lock (RLock, so re-entering is safe).
@@ -2876,7 +4203,13 @@ class SimXArmAPI:
         approach = approach / n
 
         down = float(_np.dot(approach, _np.array([0.0, 0.0, -1.0])))
-        if down < GRASP_MIN_DOWNWARD:
+        # A side grasp (put_in) approaches horizontally on purpose; only a
+        # caller that planned one may ask for it. The jaws then close along
+        # the tool's y axis, so the width they span is measured along it.
+        if side:
+            if abs(down) > _np.sin(_np.deg2rad(SIDE_GRASP_MAX_TILT_DEG)):
+                reasons.append(f"side grasp is not near horizontal (cos={down:.2f})")
+        elif down < GRASP_MIN_DOWNWARD:
             reasons.append(f"approach is not downward enough (cos={down:.2f} "
                            f"< {GRASP_MIN_DOWNWARD})")
 
@@ -2903,7 +4236,9 @@ class SimXArmAPI:
         # cylinder size[1] is HALF-LENGTH, not a radius), so each type is
         # converted to an equivalent half-extent triple first; reading size[1]
         # as lateral measured a 15 mm tube as 115 mm and rejected it.
-        width = self.object_width_m(name)
+        width = (self._extent_along_m(name, self.data.site_xmat[self.ee_site]
+                                      .reshape(3, 3)[:, 1]) if side
+                 else self.object_width_m(name))
         if width > aperture:
             reasons.append(f"object is {width*1000:.0f} mm wide, jaws span "
                            f"{aperture*1000:.0f} mm")
@@ -2929,8 +4264,9 @@ class SimXArmAPI:
 
         return reasons
 
-    def close_lite6_gripper(self) -> int:
+    def close_lite6_gripper(self, side: bool = False) -> int:
         """Grasp the nearest cube within GRIPPER_REACH_M of the EE site.
+        `side` admits a horizontal approach (put_in's side grasp).
 
         Captures the *current* gripper<->cube relative pose into eq_data
         before activating the weld, so the constraint locks the grasp in
@@ -2983,7 +4319,7 @@ class SimXArmAPI:
                       f"mode={self._gripper_mode}, reach={reach*1000:.0f}mm)")
                 return 1
 
-            rejections = self._grasp_rejections(nearest, ee_pos, reach)
+            rejections = self._grasp_rejections(nearest, ee_pos, reach, side=side)
             if rejections:
                 self.last_refusal = (f"grasp of {nearest} refused: "
                                      + "; ".join(rejections))
@@ -3016,7 +4352,10 @@ class SimXArmAPI:
             self.model.eq_data[eqid, 10]   = 1.0
             self.data.eq_active[eqid] = 1
             # Jaws stop on the object, not through it.
-            self._set_finger_ctrl(driver_for_gap(self.object_width_m(nearest)))
+            self._set_finger_ctrl(driver_for_gap(
+                self._extent_along_m(nearest, self.data.site_xmat[self.ee_site]
+                                     .reshape(3, 3)[:, 1]) if side
+                else self.object_width_m(nearest)))
         print(f"[SimXArm] Gripper close (grasped {nearest} at "
               f"{nearest_d*1000:.1f}mm)")
         return 0
