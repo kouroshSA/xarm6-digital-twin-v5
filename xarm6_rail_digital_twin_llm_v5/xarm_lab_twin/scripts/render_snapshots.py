@@ -30,8 +30,10 @@ from sim.render_options import scene_option  # noqa: E402
 # (label, lookat, distance, azimuth, elevation)
 VIEWS = [
     ("overview", (-0.20, 0.10, 0.95), 3.0, 70.0, -45.0),
-    ("incubator", (0.00, 0.60, 1.05), 0.95, 90.0, -25.0),   # in front of cam_overhead_housing
-    ("cabinet", (-0.85, -0.30, 1.10), 1.40, 180.0, -20.0),  # in front of cam_tripod_housing
+    # The door views look in from the side away from the rail: straight on from
+    # the bench, the arm parked at home hid both doors.
+    ("incubator", (0.00, 0.60, 1.05), 1.40, 125.0, -25.0),
+    ("cabinet", (-0.85, -0.30, 1.10), 1.60, 160.0, -25.0),
     ("bench", (0.10, -0.35, 0.80), 1.30, 90.0, -40.0),
 ]
 W, H = 640, 480
