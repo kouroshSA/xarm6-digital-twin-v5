@@ -441,6 +441,9 @@ def check_arm_backend_parity(scene=None) -> list[CheckResult]:
 _LOCK_EXEMPT_FUNCS = {
     "_solve_pink", "_rot_error_for",
     "_solve_jacobian_position", "_solve_jacobian_6dof",
+    # Steps a scratch MjData of its own (copied from the live one under the
+    # lock); the shared mjData is never touched there.
+    "_part_sweep_hits_base",
 }
 
 
