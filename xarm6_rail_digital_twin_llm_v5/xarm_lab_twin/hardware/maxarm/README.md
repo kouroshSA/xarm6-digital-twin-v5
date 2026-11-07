@@ -142,9 +142,14 @@ used `FakeBoard`.
       top = away from the base) at x = +60 / -60, read-back within 3.3 mm. So the
       arm frame is **left-handed** (z up, reach along -y): negate x before any
       rotation maths, including the camera hand-eye transform below.
-- [ ] `--floor`: cup-to-table contact z. `DEFAULT_FLOOR_Z_MM = 85` is the vendor's
-      lowest example height, **not measured**.
+- [x] `--floor` (2026-11-07): the cup lip touches the table at commanded wrist
+      **z = 52** (read-back 51.9) at (0, -200), judged by eye (+-2 mm), stepping
+      2 mm at 10 mm/s. `DEFAULT_FLOOR_Z_MM = 62` (contact + 10). One point only:
+      re-measure if the arm or table moves, or before working near the floor
+      across the whole reach.
 - [ ] `ARRIVAL_TOL_MM = 6` is provisional; measure read-back error under load.
+      Unloaded so far (2026-11-07, ~40 moves): within 0.4-1.5 mm stepping down,
+      3.3-3.5 mm after the larger moves (home 212 -> 208.7; lift 52 -> 82 read 78.6).
 - [ ] Wrist D435: hand-eye transform from the cup/flange to the camera. The
       arm frame is left-handed (see `--frame`); build the chain in the mirrored,
       right-handed frame. Reuse

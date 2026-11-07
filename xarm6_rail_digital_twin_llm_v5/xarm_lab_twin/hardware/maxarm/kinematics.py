@@ -90,14 +90,15 @@ Z_MAX_MM = 225.0
 #: Vendor refusal in `ESPMax.set_position`.
 MIN_REACH_MM = 50.0
 
-#: Lowest z this module accepts by default. **PROVISIONAL, NOT MEASURED.**
-#: FK z is the WRIST height. The vendor model has no vertical tool length, so
-#: the suction cup's lip sits some unmeasured distance below the z reported
-#: here, and the table plane in this frame is unknown. 85 mm is the lowest z the
-#: vendor's own examples command (Chapter 10 example: (120, -180, 85)), so it is
-#: a height the vendor considers clear of the table. Lower it only after
-#: measuring where the cup touches the table (`maxarm_probe.py --floor`).
-DEFAULT_FLOOR_Z_MM = 85.0
+#: Lowest z this module accepts by default. MEASURED (lab unit, 2026-11-07):
+#: stepping down 2 mm at a time at (0, -200), the suction cup's lip touched the
+#: table at commanded WRIST z = 52 (read-back 51.9), judged by eye, so +-2 mm.
+#: FK z is the wrist height; the vendor model has no tool length. 62 = contact
+#: + 10 mm. Measured at ONE point: re-measure if the arm or the table moves,
+#: and before trusting it across the reach (a tilted table changes it).
+#: The previous value, 85, was the lowest z in the vendor's examples.
+TABLE_CONTACT_Z_MM = 52.0
+DEFAULT_FLOOR_Z_MM = TABLE_CONTACT_Z_MM + 10.0
 
 #: Nozzle (PWM servo) rotation range, degrees, and its pulse mapping
 #: (`SuctionNozzle.set_angle`: -90..90 -> 500..2500 us).
