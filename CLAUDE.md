@@ -664,14 +664,24 @@ file's "Recording format" section so consumers can find them.
 - **Never commit secrets.** `.gitignore` excludes `.env`, `*.key`,
   `secrets/`, and `How-to-run.txt` (which historically had pasted API keys).
   Before any `git add .`, scan for `sk-ant-` to be safe.
-- **Two remotes; never `git push origin`.** `dev` is the private working repo
-  (`main` tracks it, bare `git push` goes there). `origin` is the public repo,
-  and it is a *filtered mirror*: `Claude-Session:` links and `Co-Authored-By:
-  … <noreply@anthropic.com>` trailers are stripped, so its hashes differ from
-  dev's. Publish only with `tools/sync_public.sh` (dry run) then
-  `tools/sync_public.sh --push`. A direct push would upload the unfiltered
-  history. The filter is deterministic, so routine syncs are fast-forwards;
-  the script refuses a rewrite unless given `--force`.
+- **Two repos; identify them by URL, not by remote name.** Remote names
+  differ between clones, so run `git remote -v` before any push.
+  - **Private dev repo** `github.com/kouroshSA/xarm6-digital-twin-v5_dev`:
+    the working repo. `main` tracks it, and bare `git push` goes there.
+  - **Public repo** `github.com/kouroshSA/xarm6-digital-twin-v5`: a
+    *filtered mirror*. `Claude-Session:` links and `Co-Authored-By: …
+    <noreply@anthropic.com>` trailers are stripped, so its hashes differ from
+    dev's. Never push to it directly; that would upload the unfiltered history.
+  - Clone layouts seen so far:
+    - `dev` = private, `origin` = public.
+    - `origin` = private, `public-v5` = public, with its push URL set to
+      `DISABLED_…` so a direct push fails.
+  - Publish only with `tools/sync_public.sh` (dry run) then
+    `tools/sync_public.sh --push`. The filter is deterministic, so routine
+    syncs are fast-forwards; the script refuses a rewrite unless given
+    `--force`. **The script hardcodes `SRC_REMOTE=dev` / `DST_REMOTE=origin`**:
+    run it only in a clone with the first layout. In the second layout it
+    stops at `git fetch dev`, because `dev` does not exist.
 - **The tool is the cell's:** F/T sensor + camera adapter (42.5 mm, derived from
   the measured 217 mm flange-to-tip) + UFACTORY xArm Gripper (TCP 172 mm), so the
   TCP is 214.5 mm from the flange and the payload 1.247 kg (`CELL_TCP_LOAD`).
