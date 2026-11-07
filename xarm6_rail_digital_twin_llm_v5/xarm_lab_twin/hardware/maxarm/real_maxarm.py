@@ -95,7 +95,22 @@ def _move(p1, p2, p3, t):
     return True
 def _vin():
     return [_bs.get_vin(i) for i in (1, 2, 3)]
+from machine import Timer as _T
+def _stop_stock_loop():
+    t = globals().get('tim')
+    if t is not None:
+        t.deinit()
+    _T(2).deinit()
+    return repr(_T(2))
 """
+
+#: The stock main.py ends with `tim = Timer(2); tim.init(period=15, callback=main)`:
+#: its Bluetooth, USB-mouse and key handlers (key 1 runs action group 100) keep
+#: moving the arm under our commands, and Ctrl-C does not stop a timer. Whether it
+#: is running when we connect depends on timing: an interrupt that lands while
+#: main.py is still starting Bluetooth aborts it first (measured 2026-11-07).
+#: Timer 3 is PWMServo's (the nozzle's smooth moves) and stays.
+STOCK_LOOP_TIMER = 2
 
 
 class MaxArmError(RuntimeError):
@@ -130,6 +145,7 @@ class RealMaxArmAPI:
                 f"board prelude failed: {exc}. The vendor's BusServo.py / "
                 f"SuctionNozzle.py must be on the board; run "
                 f"scripts/maxarm_probe.py to list its files.") from exc
+        self.stock_loop = self._stop_stock_loop()
 
         pulses = self._read_pulses()          # proves the servo bus answers
         self.connect_pulses = pulses
@@ -146,6 +162,16 @@ class RealMaxArmAPI:
                 return self.repl.call(code, timeout_s)
             except BoardError as exc:
                 raise MaxArmError(f"{what}: the board raised {exc}") from exc
+
+    def _stop_stock_loop(self) -> str:
+        """Stop the stock program's control loop; refuse to connect if it runs on."""
+        state = self._call("_r(_stop_stock_loop)", "stop the stock control loop")
+        if "counter_en=0" not in str(state):
+            raise MaxArmError(
+                f"the stock program's control loop (Timer {STOCK_LOOP_TIMER}) is "
+                f"still running after deinit ({state}); its Bluetooth/mouse/key "
+                f"handlers would move the arm under our commands")
+        return state
 
     def _read_pulses(self) -> list[int]:
         p = self._call("_r(_pulses)", "read servo positions")

@@ -216,6 +216,23 @@ def test_connect_moves_nothing():
     return f"{PASS} connect interrupts the stock program and reads servos, no motion"
 
 
+def test_connect_stops_the_stock_control_loop():
+    board = FakeBoard(stock_loop=True)
+    RealMaxArmAPI(link=board)
+    if board.timers[2]:
+        return f"{FAIL} the stock main.py's Timer 2 still runs after connect"
+    if not board.timers[3]:
+        return f"{FAIL} connect stopped Timer 3, the nozzle's (PWMServo) timer"
+    try:
+        RealMaxArmAPI(link=FakeBoard(stock_loop=True, timer_stuck={2}))
+    except MaxArmError as exc:
+        if "control loop" not in str(exc):
+            return f"{FAIL} wrong refusal for a loop that will not stop: {exc}"
+    else:
+        return f"{FAIL} connected although the stock loop kept running"
+    return f"{PASS} connect stops the stock loop (Timer 2), keeps Timer 3, refuses if it runs on"
+
+
 def test_dead_servo_fails_connect():
     try:
         _arm(dead={2})
@@ -327,6 +344,7 @@ TESTS = [
     test_missing_vendor_module_is_a_clear_error,
     test_contract_is_complete,
     test_connect_moves_nothing,
+    test_connect_stops_the_stock_control_loop,
     test_dead_servo_fails_connect,
     test_move_sends_the_ports_pulses_and_verifies,
     test_refused_move_sends_nothing,

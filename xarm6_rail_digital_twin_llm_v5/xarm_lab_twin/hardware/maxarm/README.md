@@ -123,12 +123,16 @@ used `FakeBoard`.
 - [x] Stock program backed up (2026-11-07), all 20 files byte-for-byte and
       checked against the board's own SHA-256: `~/Models/maxarm_board_backup/2026-11-07/`
       on ksa-14Studio, with `MANIFEST.json`. Kept OUT of git (unpublished vendor code).
-- [ ] **The stock program stays live under the backend.** `main.py` homes the arm
-      at boot (so every connect, which reboots the board, moves it home), then
-      starts `Timer(2)` calling `main()` every 15 ms: Bluetooth, USB-mouse and
-      button handlers (a short press of key 1 runs action group 100). Ctrl-C
-      stops `main.py`, not the timer. The backend should stop it on connect
-      (`tim.deinit()`) before commanding moves.
+- [x] **The stock control loop is stopped on connect** (2026-11-07). `main.py`
+      homes the arm at boot, then starts `Timer(2)` calling `main()` every 15 ms:
+      Bluetooth, USB-mouse and button handlers (a short press of key 1 runs
+      action group 100). Ctrl-C does not stop a timer. Whether it is running
+      when we connect is timing: an interrupt that lands while main.py is still
+      starting Bluetooth aborts it before the homing and the timer. So
+      `RealMaxArmAPI` deinits Timer 2 (and main.py's `tim`), refuses to connect
+      unless the board reports `counter_en=0`, and keeps Timer 3 (PWMServo, the
+      nozzle). Checked on 3 connects, both cases. Every connect still reboots the
+      board, and a reboot that runs main.py through homes the arm.
 - [x] `--kinematics` (2026-11-07): the board's IK equals the port on all 7
       points, after the x-sign fix above.
 - [ ] `--frame`: which physical direction is +x. **PROVISIONAL** until then.

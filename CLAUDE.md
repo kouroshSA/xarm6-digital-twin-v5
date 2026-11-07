@@ -560,6 +560,10 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
   DTR/RTS on open before pyserial's deasserted values apply. The stock program
   boots in ~3.2 s with a silent gap, so `RawRepl.enter` waits for its `>>> `
   prompt; keys sent earlier are lost. The port needs the `dialout` group.
+- **The stock program is not stopped by Ctrl-C.** `main.py` runs its Bluetooth /
+  mouse / key handlers from `Timer(2)`, which would move the arm under ours;
+  `RealMaxArmAPI` deinits it on connect and refuses unless the board reports it
+  stopped. Leave Timer 3 alone (PWMServo, the nozzle).
 - Tests: `python -m hardware.maxarm.test_maxarm`. The IK is graded against
   vectors from the vendor's compiled `_espmax.cpp` and against values read off
   the board (`test_frame_matches_the_board`), not against itself.

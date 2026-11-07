@@ -7,6 +7,9 @@ the real command text, not a mock of either. Board modules (`BusServo`,
 * `BusServo.run` moves a servo straight to the pulse (no time passes in
   tests). `stuck` servos ignore it, and `dead` servos fail to answer reads.
 * `SuctionNozzle` records pump and nozzle commands.
+* `machine.Timer` models the ESP32's hardware timers by id. `stock_loop=True`
+  leaves the stock main.py's `tim` (Timer 2) running, as when it finished
+  before the backend's interrupt; `timer_stuck` timers ignore deinit.
 
 `board.calls` logs every hardware-level action, so a test can assert that a
 refused move sent NOTHING to the servos.
@@ -23,13 +26,16 @@ from .transport import CTRL_A, CTRL_B, CTRL_C, CTRL_D, RAW_BANNER
 
 class FakeBoard:
     def __init__(self, pulses=(500, 500, 500), *, stuck=(), dead=(),
-                 sag_pulses=0, missing_modules=(), micropython=True):
+                 sag_pulses=0, missing_modules=(), micropython=True,
+                 stock_loop=False, timer_stuck=()):
         self.pos = {1: pulses[0], 2: pulses[1], 3: pulses[2]}
         self.stuck = set(stuck)
         self.dead = set(dead)
         self.sag = sag_pulses
         self.missing = set(missing_modules)
         self.micropython = micropython
+        self.timers = {0: False, 1: True, 2: stock_loop, 3: True}  # running?
+        self.timer_stuck = set(timer_stuck)
         self.calls: list[tuple] = []
         self.out = b""
         self.raw = False
@@ -111,7 +117,21 @@ class FakeBoard:
             def set_angle(self, angle=0, duration=1000):
                 board.calls.append(("nozzle", angle, duration))
 
+        class Timer:
+            def __init__(self, i):
+                self.i = i
+
+            def deinit(self):
+                board.calls.append(("timer_deinit", self.i))
+                if self.i not in board.timer_stuck:
+                    board.timers[self.i] = False
+
+            def __repr__(self):
+                on = int(board.timers[self.i])
+                return f"Timer(3ffe0000; alarm_en={on}, auto_reload=1, counter_en={on})"
+
         mods = {"ujson": type("m", (), {"dumps": staticmethod(json.dumps)}),
+                "machine": type("m", (), {"Timer": Timer}),
                 "BusServo": type("m", (), {"BusServo": BusServo}),
                 "SuctionNozzle": type("m", (), {"SuctionNozzle": SuctionNozzle})}
 
@@ -125,6 +145,8 @@ class FakeBoard:
         b = dict(vars(builtins))
         b["__import__"] = imp
         self.ns = {"__builtins__": b}
+        if self.timers[2]:
+            self.ns["tim"] = Timer(2)
 
     def motion_calls(self) -> list[tuple]:
         return [c for c in self.calls if c[0] in ("run", "nozzle", "unload")]
