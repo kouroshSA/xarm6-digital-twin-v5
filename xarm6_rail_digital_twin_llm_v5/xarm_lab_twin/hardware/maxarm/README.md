@@ -34,6 +34,9 @@ arm.close_gripper(); arm.open_gripper()       # pump on / release
 | `real_maxarm.py` | `RealMaxArmAPI` |
 | `fake_board.py` | a raw-REPL board model for tests |
 | `test_maxarm.py` | tests; kinematics graded against the compiled vendor C source |
+| `hand_eye.py` | wrist-camera calibration: wrist frame, left/right-handed conversion, solve via `solve_camera_pose` |
+| `hand_eye_calib.json` | the measured camera mount (cam_to_wrist) with its provenance and error figures |
+| `test_hand_eye.py` | recovers a known mount; a camera point lands on the arm-frame target; the naive left-handed fit fails |
 
 ## Decisions
 
@@ -103,9 +106,10 @@ used `FakeBoard`.
   controller (PCI 00:0d.0, the USB-C ports) was stuck in runtime suspend. It
   was forced on with `power/control=on`. It was not the cause.
 - **Bluetooth pairs and connects, but is not usable** (see the section above).
-- **The wrist D435i is serial `950323050368`.** (2026-11-07 on ksa-14Studio the camera on
-  the MaxArm's wrist reported `027422071693`, the unit whose intrinsics *are* in
-  `d435i_calib.py`. Check the serial each session.) `perception/d435i_calib.py`
+- **The wrist D435i is serial `950323050368`.** (2026-11-07/08 on ksa-14Studio the camera
+  on the MaxArm's wrist reported `027422071693`. `d435i_calib.py` holds `033422072806`'s
+  values, so neither matches: the hand-eye run used the intrinsics the device
+  reports. Check the serial each session.) `perception/d435i_calib.py`
   holds the factory intrinsics of `027422071693` (the xArm cell's camera).
   Read this unit's own intrinsics off the device before trusting any
   measurement from it. The xArm cell already had an 11.8 px cx error from
@@ -150,8 +154,15 @@ used `FakeBoard`.
 - [ ] `ARRIVAL_TOL_MM = 6` is provisional; measure read-back error under load.
       Unloaded so far (2026-11-07, ~40 moves): within 0.4-1.5 mm stepping down,
       3.3-3.5 mm after the larger moves (home 212 -> 208.7; lift 52 -> 82 read 78.6).
-- [ ] Wrist D435: hand-eye transform from the cup/flange to the camera. The
-      arm frame is left-handed (see `--frame`); build the chain in the mirrored,
-      right-handed frame. Reuse
-      `perception/` (`RGBDFrame.pixel_to_world` needs a `cam_to_world`; the
-      MaxArm tool is always vertical, so the chain is base yaw + translation).
+- [x] Wrist D435 hand-eye (2026-11-08): `hand_eye.py`, `scripts/maxarm_hand_eye.py`
+      (`place` / `collect` / `verify`), result in `hand_eye_calib.json`. 41 views
+      of a 40 mm tag laid at a known point: RMS 2.1 mm, max 3.7 mm (the size of
+      the servo read-back error), spread 0.55; PnP depth agrees with the depth
+      sensor to ~2 mm. **Verified:** with the tag moved ~3 cm, camera + calibration
+      put its centre at z 52.9 (table 52) and the cup hovered 1-2 mm from it, by
+      eye. The camera sits ~35 mm above the wrist point and ~63 mm off the nozzle
+      axis, looking down within ~2.8 deg; it does NOT look at the cup, and it
+      cannot focus closer than about wrist z 140. Valid at nozzle angle 0 if the
+      camera rides the nozzle (not established; the calibration never turns it).
+- [ ] Wire the calibration into `RealSenseWristCamera` frames for the MaxArm
+      (`cam_to_world` = `hand_eye.cam_to_arm_rh`, then `from_rh` for arm mm).

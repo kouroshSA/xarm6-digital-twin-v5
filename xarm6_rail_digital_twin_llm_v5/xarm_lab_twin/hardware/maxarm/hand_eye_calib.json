@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-08",
+  "camera_serial": "027422071693",
+  "tag": "DICT_4X4_50 id 0, 40.0 mm",
+  "tag_xyz_arm_mm": [
+    0.8440935574560372,
+    -201.5113145734099,
+    52.1
+  ],
+  "samples_file": "/home/ksa/Models/maxarm_calib/hand_eye_samples_20261108_001807.json",
+  "table_contact_z_mm": 52.0,
+  "cam_to_wrist": [
+    [
+      0.029182,
+      -0.999314,
+      0.022793,
+      0.039507
+    ],
+    [
+      -0.998629,
+      -0.028156,
+      0.044118,
+      0.048591
+    ],
+    [
+      -0.043446,
+      -0.02405,
+      -0.998766,
+      0.034891
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "rms_mm": 2.12,
+  "max_mm": 3.72,
+  "n": 41,
+  "spread_ratio": 0.55,
+  "min_spread_ratio": 0.05,
+  "frame": "cam_to_wrist maps the colour OPTICAL frame to the wrist frame of hand_eye.wrist_frame, in the right-handed MIRROR of the arm frame (x negated), metres; z in command coordinates"
+}
