@@ -19,9 +19,10 @@ from arm_backend import (ARM_BACKEND_METHODS, backend_report, missing_methods,
 
 
 def _backends():
+    from hardware.maxarm.real_maxarm import RealMaxArmAPI
     from hardware.real_arm import RealXArmAPI
     from sim.mujoco_env import SimXArmAPI
-    return [SimXArmAPI, RealXArmAPI]
+    return [SimXArmAPI, RealXArmAPI, RealMaxArmAPI]
 
 
 def test_no_missing_methods():

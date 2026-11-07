@@ -539,6 +539,25 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
   `.test_recordings`, `.test_lab_rebuilt`, `.test_entry_points`;
   `MUJOCO_GL=egl python -m simready_import.test_importer [--network]`.
 
+## Hiwonder MaxArm (real hardware, no twin)
+
+`xarm_lab_twin/hardware/maxarm/`: a second, unrelated arm (ESP32, 3 bus servos,
+suction cup, no rail), driven over USB through the board's MicroPython raw REPL.
+Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/hardware/maxarm/README.md).
+
+- **The PC-side port in `kinematics.py` is the one source of truth for motion.**
+  Moves send bus-servo pulses directly. Do not route them through the vendor's
+  `ESPMax.set_position`: it re-solves IK on the board and silently clamps z,
+  servo 2, servo 3 and short reaches (defect classes #1 and #2 in a single
+  call). The board's solver is only a cross-check (`maxarm_probe.py --kinematics`).
+- The vendor's Arduino and MicroPython APIs have opposite x axes; the arm frame
+  is the MicroPython one. Which physical way +x points, the table floor, and the
+  arrival tolerance are all PROVISIONAL until measured on the device.
+- `SerialLink` deasserts DTR/RTS **before** opening, because ESP32 auto-reset
+  would otherwise reboot the board and the stock program may move the arm.
+- Tests: `python -m hardware.maxarm.test_maxarm`. The IK is graded against
+  vectors from the vendor's compiled `_espmax.cpp`, not against itself.
+
 ## Pose geometry helpers
 
 `xarm_lab_twin/geometry/` holds SE(3) interpolation, smoothing and dwell

@@ -1,0 +1,163 @@
+"""Talk to the MaxArm's ESP32 through its MicroPython raw REPL.
+
+Why the REPL and not the vendor's binary protocol (docs Chapter 10)
+-------------------------------------------------------------------
+The binary protocol needs a vendor "slave" program flashed to the board, and
+it has no acknowledgement for a move. `ESPMax.set_position` returns False on
+an IK failure, and the slave's `deal_command` discards it. So a refused move
+looks exactly like an executed one. The REPL returns the real return value and
+the real exception text, and needs nothing installed on the board.
+
+The raw REPL protocol (MicroPython's own, as used by mpremote/pyboard.py):
+
+    host: CTRL-C CTRL-C        interrupt whatever is running (the stock program)
+    host: CTRL-A               enter raw REPL
+    board: "raw REPL; CTRL-B to exit\\r\\n>"
+    host: <code> CTRL-D        execute
+    board: "OK" <stdout> 0x04 <stderr> 0x04 ">"
+    host: CTRL-B               leave raw REPL
+
+Opening the port without resetting the board
+--------------------------------------------
+ESP32 boards wire DTR/RTS to EN/IO0 for auto-reset. pyserial asserts both on
+open by default, which can reboot the board, and the stock program may then
+move the arm home. So `SerialLink` sets dtr/rts False BEFORE opening.
+`test_maxarm.check_serial_opened_without_reset` pins that ordering.
+
+Each command prints one line `@@<json>` built by the on-board helper `_r`
+(see `BOARD_PRELUDE` in real_maxarm.py). Anything else printed is passed
+through as log text, so vendor `print()` noise cannot be mistaken for a result.
+"""
+from __future__ import annotations
+
+import json
+import time
+
+CTRL_A, CTRL_B, CTRL_C, CTRL_D = b"\x01", b"\x02", b"\x03", b"\x04"
+RAW_BANNER = b"raw REPL; CTRL-B to exit\r\n>"
+RESULT_TAG = "@@"
+
+
+class TransportError(RuntimeError):
+    """The link failed: the board is gone, wedged, or not running MicroPython."""
+
+
+class BoardError(RuntimeError):
+    """Code ran on the board and raised. `.traceback` is the board's text."""
+
+    def __init__(self, traceback: str):
+        self.traceback = traceback
+        lines = [ln for ln in traceback.strip().splitlines() if ln.strip()]
+        super().__init__(lines[-1] if lines else "board raised with no message")
+
+
+class SerialLink:
+    """A pyserial port opened WITHOUT toggling the board's reset lines."""
+
+    def __init__(self, port: str, baudrate: int = 115200, serial_module=None):
+        if serial_module is None:
+            import serial as serial_module
+        s = serial_module.Serial()
+        s.port = port
+        s.baudrate = baudrate
+        s.timeout = 0.05
+        # Deassert BEFORE open: on ESP32 auto-reset wiring, the default
+        # (asserted) state on open can pulse EN and reboot the board.
+        s.dtr = False
+        s.rts = False
+        s.open()
+        self._s = s
+
+    def write(self, data: bytes) -> None:
+        self._s.write(data)
+        self._s.flush()
+
+    def read_available(self) -> bytes:
+        n = self._s.in_waiting
+        return self._s.read(n or 1)
+
+    def close(self) -> None:
+        self._s.close()
+
+
+class RawRepl:
+    """Execute code on the board; returns stdout, raises BoardError on error."""
+
+    def __init__(self, link, timeout_s: float = 5.0):
+        self.link = link
+        self.timeout_s = timeout_s
+        self._buf = b""
+        self.in_raw = False
+        self.log: list[str] = []   # non-result lines the board printed
+
+    # -- low level ----------------------------------------------------------
+    def _read_until(self, marker: bytes, timeout_s: float) -> bytes:
+        deadline = time.monotonic() + timeout_s
+        while marker not in self._buf:
+            if time.monotonic() > deadline:
+                got, self._buf = self._buf, b""
+                raise TransportError(
+                    f"timed out after {timeout_s:.1f}s waiting for {marker!r}; "
+                    f"board sent {got[-200:]!r}")
+            self._buf += self.link.read_available()
+        head, _, self._buf = self._buf.partition(marker)
+        return head
+
+    def enter(self) -> None:
+        """Interrupt the running program and enter the raw REPL."""
+        self.link.write(b"\r" + CTRL_C + CTRL_C)
+        time.sleep(0.2)
+        self._buf = b""
+        self.link.read_available()           # drop whatever was in flight
+        self.link.write(b"\r" + CTRL_A)
+        try:
+            self._read_until(RAW_BANNER, 3.0)
+        except TransportError as exc:
+            raise TransportError(
+                "no MicroPython raw-REPL banner. Either the board is not running "
+                "MicroPython (Arduino firmware?), or this is the wrong port. "
+                f"Detail: {exc}") from None
+        self.in_raw = True
+
+    def exit(self) -> None:
+        if self.in_raw:
+            self.link.write(CTRL_B)
+            self.in_raw = False
+
+    def exec(self, code: str, timeout_s: float | None = None) -> str:
+        if not self.in_raw:
+            raise TransportError("exec before enter()")
+        t = self.timeout_s if timeout_s is None else timeout_s
+        self.link.write(code.encode() + CTRL_D)
+        ack = self._read_until(b"OK", 2.0)
+        if ack.strip(b">\r\n "):
+            raise TransportError(f"board did not accept the code: {ack!r}")
+        out = self._read_until(CTRL_D, t)
+        err = self._read_until(CTRL_D, t)
+        self._read_until(b">", 1.0)
+        if err.strip():
+            raise BoardError(err.decode(errors="replace"))
+        return out.decode(errors="replace")
+
+    # -- result protocol ----------------------------------------------------
+    def call(self, code: str, timeout_s: float | None = None):
+        """Run code that ends with exactly one `_r(...)` and return its value.
+
+        Raises BoardError if the call raised on the board. A missing or
+        duplicated result line is a TransportError: it means the protocol is
+        out of step, and guessing which line was meant would be worse.
+        """
+        out = self.exec(code, timeout_s)
+        results = []
+        for line in out.splitlines():
+            if line.startswith(RESULT_TAG):
+                results.append(json.loads(line[len(RESULT_TAG):]))
+            elif line.strip():
+                self.log.append(line)
+        if len(results) != 1:
+            raise TransportError(f"expected one result line, got {len(results)}: "
+                                 f"{out[-300:]!r}")
+        res = results[0]
+        if not res.get("ok"):
+            raise BoardError(res.get("e", "unknown board error"))
+        return res.get("v")
