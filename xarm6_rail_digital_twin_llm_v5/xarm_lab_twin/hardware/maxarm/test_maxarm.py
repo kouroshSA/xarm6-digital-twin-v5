@@ -22,8 +22,9 @@ from .transport import SerialLink, TransportError
 
 # Output of the vendor's _espmax.cpp compiled with g++ (2026-11-07), in the
 # C/ARDUINO frame: (input xyz), (joint deg), (pulses), (FK of those joints).
-# The arm frame used by this repo is the C frame with x negated (see
-# kinematics.py), so tests flip x on the way in and out. Pulses are frame-free.
+# On the lab unit's firmware that frame IS the arm frame (the ESPMax frame): the
+# board's solver lacks the C source's x negation and espmax.py adds one (see
+# kinematics.py). Pulses are frame-free.
 C_REFERENCE = [
     ((0, -163, 212), (120.000000, 90.027809, 0.332147), (500.000000, 499.884125, 501.383942)),
     ((120, -180, 85), (86.309921, 133.709946, 41.929420), (359.624664, 317.875214, 674.705933)),
@@ -47,7 +48,7 @@ def _close(a, b, tol):
 def test_ik_matches_compiled_vendor_source():
     worst = 0.0
     for (cx, cy, cz), joints_c, pulses_c in C_REFERENCE:
-        j = kin.inverse((-cx, cy, cz))             # C frame -> arm frame
+        j = kin.inverse((cx, cy, cz))
         p = kin.deg_to_pulse(j)
         if not _close(p, pulses_c, 1e-3):
             return f"{FAIL} pulses for C({cx},{cy},{cz}): {p} vs vendor {pulses_c}"
@@ -59,13 +60,37 @@ def test_ik_matches_compiled_vendor_source():
 
 def test_fk_matches_compiled_vendor_source():
     x, y, z = kin.pulses_to_xyz(kin.HOME_PULSES)
-    if not _close((-x, y, z), C_FK_HOME_PULSES, 1e-3):
-        return f"{FAIL} FK(500,500,500) = {(x, y, z)}; vendor C gives {C_FK_HOME_PULSES} (x flipped)"
+    if not _close((x, y, z), C_FK_HOME_PULSES, 1e-3):
+        return f"{FAIL} FK(500,500,500) = {(x, y, z)}; vendor C gives {C_FK_HOME_PULSES}"
     for (cx, cy, cz), joints_c, _ in C_REFERENCE:
         fx, fy, fz = kin.forward(joints_c)
-        if not _close((-fx, fy, fz), (cx, cy, cz), 1e-3):
+        if not _close((fx, fy, fz), (cx, cy, cz), 1e-3):
             return f"{FAIL} FK of vendor joints for C({cx},{cy},{cz}) gave {(fx, fy, fz)}"
     return f"{PASS} FK matches compiled _espmax.cpp, incl. home pulses -> (0, -162.94, 212.8)"
+
+
+# Read off the lab unit (maxarm_probe.py --kinematics, 2026-11-07): what the
+# board's own solver returns. `espmax` = joints `ESPMax.set_position` commands for
+# arm-frame xyz (it calls __espmax.inverse with -x); `raw` = __espmax.inverse
+# called on xyz as given. Rounded to 3 decimals by the probe.
+BOARD_ESPMAX = [((120, -180, 85), (86.31, 133.71, 41.929)),
+                ((-120, -180, 85), (153.69, 133.71, 41.929)),
+                ((150, -150, 150), (75.0, 116.924, 20.746)),
+                ((-60, -220, 120), (135.255, 129.051, 27.684)),
+                ((200, 10, 100), (27.138, 123.875, 41.258))]
+BOARD_RAW = [((120, -180, 85), (153.69, 133.71, 41.929)),
+             ((150, -150, 150), (165.0, 116.924, 20.746)),
+             ((200, 10, 100), (212.862, 123.875, 41.258))]
+
+
+def test_frame_matches_the_board():
+    for p, j in BOARD_ESPMAX:
+        if not _close(kin.inverse(p), j, 0.01):
+            return f"{FAIL} arm frame {p}: {kin.inverse(p)} vs the board's ESPMax {j} (x mirrored?)"
+    for p, j in BOARD_RAW:
+        if not _close(kin._solver_inverse(p), j, 0.01):
+            return f"{FAIL} solver {p}: {kin._solver_inverse(p)} vs the board's __espmax {j}"
+    return f"{PASS} arm frame = the board's ESPMax frame; solver = its __espmax ({len(BOARD_ESPMAX) + len(BOARD_RAW)} measured poses)"
 
 
 def test_vendor_home_is_reachable_and_near_fk_home():
@@ -293,6 +318,7 @@ def test_disconnect_keeps_torque_and_warns_about_pump():
 TESTS = [
     test_ik_matches_compiled_vendor_source,
     test_fk_matches_compiled_vendor_source,
+    test_frame_matches_the_board,
     test_vendor_home_is_reachable_and_near_fk_home,
     test_fk_ik_roundtrip_over_workspace,
     test_silent_vendor_clamps_are_refusals_here,

@@ -30,7 +30,7 @@ arm.close_gripper(); arm.open_gripper()       # pump on / release
 | file | what |
 |---|---|
 | `kinematics.py` | FK/IK ported from the vendor's `_espmax.cpp`, plus the gate (`solve`, `check_pose`) |
-| `transport.py` | MicroPython raw-REPL client; opens the port without resetting the ESP32 |
+| `transport.py` | MicroPython raw-REPL client; waits out the reboot that opening the port causes |
 | `real_maxarm.py` | `RealMaxArmAPI` |
 | `fake_board.py` | a raw-REPL board model for tests |
 | `test_maxarm.py` | tests; kinematics graded against the compiled vendor C source |
@@ -60,8 +60,11 @@ arm.close_gripper(); arm.open_gripper()       # pump on / release
   L0=84.4, L1=8.14, L2=128.4, L3=138.0, with L4=16.8 passed in. All 21 copies
   of `_espmax.h` in the vendor downloads agree. `espmax.py`'s own L values
   (84.0/8.2/128.0) only feed `ORIGIN`.
-- The vendor's Arduino and MicroPython APIs have **opposite x axes**. This
-  module uses the MicroPython one (the "arm frame").
+- **x sign:** the published `_espmax.cpp` negates x; the board's compiled
+  `__espmax.mpy` does not, and `espmax.py` negates it once. So on the lab unit
+  the MicroPython `ESPMax` frame equals the C-source frame. This module uses the
+  `ESPMax` frame (the "arm frame"); the first version assumed the opposite and
+  was mirrored, which `--kinematics` caught (2026-11-07).
 - The vendor's Raspberry Pi example passes xyz as a Python **set**
   (`{120, -180, 85}`), so its axis order is arbitrary. Do not copy it.
 - Reading angles over the binary protocol returns pulses, while setting them
@@ -109,9 +112,17 @@ used `FakeBoard`.
 
 ## Open, needs the device
 
-- [ ] USB link: see the handoff above. Change the cable first.
-- [ ] Which board files exist (`maxarm_probe.py`); back up the stock program.
-- [ ] `--kinematics`: confirm the board's IK equals the port.
+- [x] USB link (2026-11-07): the old cable was power-only; with a data cable
+      it is a CH340 at `/dev/ttyUSB0`. **Opening the port reboots the board**
+      (Linux raises DTR/RTS before pyserial can lower them); the stock program
+      boots in ~3.2 s and `RawRepl.enter` waits for its prompt.
+- [x] Board files (2026-11-07): `1.rob`..`8.rob`, `BusServo.py`, `Buzzer.py`,
+      `Key.py`, `Led.py`, `PWMServo.py`, `RobotControl.py`, `SuctionNozzle.py`,
+      `USBDevice.py`, `__espmax.mpy`, `boot.py`, `espmax.py`, `main.py`;
+      MicroPython 1.12 on ESP32; servo supply ~12.3 V.
+- [ ] Back up the stock program before writing anything to the board.
+- [x] `--kinematics` (2026-11-07): the board's IK equals the port on all 7
+      points, after the x-sign fix above.
 - [ ] `--frame`: which physical direction is +x. **PROVISIONAL** until then.
 - [ ] `--floor`: cup-to-table contact z. `DEFAULT_FLOOR_Z_MM = 85` is the vendor's
       lowest example height, **not measured**.

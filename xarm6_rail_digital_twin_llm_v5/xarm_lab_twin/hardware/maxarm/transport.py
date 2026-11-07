@@ -17,12 +17,15 @@ The raw REPL protocol (MicroPython's own, as used by mpremote/pyboard.py):
     board: "OK" <stdout> 0x04 <stderr> 0x04 ">"
     host: CTRL-B               leave raw REPL
 
-Opening the port without resetting the board
---------------------------------------------
+Opening the port reboots the board (measured on Linux, 2026-11-07)
+------------------------------------------------------------------
 ESP32 boards wire DTR/RTS to EN/IO0 for auto-reset. pyserial asserts both on
-open by default, which can reboot the board, and the stock program may then
-move the arm home. So `SerialLink` sets dtr/rts False BEFORE opening.
-`test_maxarm.check_serial_opened_without_reset` pins that ordering.
+open by default, so `SerialLink` sets dtr/rts False BEFORE opening
+(`test_maxarm.check_serial_opened_without_reset` pins that ordering). On the
+lab unit (CH340) the board STILL reboots on every open: the Linux tty driver
+raises the lines itself before pyserial can lower them. The stock program then
+runs (and may move the arm home), so `RawRepl.enter` waits for its `>>> `
+prompt before interrupting.
 
 Each command prints one line `@@<json>` built by the on-board helper `_r`
 (see `BOARD_PRELUDE` in real_maxarm.py). Anything else printed is passed
@@ -52,7 +55,11 @@ class BoardError(RuntimeError):
 
 
 class SerialLink:
-    """A pyserial port opened WITHOUT toggling the board's reset lines."""
+    """A pyserial port, opened with the reset lines deasserted.
+
+    That is not enough on Linux: the lab unit still reboots on open (see
+    RawRepl._wait_for_boot). Deasserting keeps the lines from holding it in reset.
+    """
 
     def __init__(self, port: str, baudrate: int = 115200, serial_module=None):
         if serial_module is None:
@@ -103,8 +110,28 @@ class RawRepl:
         head, _, self._buf = self._buf.partition(marker)
         return head
 
+    def _wait_for_boot(self, listen_s: float = 0.3, boot_s: float = 8.0) -> None:
+        """If the board is booting, wait for its friendly prompt.
+
+        Opening the port reboots the lab unit (CH340 + ESP32) whatever SerialLink
+        asks: Linux raises DTR/RTS on open before pyserial can lower them. The ROM
+        prints at once, then goes silent ~2.8 s before the stock program's
+        "Please wait... Start" and the `>>> ` prompt (~3.2 s). Keys sent in that
+        window are lost, so a quiet line does not mean ready; wait for the prompt.
+        """
+        deadline = time.monotonic() + listen_s
+        seen = b""
+        while time.monotonic() < deadline:
+            seen += self.link.read_available()
+        if b"rst:" not in seen and b"ets " not in seen:
+            return                               # not booting: interrupt as before
+        deadline = time.monotonic() + boot_s
+        while b">>> " not in seen and time.monotonic() < deadline:
+            seen += self.link.read_available()
+
     def enter(self) -> None:
         """Interrupt the running program and enter the raw REPL."""
+        self._wait_for_boot()
         self.link.write(b"\r" + CTRL_C + CTRL_C)
         time.sleep(0.2)
         self._buf = b""

@@ -19,13 +19,19 @@ The vendor ships THREE copies of these numbers, and they disagree:
   `ESPMax.ORIGIN` (the home point, (0, -163, 212)). The solver never reads them.
 * The Arduino `ESPMax.cpp` caps z at 255; the MicroPython `espmax.py` caps it at
   225.
-* The Arduino `set_position` passes x straight to the solver. The MicroPython
-  one negates it first, and the C solver negates it again. So the two vendor
-  APIs have opposite x axes.
+* The x sign. The published `_espmax.cpp` negates x inside `inverse()` and
+  `forward()`; the board's compiled `__espmax.mpy` does NOT (measured on the lab
+  unit, 2026-11-07: `__espmax.inverse(16.8, (120, -180, 85))` gives joint 1
+  153.69, the C source 86.31). `espmax.py` negates x going in and coming out, so
+  on this firmware the MicroPython `ESPMax` frame and the C-source frame agree.
+  An earlier version of this module assumed the solver negates as the source
+  does, and worked in the mirror image of `ESPMax`; `--kinematics` caught it.
 
 This module uses the board's own convention, the MicroPython `ESPMax` frame
 (called the ARM FRAME below), because the backend drives that class. In this
 frame the home point is (0, -163, 212): the arm reaches along -y.
+`_solver_inverse` / `_solver_forward` are the board's `__espmax` functions;
+`inverse` / `forward` wrap them exactly as `espmax.py` does.
 
 PROVISIONAL until measured on the device: which physical direction +x points.
 The vendor frame is self-consistent (set_position and read_position agree), but
@@ -131,10 +137,28 @@ def _base_heading_deg(x: float, y: float) -> float:
 def inverse(xyz_mm) -> tuple[float, float, float]:
     """Arm-frame xyz (mm) -> vendor joint angles (deg). Raises Unreachable.
 
-    Port of `inverse()` in `_espmax.cpp`, in the arm frame (see module
-    docstring, which is why there is no x negation here). The C version prints
-    to serial and returns NaN for an out-of-reach target, and the board raises
-    "Unreachable position". This raises too, before anything is sent.
+    As `ESPMax.set_position` does: negate x, then call the solver.
+    """
+    x, y, z = (float(v) for v in xyz_mm)
+    return _solver_inverse((-x, y, z))
+
+
+def forward(joints_deg) -> tuple[float, float, float]:
+    """Vendor joint angles (deg) -> arm-frame xyz (mm).
+
+    As `ESPMax.pulses_to_position` does: call the solver, negate x.
+    """
+    x, y, z = _solver_forward(joints_deg)
+    return (-x, y, z)
+
+
+def _solver_inverse(xyz_mm) -> tuple[float, float, float]:
+    """The board's `__espmax.inverse`, in the solver's own frame.
+
+    Port of `inverse()` in `_espmax.cpp` without its x negation, which the
+    board's compiled solver does not have (module docstring). The C version
+    prints to serial and returns NaN for an out-of-reach target, and the board
+    raises "Unreachable position". This raises too, before anything is sent.
     """
     x, y, z = (float(v) for v in xyz_mm)
     heading = _base_heading_deg(x, y)
@@ -159,8 +183,8 @@ def inverse(xyz_mm) -> tuple[float, float, float]:
     return (heading - 150.0, math.degrees(theta2), math.degrees(theta3))
 
 
-def forward(joints_deg) -> tuple[float, float, float]:
-    """Vendor joint angles (deg) -> arm-frame xyz (mm). Port of `forward()`."""
+def _solver_forward(joints_deg) -> tuple[float, float, float]:
+    """The board's `__espmax.forward`, in the solver's own frame."""
     a1, a2, a3 = (math.radians(float(v)) for v in joints_deg)
     a1 += math.radians(150.0)
     if a1 > 2.0 * math.pi:
@@ -174,8 +198,8 @@ def forward(joints_deg) -> tuple[float, float, float]:
     r = math.sqrt(max(side * side - z * z, 0.0))
     z += L0
     r += L1 + L4
-    # The C code returns (-r cos, r sin, z) and espmax.py negates x on the way
-    # out, so the arm frame gets (+r cos, r sin, z).
+    # The C source returns (-r cos, r sin, z); the board's solver returns
+    # (+r cos, r sin, z) (measured), and `forward` negates x for the arm frame.
     return (r * math.cos(a1), r * math.sin(a1), z)
 
 

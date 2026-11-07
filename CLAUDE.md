@@ -550,13 +550,19 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
   `ESPMax.set_position`: it re-solves IK on the board and silently clamps z,
   servo 2, servo 3 and short reaches (defect classes #1 and #2 in a single
   call). The board's solver is only a cross-check (`maxarm_probe.py --kinematics`).
-- The vendor's Arduino and MicroPython APIs have opposite x axes; the arm frame
-  is the MicroPython one. Which physical way +x points, the table floor, and the
-  arrival tolerance are all PROVISIONAL until measured on the device.
-- `SerialLink` deasserts DTR/RTS **before** opening, because ESP32 auto-reset
-  would otherwise reboot the board and the stock program may move the arm.
+- The arm frame is the board's MicroPython `ESPMax` frame. **Trust the board over
+  the published source**: `_espmax.cpp` negates x, the board's compiled
+  `__espmax.mpy` does not, so on the lab unit `ESPMax` equals the C-source frame.
+  The first port assumed otherwise and was mirrored; `--kinematics` against the
+  real board caught it. Which physical way +x points, the table floor, and the
+  arrival tolerance are still PROVISIONAL until measured on the device.
+- **Opening the port reboots the board** (CH340 at `/dev/ttyUSB0`): Linux raises
+  DTR/RTS on open before pyserial's deasserted values apply. The stock program
+  boots in ~3.2 s with a silent gap, so `RawRepl.enter` waits for its `>>> `
+  prompt; keys sent earlier are lost. The port needs the `dialout` group.
 - Tests: `python -m hardware.maxarm.test_maxarm`. The IK is graded against
-  vectors from the vendor's compiled `_espmax.cpp`, not against itself.
+  vectors from the vendor's compiled `_espmax.cpp` and against values read off
+  the board (`test_frame_matches_the_board`), not against itself.
 
 ## Pose geometry helpers
 
