@@ -103,7 +103,9 @@ used `FakeBoard`.
   controller (PCI 00:0d.0, the USB-C ports) was stuck in runtime suspend. It
   was forced on with `power/control=on`. It was not the cause.
 - **Bluetooth pairs and connects, but is not usable** (see the section above).
-- **The wrist D435i is serial `950323050368`.** `perception/d435i_calib.py`
+- **The wrist D435i is serial `950323050368`.** (2026-11-07 on ksa-14Studio the camera on
+  the MaxArm's wrist reported `027422071693`, the unit whose intrinsics *are* in
+  `d435i_calib.py`. Check the serial each session.) `perception/d435i_calib.py`
   holds the factory intrinsics of `027422071693` (the xArm cell's camera).
   Read this unit's own intrinsics off the device before trusting any
   measurement from it. The xArm cell already had an 11.8 px cx error from
@@ -135,10 +137,16 @@ used `FakeBoard`.
       board, and a reboot that runs main.py through homes the arm.
 - [x] `--kinematics` (2026-11-07): the board's IK equals the port on all 7
       points, after the x-sign fix above.
-- [ ] `--frame`: which physical direction is +x. **PROVISIONAL** until then.
+- [x] `--frame` (2026-11-07): **+x is the arm's right**, seen from behind the
+      base looking out along the reach (-y); judged from the wrist D435 (picture
+      top = away from the base) at x = +60 / -60, read-back within 3.3 mm. So the
+      arm frame is **left-handed** (z up, reach along -y): negate x before any
+      rotation maths, including the camera hand-eye transform below.
 - [ ] `--floor`: cup-to-table contact z. `DEFAULT_FLOOR_Z_MM = 85` is the vendor's
       lowest example height, **not measured**.
 - [ ] `ARRIVAL_TOL_MM = 6` is provisional; measure read-back error under load.
-- [ ] Wrist D435: hand-eye transform from the cup/flange to the camera. Reuse
+- [ ] Wrist D435: hand-eye transform from the cup/flange to the camera. The
+      arm frame is left-handed (see `--frame`); build the chain in the mirrored,
+      right-handed frame. Reuse
       `perception/` (`RGBDFrame.pixel_to_world` needs a `cam_to_world`; the
       MaxArm tool is always vertical, so the chain is base yaw + translation).

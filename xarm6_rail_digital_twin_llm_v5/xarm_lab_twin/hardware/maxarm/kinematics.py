@@ -33,11 +33,17 @@ frame the home point is (0, -163, 212): the arm reaches along -y.
 `_solver_inverse` / `_solver_forward` are the board's `__espmax` functions;
 `inverse` / `forward` wrap them exactly as `espmax.py` does.
 
-PROVISIONAL until measured on the device: which physical direction +x points.
-The vendor frame is self-consistent (set_position and read_position agree), but
-nothing in the docs says which way it faces. A wrist-camera hand-eye chain built
-on the wrong sign would mirror every target -- the same shape as the xArm's
-unmeasured 90 deg base yaw. `maxarm_probe.py --frame` settles it.
+MEASURED (lab unit, 2026-11-07): +x is the ARM'S RIGHT, seen from behind the
+base looking out along the reach (-y). Moving to x=+60 shifted the wrist D435's
+picture as a move to picture-right, with the picture's top pointing away from
+the base; the servo read-back agreed.
+
+**The arm frame is LEFT-HANDED.** With z up and the reach along -y, a
+right-handed frame would put +x on the arm's LEFT. The board's solver frame is
+right-handed; espmax.py's x negation mirrors it. Positions are fine as they are,
+but rotation maths (a camera hand-eye transform, any rotation matrix or
+quaternion) assumes a right-handed frame: convert first (negate x) or every
+rotated target comes out mirrored.
 
 Silent vendor clamps this module REFUSES instead
 ------------------------------------------------

@@ -554,8 +554,10 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
   the published source**: `_espmax.cpp` negates x, the board's compiled
   `__espmax.mpy` does not, so on the lab unit `ESPMax` equals the C-source frame.
   The first port assumed otherwise and was mirrored; `--kinematics` against the
-  real board caught it. Which physical way +x points, the table floor, and the
-  arrival tolerance are still PROVISIONAL until measured on the device.
+  real board caught it. **+x is the arm's right** (seen from behind, reach along
+  -y), so the arm frame is LEFT-HANDED: negate x before any rotation maths (the
+  camera hand-eye chain). The table floor and the arrival tolerance are still
+  PROVISIONAL until measured on the device.
 - **Opening the port reboots the board** (CH340 at `/dev/ttyUSB0`): Linux raises
   DTR/RTS on open before pyserial's deasserted values apply. The stock program
   boots in ~3.2 s with a silent gap, so `RawRepl.enter` waits for its `>>> `

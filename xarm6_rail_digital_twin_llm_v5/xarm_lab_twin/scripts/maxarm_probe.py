@@ -108,8 +108,9 @@ def frame_check(arm) -> None:
     arm.set_position(-60, -180, 150, speed=30)
     input("  Now at x = -60. Press Enter to go home ")
     arm.go_home()
-    print("  Record the direction of +x (e.g. 'the arm's left, seen from behind') in"
-          " hardware/maxarm/README.md; kinematics.py marks it PROVISIONAL until then.")
+    print("  Measured 2026-11-07 on the lab unit: +x is the arm's right, seen from"
+          " behind (a left-handed frame). If it differs here, update kinematics.py"
+          " and hardware/maxarm/README.md.")
 
 
 def floor_check(arm) -> None:
