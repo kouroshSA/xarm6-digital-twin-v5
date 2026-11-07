@@ -80,10 +80,32 @@ protocol is unknown. Two ways to use Bluetooth later:
 already-paired device with a `BLEDevice` built from the BlueZ object path:
 `BleakClient("C8:...")` rescans, and a connected peripheral stops advertising.
 
+## Handoff, 2026-11-07 (state when work moved to another computer)
+
+Nothing in this module has run against the real arm yet. Every test so far
+used `FakeBoard`.
+
+- **USB: the robot has never enumerated, and the laptop is not the cause.**
+  On `ksa-Creator` the kernel logged nothing for the robot on any replug, not
+  even a USB error. That includes the port the D435i had just enumerated on at
+  SuperSpeed. So the micro-USB cable (probably power-only) or the arm's socket
+  is at fault. First step on any machine: plug it in and check
+  `dmesg | tail` / `ls /dev/ttyUSB* /dev/ttyACM*`. If nothing appears, change
+  the cable before debugging anything else.
+- Separate, machine-specific finding: that laptop's Thunderbolt 4 USB
+  controller (PCI 00:0d.0, the USB-C ports) was stuck in runtime suspend. It
+  was forced on with `power/control=on`. It was not the cause.
+- **Bluetooth pairs and connects, but is not usable** (see the section above).
+- **The wrist D435i is serial `950323050368`.** `perception/d435i_calib.py`
+  holds the factory intrinsics of `027422071693` (the xArm cell's camera).
+  Read this unit's own intrinsics off the device before trusting any
+  measurement from it. The xArm cell already had an 11.8 px cx error from
+  exactly this kind of swap.
+- Branch `feat/maxarm` was pushed to the dev repo and not merged into `main`.
+
 ## Open, needs the device
 
-- [ ] USB link. A data-capable micro-USB cable is needed: the first cable gave
-      power only, so the kernel never saw the board.
+- [ ] USB link: see the handoff above. Change the cable first.
 - [ ] Which board files exist (`maxarm_probe.py`); back up the stock program.
 - [ ] `--kinematics`: confirm the board's IK equals the port.
 - [ ] `--frame`: which physical direction is +x. **PROVISIONAL** until then.
