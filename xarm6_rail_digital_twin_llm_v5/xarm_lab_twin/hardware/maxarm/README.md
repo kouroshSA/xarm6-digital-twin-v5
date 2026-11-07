@@ -5,6 +5,10 @@ nozzle, no rail) driven from the PC. There is no digital twin for it.
 `RealMaxArmAPI` implements the shared arm-backend contract
 (`arm_backend.ARM_BACKEND_METHODS`) and declares what the arm lacks.
 
+Needs `pyserial` (in `requirements.txt`; `pip install pyserial==3.5` into
+`xarm6sim`) and, on Linux, membership of the `dialout` group to open the
+port: `sudo usermod -aG dialout $USER`, then log out and back in.
+
 ```bash
 python -m hardware.maxarm.test_maxarm        # no hardware needed
 python scripts/maxarm_probe.py               # first contact: read-only
