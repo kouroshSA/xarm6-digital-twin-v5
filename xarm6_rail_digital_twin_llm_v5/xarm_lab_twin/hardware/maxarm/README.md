@@ -116,6 +116,9 @@ used `FakeBoard`.
   cx error from exactly this kind of swap.
 - Branch `feat/maxarm` was pushed to the dev repo and not merged into `main`.
 
+**Next-session notes (temporary):** [NOTES_NEXT.md](NOTES_NEXT.md) -- jog teaching (hand-guiding
+does not work: measured), and a MaxArm digital twin for Petri-dish lid handling in its own room.
+
 ## Open, needs the device
 
 - [x] USB link (2026-11-07): the old cable was power-only; with a data cable
