@@ -65,3 +65,27 @@ class MaxArmWristCamera(RealSenseWristCamera):
                   f"frame will have no pose rather than a stale one")
             return None
         return he.cam_to_arm(pose[:3], self.hand_eye.cam_to_wrist)
+
+
+def pixel_at_height(frame, u: float, v: float, z_mm: float) -> Optional[np.ndarray]:
+    """Where pixel (u, v)'s ray meets the plane z = z_mm, arm frame mm; None if it never does.
+
+    For surfaces the depth sensor cannot range: from the highest view the arm
+    reaches (wrist z 225) a 40 mm cube's top is ~135 mm from the camera, inside
+    this D435's minimum range at 640x480, and only 8% of it returned depth
+    (2026-11-09). Its height is known (table contact + size), so the colour
+    pixel and that height fix the point. z is in command coordinates, like
+    everything from MaxArmWristCamera.
+    """
+    if frame.cam_to_world is None:
+        raise ValueError("frame has no cam_to_world pose")
+    k = frame.intrinsics
+    t = np.asarray(frame.cam_to_world, dtype=np.float64)
+    origin = t[:3, 3]
+    ray = t[:3, :3] @ np.array([(u - k.cx) / k.fx, (v - k.cy) / k.fy, 1.0])
+    if abs(ray[2]) < 1e-9:
+        return None
+    s = (z_mm / 1000.0 - origin[2]) / ray[2]
+    if s <= 0:
+        return None
+    return (origin + s * ray) * 1000.0

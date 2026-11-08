@@ -27,9 +27,11 @@ from .transport import CTRL_A, CTRL_B, CTRL_C, CTRL_D, RAW_BANNER
 class FakeBoard:
     def __init__(self, pulses=(500, 500, 500), *, stuck=(), dead=(),
                  sag_pulses=0, missing_modules=(), micropython=True,
-                 stock_loop=False, timer_stuck=()):
+                 stock_loop=False, timer_stuck=(), lag_once=(), deaf_writes=0):
         self.pos = {1: pulses[0], 2: pulses[1], 3: pulses[2]}
         self.stuck = set(stuck)
+        self.lag_once = set(lag_once)
+        self.deaf_writes = deaf_writes    # the first N writes are ignored (a silent board)     # stop halfway on their next move, then behave
         self.dead = set(dead)
         self.sag = sag_pulses
         self.missing = set(missing_modules)
@@ -46,6 +48,9 @@ class FakeBoard:
 
     # -- link interface (what SerialLink offers) -------------------------------
     def write(self, data: bytes) -> None:
+        if self.deaf_writes > 0:
+            self.deaf_writes -= 1
+            return
         for b in data:
             self._byte(bytes([b]))
 
@@ -93,7 +98,10 @@ class FakeBoard:
         class BusServo:
             def run(self, i, p, t=1000):
                 board.calls.append(("run", i, p, t))
-                if i not in board.stuck:
+                if i in board.lag_once:
+                    board.lag_once.discard(i)
+                    board.pos[i] = (board.pos[i] + p) // 2
+                elif i not in board.stuck:
                     board.pos[i] = p + (board.sag if i == 2 else 0)
 
             def get_position(self, i):

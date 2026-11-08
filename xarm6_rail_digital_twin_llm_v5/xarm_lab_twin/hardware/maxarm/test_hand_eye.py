@@ -139,6 +139,26 @@ def test_frame_pixel_lands_on_the_arm_point():
     return f"{PASS} a frame pixel lands on its arm-frame point (pixel_to_world*1000, {worst:.4f} mm)"
 
 
+def test_pixel_at_height_lands_on_the_point():
+    """A pixel plus a known height (no depth) gives back the arm-frame point."""
+    from perception.d435i_calib import COLOR_INTRINSICS as k
+    from perception.rgbd import RGBDFrame
+    from .wrist_camera import pixel_at_height
+    pose = (TAG[0] + 70.0, TAG[1] + 40.0, 200.0)
+    cam = _posed_camera(_FakeArm(pose, yaw=0.0))
+    frame = RGBDFrame(color=np.zeros((k.height, k.width, 3), np.uint8),
+                      depth=np.full((k.height, k.width), np.nan, np.float32),
+                      intrinsics=k, cam_to_world=cam.cam_to_world())
+    worst = 0.0
+    for top in ([TAG[0] + 40.0, TAG[1], 92.0], [TAG[0] - 10.0, TAG[1] - 20.0, 72.0]):
+        q = (np.linalg.inv(he.wrist_frame(pose) @ TRUE) @ np.append(he.to_rh(top), 1.0))[:3]
+        got = pixel_at_height(frame, k.fx * q[0] / q[2] + k.cx, k.fy * q[1] / q[2] + k.cy, top[2])
+        worst = max(worst, float(np.linalg.norm(got - np.array(top))))
+    if worst > 0.01:
+        return f"{FAIL} pixel_at_height lands {worst:.3f} mm off"
+    return f"{PASS} pixel + known height lands on the arm-frame point ({worst:.4f} mm, no depth)"
+
+
 def test_frame_pose_ignores_the_nozzle():
     """The camera does not ride the nozzle (measured): any nozzle angle, same pose."""
     poses = [_posed_camera(_FakeArm((50.0, -160.0, 200.0), yaw=a)).cam_to_world()
@@ -151,7 +171,8 @@ def test_frame_pose_ignores_the_nozzle():
 TESTS = [test_round_trip_frames, test_recovers_a_known_mount,
          test_camera_point_lands_on_the_tag_in_arm_coordinates,
          test_left_handed_frame_is_converted,
-         test_frame_pixel_lands_on_the_arm_point, test_frame_pose_ignores_the_nozzle]
+         test_frame_pixel_lands_on_the_arm_point, test_frame_pose_ignores_the_nozzle,
+         test_pixel_at_height_lands_on_the_point]
 
 
 def main() -> int:

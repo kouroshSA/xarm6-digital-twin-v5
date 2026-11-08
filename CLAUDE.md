@@ -557,8 +557,9 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
   real board caught it. **+x is the arm's right** (seen from behind, reach along
   -y), so the arm frame is LEFT-HANDED: negate x before any rotation maths (the
   camera hand-eye chain). The table floor is MEASURED at one point (cup touches
-  at wrist z = 52; floor 62, `kinematics.TABLE_CONTACT_Z_MM`); the arrival
-  tolerance is still PROVISIONAL.
+  at wrist z = 52; floor 62, `kinematics.TABLE_CONTACT_Z_MM`; flat to ~1 mm at two
+  more points). Arrival tolerance 10 mm, measured (gravity sag at reach reads ~6 mm
+  short, loaded or not); a miss is re-sent once first.
 - **Opening the port reboots the board** (CH340 at `/dev/ttyUSB0`): Linux raises
   DTR/RTS on open before pyserial's deasserted values apply. The stock program
   boots in ~3.2 s with a silent gap, so `RawRepl.enter` waits for its `>>> `
@@ -583,6 +584,11 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
   `set_position` target. Its `cam_to_world` is a REFLECTION (left-handed frame):
   points and clouds only, never read an orientation (a grasp angle) off it. The
   camera is fixed to the platform, not the nozzle (measured), so any nozzle angle.
+- **Pick and place: `scripts/maxarm_pick_place.py`**, IN PROGRESS (1 of 3 runs placed).
+  Heights are GEOMETRY (table contact + object size), not depth: an object top
+  is inside the D435's minimum range from every pose the arm reaches. Judge a
+  place by the after-look, never by the commands returning (no vacuum sensor):
+  a cube that never left the table once "succeeded".
 
 ## Pose geometry helpers
 

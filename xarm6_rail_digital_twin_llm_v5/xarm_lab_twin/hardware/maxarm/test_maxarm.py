@@ -279,6 +279,39 @@ def test_stalled_servo_is_reported_not_returned_as_success():
     return f"{FAIL} stuck servo returned success"
 
 
+def test_a_short_move_is_resent_once():
+    """A servo that falls short once arrives on the re-send; a stuck one still fails."""
+    arm, board = _arm(lag_once={3})
+    arm.set_position(-60, -220, 120)
+    runs = [c for c in board.calls if c[0] == "run" and c[1] == 3]
+    if len(runs) != 2:
+        return f"{FAIL} servo 3 commanded {len(runs)} times, expected the move plus one re-send"
+    got = arm.get_position()[1][:3]
+    if math.dist(got, (-60, -220, 120)) > 1.0:
+        return f"{FAIL} after the re-send the arm read back {got}"
+    arm, board = _arm(stuck={3})
+    try:
+        arm.set_position(-60, -220, 120)
+    except MaxArmError:
+        n = len([c for c in board.calls if c[0] == "run" and c[1] == 3])
+        return f"{PASS} a short move is re-sent once and arrives; a stuck servo still fails ({n} sends)"
+    return f"{FAIL} stuck servo returned success after the re-send"
+
+
+def test_a_silent_board_is_interrupted_again():
+    """The first interrupt goes unanswered (seen twice on the lab unit); the second connects."""
+    arm, board = _arm(deaf_writes=2)
+    if not arm.repl.in_raw:
+        return f"{FAIL} not in the raw REPL after the second interrupt"
+    try:
+        _arm(deaf_writes=4)
+    except Exception as exc:  # noqa: BLE001
+        if "raw-REPL banner" in str(exc):
+            return f"{PASS} first interrupt unanswered -> second connects; two unanswered -> clear error"
+        return f"{FAIL} wrong error: {exc}"
+    return f"{FAIL} a board that never answers connected"
+
+
 def test_orientation_the_arm_cannot_do_is_refused():
     arm, board = _arm()
     for kw in ({"roll": 90}, {"pitch": 30}):
@@ -349,6 +382,8 @@ TESTS = [
     test_move_sends_the_ports_pulses_and_verifies,
     test_refused_move_sends_nothing,
     test_stalled_servo_is_reported_not_returned_as_success,
+    test_a_short_move_is_resent_once,
+    test_a_silent_board_is_interrupted_again,
     test_orientation_the_arm_cannot_do_is_refused,
     test_joint_move_cannot_bypass_the_floor,
     test_yaw_is_none_until_commanded_and_grasp_is_unknown,

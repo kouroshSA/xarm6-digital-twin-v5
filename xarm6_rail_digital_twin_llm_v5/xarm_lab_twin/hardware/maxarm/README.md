@@ -154,9 +154,29 @@ used `FakeBoard`.
 - [x] **The camera does not turn with the nozzle** (2026-11-09, `maxarm_hand_eye.py
       nozzle`): nozzle 0 / +45 / -45 / 0, seen turning both ways, and the tag held
       within 0.1 px and 0.1 mm. So the calibration holds at every nozzle angle.
-- [ ] `ARRIVAL_TOL_MM = 6` is provisional; measure read-back error under load.
-      Unloaded so far (2026-11-07, ~40 moves): within 0.4-1.5 mm stepping down,
-      3.3-3.5 mm after the larger moves (home 212 -> 208.7; lift 52 -> 82 read 78.6).
+- [x] `ARRIVAL_TOL_MM = 10` (2026-11-09, was 6). Unloaded (2026-11-07, ~40 moves):
+      0.4-1.5 mm stepping down, 3.3-3.5 mm after the larger moves; then 6.0 mm (z
+      short) back at a high view pose. Holding a 40 mm cube: 6.4 mm (z 5.8 short) at
+      z 150, still after a re-send, so it is steady gravity sag at reach. A miss is
+      now re-sent once before it is an error (`_await_arrival`, printed). A stalled
+      servo or a blocked path is far larger than 10.
+- [x] Silent board on connect (twice 2026-11-09): no output at all for 3 s after
+      the first interrupt (no boot text); `RawRepl.enter` now interrupts twice.
+- [ ] **Pick and place** (`scripts/maxarm_pick_place.py look|run`, 2026-11-09):
+      Grounding DINO boxes the phrase; the object is the box's dominant-hue
+      pixels; its top face is fitted on the plane table contact + size
+      (`wrist_camera.pixel_at_height`), because a 40 mm cube's top is inside the
+      D435's minimum range from any view the arm reaches (8% depth). Brightness
+      did not work for the top face (light across it split it). The object's
+      size is checked and a mismatch refuses (it caught a mask leaking onto pink
+      paper and a cube half out of view). Results: run 1 carried the green cube
+      onto the tag (turned ~25 deg, a few mm off, judged from a photo); run 2
+      lifted it and dropped it on an arrival error (fixed: tolerance, and the
+      pump now stays on when a move fails); run 3 never lifted it (cup landed,
+      no hold) -- not yet known whether off the face centre or a poor seal on the
+      wood. The run now FAILS unless the after-look finds the object within
+      15 mm of the tag. Note `d435i_calib.DEPTH_MIN_M = 0.105` is optimistic for
+      this unit at 640x480: ~135 mm returned almost nothing, ~172 mm was fine.
 - [x] Wrist D435 hand-eye (2026-11-08): `hand_eye.py`, `scripts/maxarm_hand_eye.py`
       (`place` / `collect` / `verify`), result in `hand_eye_calib.json`. 41 views
       of a 40 mm tag laid at a known point: RMS 2.1 mm, max 3.7 mm (the size of

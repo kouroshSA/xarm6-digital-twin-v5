@@ -55,7 +55,15 @@ MAX_DURATION_MS = 30000
 #: Allowed gap between target and read-back position, mm. **PROVISIONAL**:
 #: pulse quantisation alone is 0.24 deg, about 1 mm at full reach. Gravity sag
 #: under a payload is unmeasured. Tighten it once measured.
-ARRIVAL_TOL_MM = 6.0
+# Measured 2026-11-07/09: unloaded read-back within 0.4-3.5 mm, then 6.0 mm (z short)
+# returning to a high pose; holding a 40 mm cube, 6.4 mm (z 5.8 short) at z 150
+# even after the re-send: steady gravity sag at reach, not a miss. A stalled
+# servo or a blocked path is far larger.
+ARRIVAL_TOL_MM = 10.0
+# A miss is re-sent once before it is an error: back at a view pose after a
+# place, an unloaded move read back 6.0 mm short in z (2026-11-09), the first
+# over the tolerance. A servo that is really stalled or blocked misses twice.
+RETRY_DURATION_MS = 500
 #: Extra time after the commanded duration before reading back, s.
 SETTLE_S = 0.25
 
@@ -196,10 +204,22 @@ class RealMaxArmAPI:
         ms = 1000.0 * dist / max(float(speed_mm_s), 1e-3)
         return int(min(max(ms, MIN_DURATION_MS), MAX_DURATION_MS))
 
-    def _await_arrival(self, target_xyz, duration_ms: int, what: str) -> None:
+    def _await_arrival(self, target_xyz, duration_ms: int, what: str, pulses=None) -> None:
+        """Raise unless the arm read back within ARRIVAL_TOL_MM of target_xyz.
+
+        With `pulses` (the command just sent), a miss is re-sent once first; the
+        retry is reported, so a pattern of near-misses stays visible.
+        """
         self._sleep(duration_ms / 1000.0 + SETTLE_S)
         reached = kin.pulses_to_xyz(self._read_pulses())
         err = math.dist(reached, target_xyz)
+        if err > ARRIVAL_TOL_MM and pulses is not None:
+            print(f"[MaxArm] {what}: {err:.1f} mm short of "
+                  f"({target_xyz[0]:.1f}, {target_xyz[1]:.1f}, {target_xyz[2]:.1f}); re-sending once")
+            self._send_pulses(pulses, RETRY_DURATION_MS, what)
+            self._sleep(RETRY_DURATION_MS / 1000.0 + SETTLE_S)
+            reached = kin.pulses_to_xyz(self._read_pulses())
+            err = math.dist(reached, target_xyz)
         if err > ARRIVAL_TOL_MM:
             raise MaxArmError(
                 f"{what}: arm did not arrive. Target "
@@ -237,7 +257,7 @@ class RealMaxArmAPI:
                 self.set_nozzle_angle(yaw, duration_ms=duration)
             self._send_pulses(sol.pulses, duration, "set_position")
             if wait:
-                self._await_arrival(sol.xyz_mm, duration, "set_position")
+                self._await_arrival(sol.xyz_mm, duration, "set_position", sol.pulses)
         return 0
 
     def set_servo_angle(self, angle, speed=30.0, wait=True, **kwargs) -> int:
@@ -270,7 +290,8 @@ class RealMaxArmAPI:
                 self.set_nozzle_angle(a[3], duration_ms=duration)
             self._send_pulses(kin.deg_to_pulse(joints), duration, "set_servo_angle")
             if wait:
-                self._await_arrival(xyz, duration, "set_servo_angle")
+                self._await_arrival(xyz, duration, "set_servo_angle",
+                                    kin.deg_to_pulse(joints))
         return 0
 
     def set_nozzle_angle(self, angle_deg: float, duration_ms: int = 500) -> int:

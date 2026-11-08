@@ -129,21 +129,30 @@ class RawRepl:
         while b">>> " not in seen and time.monotonic() < deadline:
             seen += self.link.read_available()
 
-    def enter(self) -> None:
-        """Interrupt the running program and enter the raw REPL."""
+    def enter(self, attempts: int = 2) -> None:
+        """Interrupt the running program and enter the raw REPL.
+
+        Tried twice: twice on 2026-11-09 the lab unit sent nothing at all for
+        3 s after the first interrupt (no boot text, so not a reboot), and the
+        same keys sent again were answered at once.
+        """
         self._wait_for_boot()
-        self.link.write(b"\r" + CTRL_C + CTRL_C)
-        time.sleep(0.2)
-        self._buf = b""
-        self.link.read_available()           # drop whatever was in flight
-        self.link.write(b"\r" + CTRL_A)
-        try:
-            self._read_until(RAW_BANNER, 3.0)
-        except TransportError as exc:
-            raise TransportError(
-                "no MicroPython raw-REPL banner. Either the board is not running "
-                "MicroPython (Arduino firmware?), or this is the wrong port. "
-                f"Detail: {exc}") from None
+        for attempt in range(1, attempts + 1):
+            self.link.write(b"\r" + CTRL_C + CTRL_C)
+            time.sleep(0.2)
+            self._buf = b""
+            self.link.read_available()           # drop whatever was in flight
+            self.link.write(b"\r" + CTRL_A)
+            try:
+                self._read_until(RAW_BANNER, 3.0)
+                break
+            except TransportError as exc:
+                if attempt == attempts:
+                    raise TransportError(
+                        "no MicroPython raw-REPL banner. Either the board is not running "
+                        "MicroPython (Arduino firmware?), or this is the wrong port. "
+                        f"Detail: {exc}") from None
+                print("[MaxArm] no raw-REPL banner; interrupting again")
         self.in_raw = True
 
     def exit(self) -> None:
