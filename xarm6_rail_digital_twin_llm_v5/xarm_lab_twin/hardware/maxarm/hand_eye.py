@@ -105,6 +105,21 @@ def cam_to_arm_rh(wrist_xyz_arm, cam_to_wrist) -> np.ndarray:
     return wrist_frame(wrist_xyz_arm) @ np.asarray(cam_to_wrist, dtype=np.float64)
 
 
+MIRROR = np.diag([-1.0, 1.0, 1.0, 1.0])
+
+
+def cam_to_arm(wrist_xyz_arm, cam_to_wrist) -> np.ndarray:
+    """Camera optical frame -> ARM frame (left-handed), metres: RGBDFrame.cam_to_world.
+
+    With this on a frame, `pixel_to_world(u, v) * 1000` is a point set_position
+    takes as it is (z in command coordinates), like the xArm cell's metres.
+    The 3x3 block is a REFLECTION (det -1), not a rotation: right for points and
+    clouds, wrong for anything that reads an orientation off it (a grasp angle
+    comes out with its sign flipped). Use cam_to_arm_rh for orientations.
+    """
+    return MIRROR @ cam_to_arm_rh(wrist_xyz_arm, cam_to_wrist)
+
+
 def camera_point_to_arm(p_cam_m, wrist_xyz_arm, cam_to_wrist) -> np.ndarray:
     """A point the camera measured (optical frame, metres) -> arm frame, mm.
 

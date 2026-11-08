@@ -35,6 +35,7 @@ arm.close_gripper(); arm.open_gripper()       # pump on / release
 | `fake_board.py` | a raw-REPL board model for tests |
 | `test_maxarm.py` | tests; kinematics graded against the compiled vendor C source |
 | `hand_eye.py` | wrist-camera calibration: wrist frame, left/right-handed conversion, solve via `solve_camera_pose` |
+| `wrist_camera.py` | `MaxArmWristCamera`: the D435 with frames posed in the arm frame (`pixel_to_world * 1000` -> `set_position`) |
 | `hand_eye_calib.json` | the measured camera mount (cam_to_wrist) with its provenance and error figures |
 | `test_hand_eye.py` | recovers a known mount; a camera point lands on the arm-frame target; the naive left-handed fit fails |
 
@@ -106,14 +107,13 @@ used `FakeBoard`.
   controller (PCI 00:0d.0, the USB-C ports) was stuck in runtime suspend. It
   was forced on with `power/control=on`. It was not the cause.
 - **Bluetooth pairs and connects, but is not usable** (see the section above).
-- **The wrist D435i is serial `950323050368`.** (2026-11-07/08 on ksa-14Studio the camera
-  on the MaxArm's wrist reported `027422071693`. `d435i_calib.py` holds `033422072806`'s
-  values, so neither matches: the hand-eye run used the intrinsics the device
-  reports. Check the serial each session.) `perception/d435i_calib.py`
-  holds the factory intrinsics of `027422071693` (the xArm cell's camera).
-  Read this unit's own intrinsics off the device before trusting any
-  measurement from it. The xArm cell already had an 11.8 px cx error from
-  exactly this kind of swap.
+- **The camera on the MaxArm's wrist reports serial `027422071693`** (checked
+  2026-11-07, -08 and -09; an earlier note here named `950323050368`). The hand-eye
+  calibration records it, and `MaxArmWristCamera` opens only that serial by default.
+  `perception/d435i_calib.py` holds `033422072806`'s factory intrinsics, so this
+  unit's frames use the intrinsics the device itself reports. Read them off the
+  device before trusting any measurement: the xArm cell already had an 11.8 px
+  cx error from exactly this kind of swap.
 - Branch `feat/maxarm` was pushed to the dev repo and not merged into `main`.
 
 ## Open, needs the device
@@ -146,7 +146,7 @@ used `FakeBoard`.
       top = away from the base) at x = +60 / -60, read-back within 3.3 mm. So the
       arm frame is **left-handed** (z up, reach along -y): negate x before any
       rotation maths, including the camera hand-eye transform below.
-- [x] `--floor` (2026-11-07): the cup lip touches the table at commanded wrist
+- [x] `--floor` (2026-11-07; checked at two more points 2026-11-09, above): the cup lip touches the table at commanded wrist
       **z = 52** (read-back 51.9) at (0, -200), judged by eye (+-2 mm), stepping
       2 mm at 10 mm/s. `DEFAULT_FLOOR_Z_MM = 62` (contact + 10). One point only:
       re-measure if the arm or table moves, or before working near the floor
@@ -164,5 +164,19 @@ used `FakeBoard`.
       axis, looking down within ~2.8 deg; it does NOT look at the cup, and it
       cannot focus closer than about wrist z 140. Valid at nozzle angle 0 if the
       camera rides the nozzle (not established; the calibration never turns it).
-- [ ] Wire the calibration into `RealSenseWristCamera` frames for the MaxArm
-      (`cam_to_world` = `hand_eye.cam_to_arm_rh`, then `from_rh` for arm mm).
+- [x] Calibration wired into frames (2026-11-09): `wrist_camera.MaxArmWristCamera`
+      is `RealSenseWristCamera` with `cam_to_world` = `hand_eye.cam_to_arm` (arm
+      frame, metres, from the servo read-back), so `frame.pixel_to_world(u, v) * 1000`
+      goes straight to `set_position`. The 3x3 block is a reflection (left-handed
+      frame): right for points and clouds, not for orientations. No pose with the
+      nozzle away from 0. `maxarm_hand_eye.py frame` runs it on the device: depth
+      sensor and PnP agree on the tag's x/y within 0.7 mm over 4 runs.
+- [x] **Calibration corrected 5 mm** (2026-11-09). With the cup lowered to 3 mm
+      (`frame --hover-mm 3`, so no parallax) it sat 5 mm forward (-y) of the tag at
+      both (30, -216) and (-2, -248): 6 judgements 5-7 mm forward, x under 1 mm on
+      average with no steady sign. Taken as the tag having sat 5 mm back of where
+      `place` recorded it: `resolve --tag-shift-mm 0 5` re-solved the same 41 samples
+      (RMS 2.12 -> 1.91 mm, which supports it) and the file keeps both tag positions
+      and the reason. A reach-dependent error would look the same this close to
+      straight ahead; a tag 45 deg to the side would tell them apart. Second floor
+      point: contact at about wrist z 52 at (31, -216) and 53 at (0, -249).

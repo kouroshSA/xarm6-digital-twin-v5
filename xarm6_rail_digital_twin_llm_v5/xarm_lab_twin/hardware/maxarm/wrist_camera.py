@@ -1,0 +1,72 @@
+"""The MaxArm's wrist D435, with every frame posed in the arm frame.
+
+    from hardware.maxarm.real_maxarm import RealMaxArmAPI
+    from hardware.maxarm.wrist_camera import MaxArmWristCamera
+    arm = RealMaxArmAPI("/dev/ttyUSB0")
+    cam = MaxArmWristCamera(arm)
+    frame = cam.capture()
+    xyz_mm = frame.pixel_to_world(u, v) * 1000      # arm frame: set_position(*xyz_mm)
+
+`RealSenseWristCamera.cam_to_world` composes the xArm's flange pose with the
+cell's hand-eye constant; neither exists here. This subclass replaces only that
+pose with `hand_eye.cam_to_arm` (the measured mount in hand_eye_calib.json, the
+wrist position read back from the servos). Streaming, alignment, depth scaling
+and the xArm path are the parent's, unchanged.
+
+Frames come back in the arm frame, METRES, left-handed: points and clouds are
+right, the 3x3 block is a reflection (see hand_eye.cam_to_arm).
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+import numpy as np
+
+from perception.realsense_camera import RealSenseWristCamera
+
+from . import hand_eye as he
+
+# A dim room needs about this many frames before auto-exposure settles; the
+# parent's 3-frame warm-up left the first captures black (2026-11-08).
+WARMUP_FRAMES = 60
+
+
+class MaxArmWristCamera(RealSenseWristCamera):
+    """RealSenseWristCamera whose frames carry the MaxArm hand-eye pose.
+
+    `arm` is required (RealMaxArmAPI, or anything whose get_position() returns
+    the wrist in arm-frame mm). `serial` defaults to the camera the calibration
+    was measured with, so a swapped camera fails to open instead of borrowing a
+    mount it never had; pass None to take whatever is plugged in.
+    """
+
+    def __init__(self, arm, calib: Optional[he.HandEye] = None, serial: Optional[str] = "",
+                 warmup_frames: int = WARMUP_FRAMES, **kwargs):
+        if arm is None:
+            raise ValueError("MaxArmWristCamera needs the arm: its pose is the frame's pose")
+        self.hand_eye = calib if calib is not None else he.load()
+        if serial == "":
+            serial = self.hand_eye.meta.get("camera_serial")
+        kwargs.setdefault("verify_intrinsics", False)   # d435i_calib holds another body's values
+        super().__init__(arm=arm, serial=serial, **kwargs)
+        for _ in range(warmup_frames):
+            self.pipeline.wait_for_frames()
+
+    def cam_to_world(self) -> Optional[np.ndarray]:
+        """Camera optical frame -> MaxArm arm frame (metres), from the read-back wrist.
+
+        None (and a message) when the pose is not known: a failed read, or the
+        nozzle turned away from 0 -- the calibration was measured at nozzle 0,
+        and whether the camera turns with the nozzle is not established.
+        """
+        code, pose = self.arm.get_position()
+        if code != 0:
+            print(f"[MaxArmWristCamera] get_position() returned {code}; "
+                  f"frame will have no pose rather than a stale one")
+            return None
+        yaw = pose[5] if len(pose) > 5 else None
+        if yaw is not None and abs(float(yaw)) > 1e-6:
+            print(f"[MaxArmWristCamera] nozzle at {yaw} deg; the calibration holds at 0 "
+                  f"only, so the frame has no pose")
+            return None
+        return he.cam_to_arm(pose[:3], self.hand_eye.cam_to_wrist)

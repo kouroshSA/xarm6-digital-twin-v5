@@ -3,6 +3,9 @@
     python scripts/maxarm_hand_eye.py place                      # MOVES: cup 10 mm over the floor spot
     python scripts/maxarm_hand_eye.py collect --tag-size-mm 40   # MOVES: views the tag from a grid
     python scripts/maxarm_hand_eye.py verify --tag-size-mm 40    # MOVES: finds the tag, hovers over it
+    python scripts/maxarm_hand_eye.py frame                      # MOVES: same, through frame.pixel_to_world
+    python scripts/maxarm_hand_eye.py nozzle                     # MOVES: does the camera turn with the nozzle?
+    python scripts/maxarm_hand_eye.py resolve --tag-shift-mm 0 5 # re-solve the saved samples, tag moved
 
 Run from xarm_lab_twin/ in xarm6sim, with the port's group (`sg dialout -c ...`
 until a re-login). The tag (DICT_4X4_50 id 0, 40 mm) is in ~/Models/maxarm_calib/. Every connect reboots the board and its stock program
@@ -187,14 +190,136 @@ def cmd_verify(a) -> int:
     return 0
 
 
+def cmd_frame(a) -> int:
+    """The consumer path: MaxArmWristCamera frame -> pixel_to_world (depth sensor) -> cup."""
+    from hardware.maxarm.wrist_camera import MaxArmWristCamera
+    from teleop_hand.hand_calib import detect_tag
+    arm = _arm()
+    cam = None
+    try:
+        arm.go_home()                       # approach from the same side every run
+        arm.set_position(*a.view, speed=40)
+        time.sleep(0.4)
+        cam = MaxArmWristCamera(arm)
+        frame, obs = None, None
+        for _ in range(10):
+            frame = cam.capture()
+            obs = detect_tag(frame.color, frame.intrinsics.matrix, a.tag_size_mm / 1000.0, frame.depth)
+            if obs is not None:
+                break
+        if obs is None or frame.cam_to_world is None:
+            print("tag not seen" if obs is None else "frame has no pose")
+            return 1
+        u, v = obs.corners_px.mean(axis=0)
+        win = frame.depth[int(v) - 3:int(v) + 4, int(u) - 3:int(u) + 4]
+        d = float(np.nanmedian(win)) if np.isfinite(win).any() else None
+        if d is None:
+            print(f"no depth at the tag centre ({u:.0f}, {v:.0f})")
+            return 1
+        p = frame.pixel_to_world(u, v, depth_m=d) * 1000.0
+        pnp = he.camera_point_to_arm(obs.pos_cam_m, _where(arm), cam.hand_eye.cam_to_wrist)
+        print(f"tag centre, frame.pixel_to_world (depth sensor): {np.round(p, 1).tolist()} mm")
+        print(f"tag centre, PnP + calibration:                    {np.round(pnp, 1).tolist()} mm "
+              f"(differ by {np.linalg.norm(p - pnp):.1f} mm)")
+        print(f"  z vs the table contact {kin.TABLE_CONTACT_Z_MM:.0f}: {p[2] - kin.TABLE_CONTACT_Z_MM:+.1f} mm")
+        target = np.array([p[0], p[1], kin.TABLE_CONTACT_Z_MM + a.hover_mm])
+        arm.set_position(p[0], p[1], kin.TABLE_CONTACT_Z_MM + HOVER_MM, speed=30)
+        if a.hover_mm < HOVER_MM:
+            # Below the floor guard, for judging without parallax: the cup lip 10 mm
+            # over the tag read 5 mm off from where the eye stood (2026-11-08).
+            arm.floor_z_mm = min(arm.floor_z_mm, target[2] - 1.0)
+            arm.set_position(*target, speed=10)
+        time.sleep(0.4)
+        rb = _where(arm)
+        print(f"  hover read-back {np.round(rb, 1).tolist()} (off the command by "
+              f"{np.round(rb - target, 1).tolist()} mm)")
+        print(f"cup now hovering {a.hover_mm:.0f} mm over {np.round(p[:2], 1).tolist()}: "
+              f"how far is it from the tag's centre, and which way?")
+    finally:
+        arm.disconnect()
+        if cam is not None:
+            cam.close()
+    return 0
+
+
+def cmd_nozzle(a) -> int:
+    """Turn only the nozzle and see whether the tag moves in the picture."""
+    cam, _ = _camera()
+    arm = _arm()
+    seen = {}
+    try:
+        arm.set_position(*VIEW_POSE, speed=40)
+        for ang in (0.0, 45.0, -45.0, 0.0):
+            arm.set_nozzle_angle(ang, duration_ms=800)
+            time.sleep(1.2)
+            obs, _ = _see_tag(cam, a.tag_size_mm)
+            if obs is None:
+                print(f"  nozzle {ang:+.0f}: tag not seen")
+                continue
+            seen.setdefault(ang, []).append(obs["uv"])
+            print(f"  nozzle {ang:+.0f}: tag at pixel {np.round(obs['uv'], 1).tolist()}, "
+                  f"camera {np.round(np.array(obs['pos_cam_m']) * 1000, 1).tolist()} mm")
+    finally:
+        arm.disconnect()
+        cam.close()
+    if 0.0 in seen and (45.0 in seen or -45.0 in seen):
+        base = np.array(seen[0.0][0])
+        shift = max(np.linalg.norm(np.array(seen[k][0]) - base) for k in seen if k != 0.0)
+        print(f"\nlargest pixel shift with the nozzle turned: {shift:.1f} px -> the camera "
+              f"{'TURNS with the nozzle' if shift > 10 else 'does not turn with the nozzle'}")
+    return 0
+
+
+def cmd_resolve(a) -> int:
+    """Re-solve the calibration's own samples with the tag's recorded position shifted.
+
+    For a tag that was not quite where `place` recorded it: the shift is the
+    tag's TRUE position minus the recorded one, arm frame mm, judged from where
+    the cup lands over a tag the camera found (`frame --hover-mm 3`).
+    """
+    old = he.load()
+    src = json.loads(Path(old.meta["samples_file"]).read_text())
+    tag0 = old.meta.get("tag_xyz_arm_mm_measured", old.meta["tag_xyz_arm_mm"])
+    tag = [tag0[0] + a.tag_shift_mm[0], tag0[1] + a.tag_shift_mm[1], tag0[2]]
+    s = src["samples"]
+    res = he.solve(tag, [x["wrist_readback_mm"] for x in s], [x["pos_cam_m"] for x in s])
+    print(f"  tag {np.round(tag0, 1).tolist()} -> {np.round(tag, 1).tolist()}")
+    print(f"  {res.n} views: rms {res.rms_mm:.2f} mm (was {old.meta['rms_mm']}), "
+          f"max {res.max_mm:.2f} mm, spread {res.spread_ratio:.3f}")
+    for view in (VIEW_POSE, (50.0, -210.0, 200.0)):
+        q = np.linalg.inv(old.cam_to_wrist) @ np.linalg.inv(he.wrist_frame(view)) @ \
+            np.append(he.to_rh((view[0] - 50.0, view[1] - 40.0, kin.TABLE_CONTACT_Z_MM)), 1.0)
+        d = he.camera_point_to_arm(q[:3], view, res.cam_to_base) - \
+            he.camera_point_to_arm(q[:3], view, old.cam_to_wrist)
+        print(f"  a table point seen from {view} moves by {np.round(d, 1).tolist()} mm")
+    meta = {k: v for k, v in old.meta.items()
+            if k not in ("cam_to_wrist", "rms_mm", "max_mm", "n", "spread_ratio",
+                         "min_spread_ratio", "frame")}
+    meta.update(tag_xyz_arm_mm=tag, tag_xyz_arm_mm_measured=tag0,
+                tag_shift_mm=list(a.tag_shift_mm), tag_shift_why=a.why,
+                resolved=dt.date.today().isoformat())
+    he.save(res, meta)
+    print(f"  saved {he.CALIB_PATH}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("step", choices=["place", "collect", "verify"])
+    ap.add_argument("step", choices=["place", "collect", "verify", "frame", "nozzle", "resolve"])
     ap.add_argument("--tag-size-mm", type=float, default=40.0)
     ap.add_argument("--tag-thickness-mm", type=float, default=0.1)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    ap.add_argument("--view", type=float, nargs=3, default=VIEW_POSE,
+                    help="frame: wrist pose to look from (arm mm)")
+    ap.add_argument("--hover-mm", type=float, default=HOVER_MM,
+                    help="frame: final cup height over the table; below 10 lowers the "
+                         "floor guard for that one move (table measured flat to ~1 mm)")
+    ap.add_argument("--tag-shift-mm", type=float, nargs=2, default=(0.0, 0.0),
+                    help="resolve: the tag's true minus recorded x, y (arm mm)")
+    ap.add_argument("--why", default="", help="resolve: the evidence, kept in the calibration file")
     a = ap.parse_args()
-    return {"place": cmd_place, "collect": cmd_collect, "verify": cmd_verify}[a.step](a)
+    return {"place": cmd_place, "collect": cmd_collect, "verify": cmd_verify,
+            "frame": cmd_frame, "nozzle": cmd_nozzle, "resolve": cmd_resolve}[a.step](a)
 
 
 if __name__ == "__main__":

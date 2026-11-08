@@ -102,9 +102,55 @@ def test_round_trip_frames():
     return f"{PASS} frame conversions round-trip"
 
 
+class _FakeArm:
+    def __init__(self, xyz, yaw=None):
+        self.xyz, self.yaw = xyz, yaw
+
+    def get_position(self):
+        return 0, [*self.xyz, 180.0, 0.0, self.yaw]
+
+
+def _posed_camera(arm):
+    """MaxArmWristCamera's pose half, without opening a device."""
+    from .wrist_camera import MaxArmWristCamera
+    cam = MaxArmWristCamera.__new__(MaxArmWristCamera)
+    cam.arm, cam.hand_eye = arm, he.HandEye(TRUE, {})
+    return cam
+
+
+def test_frame_pixel_lands_on_the_arm_point():
+    """The consumer: a captured frame's pixel_to_world, x1000, is a set_position target."""
+    from perception.d435i_calib import COLOR_INTRINSICS
+    from perception.rgbd import RGBDFrame
+    target = np.array([TAG[0] + 25.0, TAG[1] - 15.0, TAG[2]])
+    worst = 0.0
+    for pose in [(TAG[0] + 50.0, TAG[1] + 40.0, 180.0), (TAG[0] + 20.0, TAG[1] + 60.0, 150.0)]:
+        cam = _posed_camera(_FakeArm(pose, yaw=0.0))
+        q = (np.linalg.inv(he.wrist_frame(pose) @ TRUE) @ np.append(he.to_rh(target), 1.0))[:3]
+        k = COLOR_INTRINSICS
+        u, v = k.fx * q[0] / q[2] + k.cx, k.fy * q[1] / q[2] + k.cy
+        depth = np.full((k.height, k.width), np.nan, np.float32)
+        frame = RGBDFrame(color=np.zeros((k.height, k.width, 3), np.uint8), depth=depth,
+                          intrinsics=k, cam_to_world=cam.cam_to_world())
+        got = frame.pixel_to_world(u, v, depth_m=q[2]) * 1000.0
+        worst = max(worst, float(np.linalg.norm(got - target)))
+    if worst > 0.01:
+        return f"{FAIL} pixel_to_world*1000 lands {worst:.3f} mm from the arm-frame point"
+    return f"{PASS} a frame pixel lands on its arm-frame point (pixel_to_world*1000, {worst:.4f} mm)"
+
+
+def test_frame_has_no_pose_off_nozzle_zero():
+    posed = _posed_camera(_FakeArm((50.0, -160.0, 200.0), yaw=0.0)).cam_to_world()
+    turned = _posed_camera(_FakeArm((50.0, -160.0, 200.0), yaw=30.0)).cam_to_world()
+    if posed is None or turned is not None:
+        return f"{FAIL} nozzle 0 posed={posed is not None}, nozzle 30 posed={turned is not None}"
+    return f"{PASS} no frame pose with the nozzle away from 0 (the calibration's angle)"
+
+
 TESTS = [test_round_trip_frames, test_recovers_a_known_mount,
          test_camera_point_lands_on_the_tag_in_arm_coordinates,
-         test_left_handed_frame_is_converted]
+         test_left_handed_frame_is_converted,
+         test_frame_pixel_lands_on_the_arm_point, test_frame_has_no_pose_off_nozzle_zero]
 
 
 def main() -> int:

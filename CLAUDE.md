@@ -575,8 +575,14 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
   into the fixed-camera problem `solve_camera_pose` already solves -- no second
   solver. AX=XB cannot see the camera's height when every rotation is about the
   vertical. Built in the right-handed mirror (x negated). Measured 2026-11-08:
-  RMS 2.1 mm, verified 1-2 mm on a moved tag. The camera looks ~6 cm beside the
-  cup and needs wrist z >= ~140 to focus. `python -m hardware.maxarm.test_hand_eye`.
+  RMS 2.1 mm; re-solved 2026-11-09 with the tag 5 mm back of its recorded spot
+  (`resolve`), after the cup at 3 mm sat 5 mm forward of it. The camera looks ~6 cm
+  beside the cup and needs wrist z >= ~140 to focus. `python -m hardware.maxarm.test_hand_eye`.
+- **Frames in arm coordinates: `hardware/maxarm/wrist_camera.MaxArmWristCamera`**
+  (subclass; the xArm path is untouched). `frame.pixel_to_world(u, v) * 1000` is a
+  `set_position` target. Its `cam_to_world` is a REFLECTION (left-handed frame):
+  points and clouds only, never read an orientation (a grasp angle) off it. No pose
+  while the nozzle is off 0: whether the camera turns with it is not established.
 
 ## Pose geometry helpers
 
