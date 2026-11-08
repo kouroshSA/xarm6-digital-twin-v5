@@ -581,8 +581,8 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
 - **Frames in arm coordinates: `hardware/maxarm/wrist_camera.MaxArmWristCamera`**
   (subclass; the xArm path is untouched). `frame.pixel_to_world(u, v) * 1000` is a
   `set_position` target. Its `cam_to_world` is a REFLECTION (left-handed frame):
-  points and clouds only, never read an orientation (a grasp angle) off it. No pose
-  while the nozzle is off 0: whether the camera turns with it is not established.
+  points and clouds only, never read an orientation (a grasp angle) off it. The
+  camera is fixed to the platform, not the nozzle (measured), so any nozzle angle.
 
 ## Pose geometry helpers
 

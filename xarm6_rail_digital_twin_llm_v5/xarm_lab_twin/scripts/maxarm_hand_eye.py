@@ -248,7 +248,7 @@ def cmd_nozzle(a) -> int:
     arm = _arm()
     seen = {}
     try:
-        arm.set_position(*VIEW_POSE, speed=40)
+        arm.set_position(*a.view, speed=40)
         for ang in (0.0, 45.0, -45.0, 0.0):
             arm.set_nozzle_angle(ang, duration_ms=800)
             time.sleep(1.2)
@@ -310,7 +310,7 @@ def main() -> int:
     ap.add_argument("--tag-thickness-mm", type=float, default=0.1)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--view", type=float, nargs=3, default=VIEW_POSE,
-                    help="frame: wrist pose to look from (arm mm)")
+                    help="frame, nozzle: wrist pose to look from (arm mm)")
     ap.add_argument("--hover-mm", type=float, default=HOVER_MM,
                     help="frame: final cup height over the table; below 10 lowers the "
                          "floor guard for that one move (table measured flat to ~1 mm)")

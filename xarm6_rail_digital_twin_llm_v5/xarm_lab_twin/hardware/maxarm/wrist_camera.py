@@ -55,18 +55,13 @@ class MaxArmWristCamera(RealSenseWristCamera):
     def cam_to_world(self) -> Optional[np.ndarray]:
         """Camera optical frame -> MaxArm arm frame (metres), from the read-back wrist.
 
-        None (and a message) when the pose is not known: a failed read, or the
-        nozzle turned away from 0 -- the calibration was measured at nozzle 0,
-        and whether the camera turns with the nozzle is not established.
+        None (and a message) when the read fails. The nozzle angle plays no
+        part: the camera does not turn with the nozzle (measured 2026-11-09, the
+        tag held within 0.1 px through nozzle 0 / +45 / -45 / 0).
         """
         code, pose = self.arm.get_position()
         if code != 0:
             print(f"[MaxArmWristCamera] get_position() returned {code}; "
                   f"frame will have no pose rather than a stale one")
-            return None
-        yaw = pose[5] if len(pose) > 5 else None
-        if yaw is not None and abs(float(yaw)) > 1e-6:
-            print(f"[MaxArmWristCamera] nozzle at {yaw} deg; the calibration holds at 0 "
-                  f"only, so the frame has no pose")
             return None
         return he.cam_to_arm(pose[:3], self.hand_eye.cam_to_wrist)

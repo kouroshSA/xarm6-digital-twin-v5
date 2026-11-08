@@ -151,6 +151,9 @@ used `FakeBoard`.
       2 mm at 10 mm/s. `DEFAULT_FLOOR_Z_MM = 62` (contact + 10). One point only:
       re-measure if the arm or table moves, or before working near the floor
       across the whole reach.
+- [x] **The camera does not turn with the nozzle** (2026-11-09, `maxarm_hand_eye.py
+      nozzle`): nozzle 0 / +45 / -45 / 0, seen turning both ways, and the tag held
+      within 0.1 px and 0.1 mm. So the calibration holds at every nozzle angle.
 - [ ] `ARRIVAL_TOL_MM = 6` is provisional; measure read-back error under load.
       Unloaded so far (2026-11-07, ~40 moves): within 0.4-1.5 mm stepping down,
       3.3-3.5 mm after the larger moves (home 212 -> 208.7; lift 52 -> 82 read 78.6).
@@ -162,14 +165,14 @@ used `FakeBoard`.
       put its centre at z 52.9 (table 52) and the cup hovered 1-2 mm from it, by
       eye. The camera sits ~35 mm above the wrist point and ~63 mm off the nozzle
       axis, looking down within ~2.8 deg; it does NOT look at the cup, and it
-      cannot focus closer than about wrist z 140. Valid at nozzle angle 0 if the
-      camera rides the nozzle (not established; the calibration never turns it).
+      cannot focus closer than about wrist z 140. Valid at any nozzle angle: the
+      camera does not turn with the nozzle (below).
 - [x] Calibration wired into frames (2026-11-09): `wrist_camera.MaxArmWristCamera`
       is `RealSenseWristCamera` with `cam_to_world` = `hand_eye.cam_to_arm` (arm
       frame, metres, from the servo read-back), so `frame.pixel_to_world(u, v) * 1000`
       goes straight to `set_position`. The 3x3 block is a reflection (left-handed
-      frame): right for points and clouds, not for orientations. No pose with the
-      nozzle away from 0. `maxarm_hand_eye.py frame` runs it on the device: depth
+      frame): right for points and clouds, not for orientations.
+      `maxarm_hand_eye.py frame` runs it on the device: depth
       sensor and PnP agree on the tag's x/y within 0.7 mm over 4 runs.
 - [x] **Calibration corrected 5 mm** (2026-11-09). With the cup lowered to 3 mm
       (`frame --hover-mm 3`, so no parallax) it sat 5 mm forward (-y) of the tag at

@@ -139,18 +139,19 @@ def test_frame_pixel_lands_on_the_arm_point():
     return f"{PASS} a frame pixel lands on its arm-frame point (pixel_to_world*1000, {worst:.4f} mm)"
 
 
-def test_frame_has_no_pose_off_nozzle_zero():
-    posed = _posed_camera(_FakeArm((50.0, -160.0, 200.0), yaw=0.0)).cam_to_world()
-    turned = _posed_camera(_FakeArm((50.0, -160.0, 200.0), yaw=30.0)).cam_to_world()
-    if posed is None or turned is not None:
-        return f"{FAIL} nozzle 0 posed={posed is not None}, nozzle 30 posed={turned is not None}"
-    return f"{PASS} no frame pose with the nozzle away from 0 (the calibration's angle)"
+def test_frame_pose_ignores_the_nozzle():
+    """The camera does not ride the nozzle (measured): any nozzle angle, same pose."""
+    poses = [_posed_camera(_FakeArm((50.0, -160.0, 200.0), yaw=a)).cam_to_world()
+             for a in (None, 0.0, 45.0, -90.0)]
+    if any(p is None for p in poses) or not all(np.allclose(p, poses[0]) for p in poses):
+        return f"{FAIL} frame pose depends on the nozzle angle"
+    return f"{PASS} frame pose is the same at every nozzle angle (camera fixed to the platform)"
 
 
 TESTS = [test_round_trip_frames, test_recovers_a_known_mount,
          test_camera_point_lands_on_the_tag_in_arm_coordinates,
          test_left_handed_frame_is_converted,
-         test_frame_pixel_lands_on_the_arm_point, test_frame_has_no_pose_off_nozzle_zero]
+         test_frame_pixel_lands_on_the_arm_point, test_frame_pose_ignores_the_nozzle]
 
 
 def main() -> int:
