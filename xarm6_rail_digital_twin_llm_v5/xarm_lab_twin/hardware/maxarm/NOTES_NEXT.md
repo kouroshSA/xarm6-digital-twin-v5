@@ -5,6 +5,8 @@ up. Fold them into `README.md` (or delete them) once the work below is done.
 State at writing: `feat/maxarm` on dev; the hand-eye calibration, wrist-camera
 frames and arrival tolerance are measured and committed; pick and place placed
 1 of 3 runs (see README, "Open, needs the device").
+Session data (calibration samples, tag, wrist pictures, teach read-back) is in
+`data/`, the one-off scripts behind the measurements in `scratch/`.
 
 ## 1. Manual teaching: hand-guiding does NOT work; teach by jogging
 

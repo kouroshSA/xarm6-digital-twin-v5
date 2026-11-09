@@ -43,7 +43,7 @@ PLACE_TOL_MM = 15.0    # cube centre vs tag centre, judged from the after-look
 MIN_SATURATION = 80
 MIN_VALUE = 25
 HUE_TOL = 12          # OpenCV hue units (0-179) around the box's dominant hue
-OUT = Path.home() / "Models" / "maxarm_calib"
+OUT = Path(__file__).resolve().parents[1] / "hardware" / "maxarm" / "data"   # in the repo
 
 
 def _connect(view):

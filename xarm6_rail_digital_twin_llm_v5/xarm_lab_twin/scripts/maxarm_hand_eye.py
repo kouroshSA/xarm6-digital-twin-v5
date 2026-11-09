@@ -8,7 +8,7 @@
     python scripts/maxarm_hand_eye.py resolve --tag-shift-mm 0 5 # re-solve the saved samples, tag moved
 
 Run from xarm_lab_twin/ in xarm6sim, with the port's group (`sg dialout -c ...`
-until a re-login). The tag (DICT_4X4_50 id 0, 40 mm) is in ~/Models/maxarm_calib/. Every connect reboots the board and its stock program
+until a re-login). The tag (DICT_4X4_50 id 0, 40 mm) is in hardware/maxarm/data/. Every connect reboots the board and its stock program
 may home the arm first: keep hands clear when a step starts.
 
 1. `place` leaves the cup hovering 10 mm above the table at (0, -200) and
@@ -40,7 +40,8 @@ from hardware.maxarm import kinematics as kin  # noqa: E402
 
 PLACE_XY = (0.0, -200.0)
 HOVER_MM = 10.0
-DEFAULT_OUT = Path.home() / "Models" / "maxarm_calib"
+# In the repo, so work picks up on another machine (was ~/Models/maxarm_calib).
+DEFAULT_OUT = Path(__file__).resolve().parents[1] / "hardware" / "maxarm" / "data"
 # The camera does not look at the cup. Measured 2026-11-08 on the lab unit: with
 # the wrist straight over the tag at z=210 the tag sits at (+52, +44) mm in the
 # optical frame (picture right/down = arm +x/+y), and below z~190 it leaves the
