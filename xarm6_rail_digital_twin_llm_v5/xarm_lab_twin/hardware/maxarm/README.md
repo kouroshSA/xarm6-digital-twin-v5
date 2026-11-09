@@ -96,13 +96,11 @@ already-paired device with a `BLEDevice` built from the BlueZ object path:
 Nothing in this module has run against the real arm yet. Every test so far
 used `FakeBoard`.
 
-- **USB: the robot has never enumerated, and the laptop is not the cause.**
-  On `ksa-Creator` the kernel logged nothing for the robot on any replug, not
-  even a USB error. That includes the port the D435i had just enumerated on at
-  SuperSpeed. So the micro-USB cable (probably power-only) or the arm's socket
-  is at fault. First step on any machine: plug it in and check
-  `dmesg | tail` / `ls /dev/ttyUSB* /dev/ttyACM*`. If nothing appears, change
-  the cable before debugging anything else.
+- **USB: use the ESP32 module's own USB-C port.** The USB-A port on the
+  MaxArm controller board is power only; plugged in there the kernel logs
+  nothing, not even an error. On `ksa-Creator` that was blamed on the cable
+  and then the laptop's ports before the USB-C port was found. Check
+  `dmesg | tail` / `ls /dev/ttyUSB* /dev/ttyACM*` after plugging in.
 - Separate, machine-specific finding: that laptop's Thunderbolt 4 USB
   controller (PCI 00:0d.0, the USB-C ports) was stuck in runtime suspend. It
   was forced on with `power/control=on`. It was not the cause.
@@ -121,8 +119,8 @@ does not work: measured), and a MaxArm digital twin for Petri-dish lid handling 
 
 ## Open, needs the device
 
-- [x] USB link (2026-11-07): the old cable was power-only; with a data cable
-      it is a CH340 at `/dev/ttyUSB0`. **Opening the port reboots the board**
+- [x] USB link (2026-11-07): through the ESP32's USB-C port (the controller
+      board's USB-A port is power only), it is a CH340 at `/dev/ttyUSB0`. **Opening the port reboots the board**
       (Linux raises DTR/RTS before pyserial can lower them); the stock program
       boots in ~3.2 s and `RawRepl.enter` waits for its prompt.
 - [x] Board files (2026-11-07): `1.rob`..`8.rob`, `BusServo.py`, `Buzzer.py`,

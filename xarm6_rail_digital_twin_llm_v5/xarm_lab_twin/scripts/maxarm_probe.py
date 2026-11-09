@@ -49,7 +49,8 @@ def find_port(explicit: str | None) -> str:
     ports = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
     if not ports:
         sys.exit("no /dev/ttyUSB* or /dev/ttyACM*. Check `dmesg | tail` after "
-                 "plugging in; silence there means a power-only cable.")
+                 "plugging in; silence there usually means the cable is in the controller "
+                 "board's power-only USB-A port, not the ESP32's USB-C port.")
     return ports[0]
 
 
