@@ -743,9 +743,13 @@ file's "Recording format" section so consumers can find them.
   - Publish only with `tools/sync_public.sh` (dry run) then
     `tools/sync_public.sh --push`. The filter is deterministic, so routine
     syncs are fast-forwards; the script refuses a rewrite unless given
-    `--force`. **The script hardcodes `SRC_REMOTE=dev` / `DST_REMOTE=origin`**:
-    run it only in a clone with the first layout. In the second layout it
-    stops at `git fetch dev`, because `dev` does not exist.
+    `--force`. **The script defaults to `SRC_REMOTE=dev` / `DST_REMOTE=origin`**
+    (the first layout); in the second layout run it as
+    `SRC_REMOTE=origin DST_REMOTE=public-v5 tools/sync_public.sh`. It pushes
+    to the target's FETCH url, so the disabled push url does not stop it, and
+    it refuses a target whose url is the `_dev` repo. **It publishes `main`
+    only**: a feature branch reaches the public repo by merging into `main`
+    on dev first (that is what the MaxArm work needed, 2026-11-10).
 - **The tool is the cell's:** F/T sensor + camera adapter (42.5 mm, derived from
   the measured 217 mm flange-to-tip) + UFACTORY xArm Gripper (TCP 172 mm), so the
   TCP is 214.5 mm from the flange and the payload 1.247 kg (`CELL_TCP_LOAD`).
