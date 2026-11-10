@@ -1,7 +1,7 @@
 """Parity test for the ArmBackend contract (B2).
 
 Every contract method must be either implemented or explicitly declared
-unsupported on both backends. A method that is merely *absent* is the failure
+unsupported on every backend. A method that is merely *absent* is the failure
 this guards: the shared stack would call it and die with AttributeError partway
 through a plan, after part of that plan had already executed on a real arm.
 
@@ -19,9 +19,10 @@ from arm_backend import (ARM_BACKEND_METHODS, backend_report, missing_methods,
 
 
 def _backends():
+    from hardware.maxarm.real_maxarm import RealMaxArmAPI
     from hardware.real_arm import RealXArmAPI
     from sim.mujoco_env import SimXArmAPI
-    return [SimXArmAPI, RealXArmAPI]
+    return [SimXArmAPI, RealXArmAPI, RealMaxArmAPI]
 
 
 def test_no_missing_methods():
@@ -32,7 +33,7 @@ def test_no_missing_methods():
     if bad:
         return ("FAIL  contract methods neither implemented nor declared "
                 f"unsupported: {bad}")
-    return f"PASS  both backends cover all {len(ARM_BACKEND_METHODS)} contract methods"
+    return f"PASS  all {len(_backends())} backends cover all {len(ARM_BACKEND_METHODS)} contract methods"
 
 
 def test_unsupported_declarations_have_reasons():
@@ -78,9 +79,9 @@ def test_something_is_actually_shared():
     shared = [n for n in ARM_BACKEND_METHODS
               if all(r[n][0] == "implemented" for r in reports.values())]
     if len(shared) < 10:
-        return (f"FAIL  only {len(shared)} methods implemented on both backends; "
+        return (f"FAIL  only {len(shared)} methods implemented on every backend; "
                 f"the contract has stopped meaning anything")
-    return f"PASS  {len(shared)} methods genuinely implemented on both backends"
+    return f"PASS  {len(shared)} methods genuinely implemented on all {len(reports)} backends"
 
 
 TESTS = [test_no_missing_methods,

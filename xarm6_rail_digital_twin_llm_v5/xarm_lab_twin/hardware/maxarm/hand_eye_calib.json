@@ -1,0 +1,55 @@
+{
+  "date": "2026-11-08",
+  "camera_serial": "027422071693",
+  "tag": "DICT_4X4_50 id 0, 40.0 mm",
+  "tag_xyz_arm_mm": [
+    0.8440935574560372,
+    -196.5113145734099,
+    52.1
+  ],
+  "samples_file": "/home/ksa/Models/maxarm_calib/hand_eye_samples_20261108_001807.json",
+  "table_contact_z_mm": 52.0,
+  "tag_xyz_arm_mm_measured": [
+    0.8440935574560372,
+    -201.5113145734099,
+    52.1
+  ],
+  "tag_shift_mm": [
+    0.0,
+    5.0
+  ],
+  "tag_shift_why": "2026-11-08/09: frame --hover-mm 3 (no parallax) put the cup 5 mm forward (-y) of the tag at (30,-216) and (-2,-248); 6 judgements 5-7 mm forward, x mean <1 mm with no steady sign. Taken as the tag sitting 5 mm back of where place recorded it.",
+  "resolved": "2026-11-09",
+  "cam_to_wrist": [
+    [
+      0.027637,
+      -0.999353,
+      0.023028,
+      0.034693
+    ],
+    [
+      -0.998715,
+      -0.026626,
+      0.043113,
+      0.047383
+    ],
+    [
+      -0.042472,
+      -0.02419,
+      -0.998805,
+      0.034897
+    ],
+    [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "rms_mm": 1.91,
+  "max_mm": 3.33,
+  "n": 41,
+  "spread_ratio": 0.562,
+  "min_spread_ratio": 0.05,
+  "frame": "cam_to_wrist maps the colour OPTICAL frame to the wrist frame of hand_eye.wrist_frame, in the right-handed MIRROR of the arm frame (x negated), metres; z in command coordinates"
+}

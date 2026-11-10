@@ -16,10 +16,14 @@
 # changes. dev is never modified; it keeps the full original messages.
 #
 # Remotes expected: `dev` (private, source) and `origin` (public, target).
+# A clone with the other layout (`origin` private, `public-v5` public) runs it
+# as  SRC_REMOTE=origin DST_REMOTE=public-v5 tools/sync_public.sh ...
+# The push goes to the target's FETCH url, so a deliberately broken push url
+# on the public remote does not stop the script (it stops everything else).
 set -euo pipefail
 
-SRC_REMOTE=dev
-DST_REMOTE=origin
+SRC_REMOTE=${SRC_REMOTE:-dev}
+DST_REMOTE=${DST_REMOTE:-origin}
 BRANCH=main
 PUSH=0
 FORCE=0
@@ -105,6 +109,9 @@ if [ "$NEED_FORCE" = 1 ] && [ "$FORCE" = 0 ]; then
 fi
 
 DST_URL=$(git -C "$ROOT" remote get-url "$DST_REMOTE")
+case "$DST_URL" in
+  *xarm6-digital-twin-v5_dev*) echo "refusing: $DST_REMOTE ($DST_URL) is the PRIVATE dev repo, not the public one" >&2; exit 4 ;;
+esac
 git push --force-with-lease="$BRANCH:$DST_TIP" "$DST_URL" "$NEW_TIP:refs/heads/$BRANCH"
 git -C "$ROOT" fetch -q "$DST_REMOTE"
 echo "published ${NEW_TIP:0:7} to $DST_REMOTE/$BRANCH"

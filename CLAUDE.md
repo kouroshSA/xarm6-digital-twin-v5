@@ -539,6 +539,70 @@ they always did** (`lab_a2s2` is a passthrough room wrapping `envs/lab_scene.xml
   `.test_recordings`, `.test_lab_rebuilt`, `.test_entry_points`;
   `MUJOCO_GL=egl python -m simready_import.test_importer [--network]`.
 
+## Hiwonder MaxArm (real hardware, no twin)
+
+`xarm_lab_twin/hardware/maxarm/`: a second, unrelated arm (ESP32, 3 bus servos,
+suction cup, no rail), driven over USB through the board's MicroPython raw REPL.
+Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_llm_v5/xarm_lab_twin/hardware/maxarm/README.md).
+
+- **The PC-side port in `kinematics.py` is the one source of truth for motion.**
+  Moves send bus-servo pulses directly. Do not route them through the vendor's
+  `ESPMax.set_position`: it re-solves IK on the board and silently clamps z,
+  servo 2, servo 3 and short reaches (defect classes #1 and #2 in a single
+  call). The board's solver is only a cross-check (`maxarm_probe.py --kinematics`).
+- The arm frame is the board's MicroPython `ESPMax` frame. **Trust the board over
+  the published source**: `_espmax.cpp` negates x, the board's compiled
+  `__espmax.mpy` does not, so on the lab unit `ESPMax` equals the C-source frame.
+  The first port assumed otherwise and was mirrored; `--kinematics` against the
+  real board caught it. **+x is the arm's right** (seen from behind, reach along
+  -y), so the arm frame is LEFT-HANDED: negate x before any rotation maths (the
+  camera hand-eye chain). The table floor is MEASURED at one point (cup touches
+  at wrist z = 52; floor 62, `kinematics.TABLE_CONTACT_Z_MM`; flat to ~1 mm at two
+  more points). Arrival tolerance 10 mm, measured (gravity sag at reach reads ~6 mm
+  short, loaded or not); a miss is re-sent once first.
+- **Opening the port reboots the board** (CH340 at `/dev/ttyUSB0`): Linux raises
+  DTR/RTS on open before pyserial's deasserted values apply. The stock program
+  boots in ~3.2 s with a silent gap, so `RawRepl.enter` waits for its `>>> `
+  prompt; keys sent earlier are lost. The port needs the `dialout` group.
+- **The stock program is not stopped by Ctrl-C.** `main.py` runs its Bluetooth /
+  mouse / key handlers from `Timer(2)`, which would move the arm under ours;
+  `RealMaxArmAPI` deinits it on connect and refuses unless the board reports it
+  stopped. Leave Timer 3 alone (PWMServo, the nozzle).
+- Tests: `python -m hardware.maxarm.test_maxarm`. The IK is graded against
+  vectors from the vendor's compiled `_espmax.cpp` and against values read off
+  the board (`test_frame_matches_the_board`), not against itself.
+- **Wrist camera hand-eye** (`hardware/maxarm/hand_eye.py`, `scripts/maxarm_hand_eye.py`):
+  a tag laid at a KNOWN point (under the cup, z = table contact) turns eye-in-hand
+  into the fixed-camera problem `solve_camera_pose` already solves -- no second
+  solver. AX=XB cannot see the camera's height when every rotation is about the
+  vertical. Built in the right-handed mirror (x negated). Measured 2026-11-08:
+  RMS 2.1 mm; re-solved 2026-11-09 with the tag 5 mm back of its recorded spot
+  (`resolve`), after the cup at 3 mm sat 5 mm forward of it. The camera looks ~6 cm
+  beside the cup and needs wrist z >= ~140 to focus. `python -m hardware.maxarm.test_hand_eye`.
+- **Frames in arm coordinates: `hardware/maxarm/wrist_camera.MaxArmWristCamera`**
+  (subclass; the xArm path is untouched). `frame.pixel_to_world(u, v) * 1000` is a
+  `set_position` target. Its `cam_to_world` is a REFLECTION (left-handed frame):
+  points and clouds only, never read an orientation (a grasp angle) off it. The
+  camera is fixed to the platform, not the nozzle (measured), so any nozzle angle.
+- **Digital twin (2026-11-10): `hardware/maxarm/sim_maxarm.SimMaxArmAPI`** in room
+  `maxarm_petri` (`robots/maxarm/`, both GENERATED: `build_model.py` from
+  `kinematics.py` + the calibration files, `make_room.py` from `petri.py`; never
+  hand-edit the XML or room.json). Same surface as the real API on the physics
+  `SimXArmAPI(room="maxarm_petri")` owns; the xArm stays the controllable robot.
+  **The twin stops where the bench does**: `repeatability.py` applies the measured
+  scatter and gravity sag to every target (seeded), read-back is pulses through
+  `kinematics`, arrival is `ARRIVAL_TOL_MM` + one re-send. Suction is a weld taken
+  only on a top that five rays find flat under the whole lip; `held` is knowledge
+  the real arm does not have. `scripts/maxarm_lid_twin.py run --video out.mp4` is
+  the lid task from memory (dish positions taken once), graded on the lid body's
+  pose. Dish dimensions in `petri.py` are ASSUMED until measured. Tests:
+  `MUJOCO_GL=egl python -m hardware.maxarm.test_sim_maxarm` (`--fast` skips physics).
+- **Pick and place: `scripts/maxarm_pick_place.py`**, IN PROGRESS (1 of 3 runs placed).
+  Heights are GEOMETRY (table contact + object size), not depth: an object top
+  is inside the D435's minimum range from every pose the arm reaches. Judge a
+  place by the after-look, never by the commands returning (no vacuum sensor):
+  a cube that never left the table once "succeeded".
+
 ## Pose geometry helpers
 
 `xarm_lab_twin/geometry/` holds SE(3) interpolation, smoothing and dwell
@@ -664,14 +728,28 @@ file's "Recording format" section so consumers can find them.
 - **Never commit secrets.** `.gitignore` excludes `.env`, `*.key`,
   `secrets/`, and `How-to-run.txt` (which historically had pasted API keys).
   Before any `git add .`, scan for `sk-ant-` to be safe.
-- **Two remotes; never `git push origin`.** `dev` is the private working repo
-  (`main` tracks it, bare `git push` goes there). `origin` is the public repo,
-  and it is a *filtered mirror*: `Claude-Session:` links and `Co-Authored-By:
-  … <noreply@anthropic.com>` trailers are stripped, so its hashes differ from
-  dev's. Publish only with `tools/sync_public.sh` (dry run) then
-  `tools/sync_public.sh --push`. A direct push would upload the unfiltered
-  history. The filter is deterministic, so routine syncs are fast-forwards;
-  the script refuses a rewrite unless given `--force`.
+- **Two repos; identify them by URL, not by remote name.** Remote names
+  differ between clones, so run `git remote -v` before any push.
+  - **Private dev repo** `github.com/kouroshSA/xarm6-digital-twin-v5_dev`:
+    the working repo. `main` tracks it, and bare `git push` goes there.
+  - **Public repo** `github.com/kouroshSA/xarm6-digital-twin-v5`: a
+    *filtered mirror*. `Claude-Session:` links and `Co-Authored-By: …
+    <noreply@anthropic.com>` trailers are stripped, so its hashes differ from
+    dev's. Never push to it directly; that would upload the unfiltered history.
+  - Clone layouts seen so far:
+    - `dev` = private, `origin` = public.
+    - `origin` = private, `public-v5` = public, with its push URL set to
+      `DISABLED_…` so a direct push fails.
+  - Publish only with `tools/sync_public.sh` (dry run) then
+    `tools/sync_public.sh --push`. The filter is deterministic, so routine
+    syncs are fast-forwards; the script refuses a rewrite unless given
+    `--force`. **The script defaults to `SRC_REMOTE=dev` / `DST_REMOTE=origin`**
+    (the first layout); in the second layout run it as
+    `SRC_REMOTE=origin DST_REMOTE=public-v5 tools/sync_public.sh`. It pushes
+    to the target's FETCH url, so the disabled push url does not stop it, and
+    it refuses a target whose url is the `_dev` repo. **It publishes `main`
+    only**: a feature branch reaches the public repo by merging into `main`
+    on dev first (that is what the MaxArm work needed, 2026-11-10).
 - **The tool is the cell's:** F/T sensor + camera adapter (42.5 mm, derived from
   the measured 217 mm flange-to-tip) + UFACTORY xArm Gripper (TCP 172 mm), so the
   TCP is 214.5 mm from the flange and the payload 1.247 kg (`CELL_TCP_LOAD`).

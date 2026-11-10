@@ -57,6 +57,10 @@ xarm-python-sdk==1.18.4
 # `keyboard` package, which needs root on Linux.
 pynput==1.8.2
 
+# Hiwonder MaxArm over USB (hardware/maxarm/transport.py, scripts/maxarm_probe.py).
+# Only imported when a SerialLink is opened; the tests use FakeBoard.
+pyserial==3.5
+
 # Hand-tracking teleop, teleop side (teleop_hand/retarget.py, its tests).
 # >= 0.5 is the first release that supports numpy 2. The TRACKER's extra
 # dependency (mediapipe) lives in requirements-hand.txt, in its own env.
