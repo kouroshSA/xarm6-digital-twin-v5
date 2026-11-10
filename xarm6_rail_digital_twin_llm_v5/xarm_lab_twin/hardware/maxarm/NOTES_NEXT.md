@@ -36,7 +36,12 @@ possibly hand tracking (`teleop_hand/`, needs its own camera calibration). Follo
 `teleop_kin/`'s exit discipline: every exit path leaves the arm holding where it
 is and the pump as it was.
 
-## 2. Digital twin of the MaxArm
+## 2. Digital twin of the MaxArm -- DONE 2026-11-10 (README, "Digital twin")
+
+Built as planned below: `robots/maxarm/` (generated model), `rooms/maxarm_petri/`, `sim_maxarm.py`,
+`scripts/maxarm_lid_twin.py`, `test_sim_maxarm.py`. Still wanted from the bench: the real dishes'
+dimensions (`petri.py` assumes 88 mm base, 92 mm lid, 1 mm radial clearance, 14 and 9 mm tall).
+The plan, kept for the record:
 
 No public model exists (searched 2026-11-09): no URDF/MJCF/ROS package from
 Hiwonder for the MaxArm (they publish URDFs only for their ROS arms), only a

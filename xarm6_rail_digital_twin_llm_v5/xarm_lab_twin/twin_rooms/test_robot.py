@@ -29,7 +29,7 @@ XARM = json.loads((ROBOTS_DIR / "xarm6_rail" / "robot.json").read_text())
 
 
 def test_types_load_with_every_name_checked():
-    assert list_robot_types() == ["xarm6_rail", "xarm6_rail_basic"], list_robot_types()
+    assert list_robot_types() == ["maxarm", "xarm6_rail", "xarm6_rail_basic"], list_robot_types()
     for t in list_robot_types():
         load_robot_type(t)          # check_model=True: every variant compiled and checked
 

@@ -584,6 +584,19 @@ Detail and open items in [`hardware/maxarm/README.md`](xarm6_rail_digital_twin_l
   `set_position` target. Its `cam_to_world` is a REFLECTION (left-handed frame):
   points and clouds only, never read an orientation (a grasp angle) off it. The
   camera is fixed to the platform, not the nozzle (measured), so any nozzle angle.
+- **Digital twin (2026-11-10): `hardware/maxarm/sim_maxarm.SimMaxArmAPI`** in room
+  `maxarm_petri` (`robots/maxarm/`, both GENERATED: `build_model.py` from
+  `kinematics.py` + the calibration files, `make_room.py` from `petri.py`; never
+  hand-edit the XML or room.json). Same surface as the real API on the physics
+  `SimXArmAPI(room="maxarm_petri")` owns; the xArm stays the controllable robot.
+  **The twin stops where the bench does**: `repeatability.py` applies the measured
+  scatter and gravity sag to every target (seeded), read-back is pulses through
+  `kinematics`, arrival is `ARRIVAL_TOL_MM` + one re-send. Suction is a weld taken
+  only on a top that five rays find flat under the whole lip; `held` is knowledge
+  the real arm does not have. `scripts/maxarm_lid_twin.py run --video out.mp4` is
+  the lid task from memory (dish positions taken once), graded on the lid body's
+  pose. Dish dimensions in `petri.py` are ASSUMED until measured. Tests:
+  `MUJOCO_GL=egl python -m hardware.maxarm.test_sim_maxarm` (`--fast` skips physics).
 - **Pick and place: `scripts/maxarm_pick_place.py`**, IN PROGRESS (1 of 3 runs placed).
   Heights are GEOMETRY (table contact + object size), not depth: an object top
   is inside the D435's minimum range from every pose the arm reaches. Judge a
