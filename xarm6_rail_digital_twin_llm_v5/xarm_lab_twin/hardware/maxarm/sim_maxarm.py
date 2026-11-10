@@ -54,6 +54,11 @@ SEAL_GAP_MM = 3.0
 #: a cup half over the lid's edge, or on a dish base's bare 1 mm rim, does not seal.
 SEAL_FLATNESS_MM = 1.0
 
+#: The seal rays start this far above the cup lip (inside the cup body), m.
+RAY_START_ABOVE_LIP_M = 0.004
+#: A cup pressed deeper than this into an object is not sealing on it, mm
+#: (the real bellows give 4-5 mm; the rigid twin cup is stopped by contact).
+SEAL_PRESS_MAX_MM = 2.5
 #: Control-loop slice for a paced move, s (sim time).
 SLICE_S = 0.02
 
@@ -332,14 +337,19 @@ class SimMaxArmAPI:
             R = d.site_xmat[self.lip_sid].reshape(3, 3)
             geomid = np.zeros(1, dtype=np.int32)
             for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
-                start = lip + R @ np.array([dx * 0.008, dy * 0.008, -0.0003])
+                # Cast from RAY_START_ABOVE_LIP_M above the lip, inside the cup
+                # body (excluded), so a cup that settled a millimetre INTO the
+                # lid still sees the lid: a ray that starts inside the 1 mm
+                # top plate passes through it and reports the base's floor
+                # (seed 4 on the twin, 2026-11-10). Negative gaps = pressing.
+                start = lip + R @ np.array([dx * 0.008, dy * 0.008, RAY_START_ABOVE_LIP_M])
                 dist = mujoco.mj_ray(m, d, start, np.array([0.0, 0.0, -1.0]), None, 1,
                                      self.cup_bid, geomid)
                 if dist < 0 or geomid[0] < 0:
                     out.append((None, math.inf))
                     continue
                 name = body_of.get(int(m.geom_bodyid[geomid[0]]))
-                out.append((name, (dist + 0.0003) * 1000.0))
+                out.append((name, (dist - RAY_START_ABOVE_LIP_M) * 1000.0))
         return out
 
     def _candidates(self) -> list[tuple[str, float, float]]:
@@ -362,7 +372,7 @@ class SimMaxArmAPI:
             return 0
         best = None
         for name, gap, spread in self._candidates():
-            if gap <= SEAL_GAP_MM and spread <= SEAL_FLATNESS_MM:
+            if -SEAL_PRESS_MAX_MM <= gap <= SEAL_GAP_MM and spread <= SEAL_FLATNESS_MM:
                 best = (name, gap, spread)
         if best is None:
             hits = self._under_cup()
