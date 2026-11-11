@@ -383,33 +383,90 @@ def _release_at_joints(arm, cam, a, joints, xy, z_top, tag):
     return False
 
 
-def _seat(cam, a, home_xy, offset, z_seated, tag):
-    """(ok, lid_xyz, rim_xy, miss) judged in one frame from the dish view."""
+def _rim_pair(frame, px, a, z_mm, name=None):
+    """The lid's rim and the base's rim near the tape, as (lid_centre_xy, base_centre_xy) in
+    mm on the base-rim plane, or None if two distinct dish-sized circles are not seen.
+    A perched lid shows two circles a few mm apart (its own rim and the base's); seated,
+    they coincide and only one is found."""
+    import cv2
+    from hardware.maxarm.wrist_camera import pixel_at_height
+    g = cv2.cvtColor(frame.color, cv2.COLOR_RGB2GRAY)
+    g = cv2.GaussianBlur(g, (5, 5), 1.5)
+    c = cv2.HoughCircles(g, cv2.HOUGH_GRADIENT, dp=1.2, minDist=12, param1=90, param2=40,
+                         minRadius=L.BASE_RADIUS_PX[0], maxRadius=L.BASE_RADIUS_PX[1])
+    if c is None:
+        return None
+    found = []
+    for u, v, r in c[0]:
+        centre = pixel_at_height(frame, float(u), float(v), z_mm)
+        edge = pixel_at_height(frame, float(u) + float(r), float(v), z_mm)
+        if centre is None or edge is None:
+            continue
+        dia = 2.0 * float(np.linalg.norm(edge[:2] - centre[:2]))
+        if abs(dia - a.dish_mm) > 12 or np.hypot(u - px[0], v - px[1]) > RIM_NEAR_PX:
+            continue
+        found.append((dia, centre[:2].copy(), (float(u), float(v), float(r))))
+    if len(found) < 2:
+        return None
+    found.sort(key=lambda f: -f[0])
+    lid = found[0]
+    base = next((f for f in found[1:] if np.linalg.norm(f[1] - lid[1]) >= 2.0), None)
+    if base is None:
+        return None
+    print(f"  rims: lid {lid[0]:.0f} mm at {np.round(lid[1], 1).tolist()}, base {base[0]:.0f} mm at "
+          f"{np.round(base[1], 1).tolist()}")
+    if name is not None:
+        img = frame.color[:, :, ::-1].copy()
+        for f, col in ((lid, (255, 0, 255)), (base, (0, 255, 0))):
+            u, v, r = f[2]
+            cv2.circle(img, (int(u), int(v)), int(r), col, 2)
+        cv2.imwrite(str(LOOP_OUT / name), img)
+    return lid[1], base[1]
+
+
+def _seat(cam, a, home_xy, z_seated, tag):
+    """(ok, lid_xyz, miss): seated is judged by HEIGHT (the tape's depth: a lid on its
+    seat reads within SEAT_HEIGHT_TOL_MM of it, perched 4-7 mm above; a seated lid is
+    centred by the base, so no rim check is needed). For a perched lid, `miss` is where
+    the lid's rim is relative to the base's rim, from the pair of circles, or None.
+    (The tape's offset from the lid's centre rotates with the lid on the cup, so the
+    old tape-vs-rim comparison judged a seated lid 10 mm off, 2026-11-11.)"""
     frame, lids = _look_all(cam, a, z_seated, f"{tag}.png")
     lid = _nearest(lids, home_xy, 60.0)
     if lid is None:
         print("seat check: no lid seen near the dish")
-        return False, None, None, None
-    rim = _rim_near(frame, lid["px"], kin.TABLE_CONTACT_Z_MM + L.BASE_RIM_ABOVE_TABLE_MM, a,
-                    f"{tag}_rim.png")
-    if rim is None:
-        return False, lid["xyz"], None, None
+        return False, None, None
+    if not lid["depth"]:
+        print("seat check: the lid's height was not measured (no depth on the tape); cannot judge")
+        return False, lid["xyz"], None
     above = float(lid["xyz"][2] - z_seated)
-    d = lid["xyz"][:2] - offset - rim[0]
-    ok = bool(np.linalg.norm(d) <= SEAT_TOL_MM and above <= SEAT_HEIGHT_TOL_MM)
-    print(f"seat check: lid centre {np.linalg.norm(d):.1f} mm from the rim centre "
-          f"({np.round(d, 1).tolist()}), lid top {above:+.1f} mm vs seated -> "
-          f"{'seated' if ok else 'NOT seated'}")
-    return ok, lid["xyz"], rim[0], d
+    ok = bool(-3.0 <= above <= SEAT_HEIGHT_TOL_MM)
+    miss = None
+    if not ok:
+        pair = _rim_pair(frame, lid["px"], a, kin.TABLE_CONTACT_Z_MM + L.BASE_RIM_ABOVE_TABLE_MM,
+                         f"{tag}_rim.png")
+        if pair is not None:
+            miss = pair[0] - pair[1]
+            if not 2.0 <= float(np.linalg.norm(miss)) <= 25.0:
+                miss = None
+    print(f"seat check: lid top {above:+.1f} mm vs seated -> {'seated' if ok else 'NOT seated'}"
+          + (f"; lid rim is {np.round(miss, 1).tolist()} mm from the base rim" if miss is not None
+             else ("" if ok else "; direction of the miss not measured")))
+    return ok, lid["xyz"], miss
 
 
-def _reseat(arm, cam, a, home_xy, lid_xyz, rim_xy, offset, z_seated, tag, tries):
-    """Pick the perched lid up again and set it down shifted by the measured miss, until seated."""
+def _reseat(arm, cam, a, home_xy, lid_xyz, miss, z_seated, tag, tries):
+    """Pick the perched lid up again (pump on) and set it down shifted by the measured
+    miss, or, when the miss is not known, back at the remembered pick coordinate."""
     for i in range(1, tries + 1):
-        d = lid_xyz[:2] - offset - rim_xy
-        target = lid_xyz[:2] - d
-        print(f"re-seat {i}/{tries}: lid is {np.round(d, 1).tolist()} mm off; shifting by "
-              f"{np.round(-d, 1).tolist()}")
+        if miss is not None:
+            target = lid_xyz[:2] - miss
+            print(f"re-seat {i}/{tries}: lid rim is {np.round(miss, 1).tolist()} mm off the base; "
+                  f"shifting by {np.round(-miss, 1).tolist()}")
+        else:
+            target = np.array(home_xy, float)
+            print(f"re-seat {i}/{tries}: miss unknown; putting it back at the pick coordinate "
+                  f"{np.round(target, 1).tolist()}")
         z = max(float(lid_xyz[2]) - a.press_mm, arm.floor_z_mm)
         _gate((*target, z_seated), (*lid_xyz[:2], z))
         arm.set_position(lid_xyz[0], lid_xyz[1], z + APPROACH_MM, speed=30)
@@ -422,11 +479,11 @@ def _reseat(arm, cam, a, home_xy, lid_xyz, rim_xy, offset, z_seated, tag, tries)
             return False, "HELD: the lid would not leave the cup over the dish"
         arm.set_position(*_view_over(home_xy), speed=30)
         time.sleep(0.4)
-        ok, lid_xyz, rim_xy, d = _seat(cam, a, home_xy, offset, z_seated, f"{tag}_reseat{i}_after")
+        ok, lid_xyz, miss = _seat(cam, a, home_xy, z_seated, f"{tag}_reseat{i}_after")
         if ok:
             return True, f"seated after {i} re-seat(s)"
-        if lid_xyz is None or rim_xy is None:
-            return False, "cannot judge: lid or rim not seen after the re-seat"
+        if lid_xyz is None:
+            return False, "cannot judge: lid not seen after the re-seat"
     return False, f"not seated after {tries} re-seat(s)"
 
 
@@ -536,17 +593,13 @@ def _return_lid(arm, cam, a, home_xyz, home_joints, z_seated, aside, tag):
     # judge by looking; re-seat by the measured miss until seated
     arm.set_position(*_view_over(home_xyz[:2]), speed=40)
     time.sleep(0.4)
-    ok, lid_xyz, rim_xy, d = _seat(cam, a, home_xyz[:2], offset, z_seated, f"{tag}_after")
+    ok, lid_xyz, miss = _seat(cam, a, home_xyz[:2], z_seated, f"{tag}_after")
     why = "seated first time"
     if not ok:
         if lid_xyz is None:
             why = "cannot judge: lid not seen"
         else:
-            if rim_xy is None:
-                print("rim not measured: re-seating toward the remembered pick coordinate instead")
-                rim_xy = home_xyz[:2] - offset
-            ok, why = _reseat(arm, cam, a, home_xyz[:2], lid_xyz, rim_xy, offset, z_seated,
-                              tag, a.reseat_tries)
+            ok, why = _reseat(arm, cam, a, home_xyz[:2], lid_xyz, miss, z_seated, tag, a.reseat_tries)
             if why.startswith("HELD"):
                 arm.go_home()
                 return why, True
