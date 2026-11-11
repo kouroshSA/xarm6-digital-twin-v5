@@ -50,8 +50,21 @@ from maxarm_lid import (  # noqa: E402
 
 LOOP_OUT = OUT / "loop"
 MERGE_MM = 45.0          # the same lid seen from two views, or re-seen from the dish view
-SEATED_BAND_MM = 4.0     # tape top within this of the seated height: a lid on its dish
-LID_PX_MIN = 15000       # a lid seen flat with depth (maxarm_lid._verify_lift)
+SEATED_BAND_MM = 4.0     # tape top within this BELOW the seated height: a lid on its dish
+PERCHED_MM = 9.0         # ... or up to this ABOVE it: a lid perched on the rim (64.7 seen) is
+                         # still on its dish and gets picked and re-seated, not skipped
+GLARE_MAX_Z_MM = kin.TABLE_CONTACT_Z_MM - 1.5   # a blob with depth whose top reads below this
+                         # is a glint on the table (48.1-48.9 seen, seven times); a lid lying
+                         # on the table reads 51.8-53.5 (six times). Not a lid, not an obstacle.
+LID_PX_MIN = 6000        # a lid seen flat with depth. Seen obliquely at a set-aside spot near the
+                         # reach limit a lid is ~10k px; at 15000 the lift check ignored one still
+                         # lying at the pick point and the arm went on with an empty cup (2026-11-11)
+ON_DISH_NODEPTH_PX = 15000   # a blob with NO depth counts as a lid on a dish only this big: a
+                         # 6000 px depth-less phantom was "picked" and the empty cup was then
+                         # judged to be holding a lid that would not let go (episode 3, 2026-11-11)
+SIGHTING_PX_MIN = 3000   # smaller tape-coloured blobs are glints or edges: a 452 px speck with
+                         # depth at the seated height became a third dish (2026-11-11), and every
+                         # speck counted as an obstacle, so no set-aside spot was clear
 RIM_NEAR_PX = 150        # a rim circle this close to the tape blob is that lid's rim
 SURVEY_OFFSETS_MM = ((0.0, 0.0), (0.0, 70.0), (0.0, -70.0), (70.0, 0.0), (-70.0, 0.0),
                      (70.0, 70.0), (-70.0, 70.0), (110.0, 90.0), (-110.0, 90.0))   # the far right/left need a shorter reach
@@ -85,27 +98,53 @@ def _view_for_check(xy):
 def _blobs(frame):
     """Every blob of the tape's hue, largest first (bool masks)."""
     import cv2
-    lo, hi = L._tape_mask.hue
     hsv = cv2.cvtColor(frame.color, cv2.COLOR_RGB2HSV)
-    m = ((hsv[..., 0] >= lo) & (hsv[..., 0] <= hi)
-         & (hsv[..., 1] > MIN_SATURATION) & (hsv[..., 2] > MIN_VALUE))
+    m = L.hue_mask(hsv)
     m = cv2.morphologyEx(m.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
     n, lab, stats, _ = cv2.connectedComponentsWithStats(m)
     order = sorted(range(1, n), key=lambda i: -int(stats[i, cv2.CC_STAT_AREA]))
     return [lab == i for i in order if stats[i, cv2.CC_STAT_AREA] >= MIN_TAPE_PX]
 
 
+def _tape_band(frame, mask):
+    """(z_tape, n_depth, rows, cols) from depth: the MODAL 6 mm height band of the blob's
+    depth pixels and the sampled pixels in it, or (None, n_depth, None, None).
+
+    Glare on the table beside a tape blob passes the hue mask and merges with it; the
+    median height of the merged blob was the table's, 12 mm under the lid, and a lid
+    sitting on its dish was judged to be hanging on the cup, three times (2026-11-11).
+    The tape is one plane, so its band wins the histogram; the glare's band is dropped."""
+    rows, cols = np.nonzero(mask)
+    d = frame.depth[rows, cols]
+    ok = np.isfinite(d) & (d > 0.05)
+    n_ok = int(ok.sum())
+    if n_ok < L.MIN_DEPTH_PX:
+        return None, n_ok, None, None
+    step = max(1, n_ok // 1500)
+    r, c, dd = rows[ok][::step], cols[ok][::step], d[ok][::step]
+    zs = np.array([frame.pixel_to_world(int(cc), int(rr), depth_m=float(z))[2] * 1000.0
+                   for rr, cc, z in zip(r, c, dd)])
+    h, edges = np.histogram(zs, np.arange(zs.min() - 1.0, zs.max() + 3.0, 2.0))
+    k = int(np.argmax(h))
+    lo, hi = edges[max(k - 1, 0)], edges[min(k + 2, len(edges) - 1)]
+    inb = (zs >= lo) & (zs <= hi)
+    if inb.mean() < 0.999:
+        print(f"  (depth band {lo:.0f}-{hi:.0f} mm holds {100 * inb.mean():.0f}% of the blob's depth "
+              f"pixels; the rest, at other heights, is left out)")
+    return float(np.median(zs[inb])), n_ok, r[inb], c[inb]
+
+
 def _lid_from_mask(frame, mask, default_top, a):
     """The tape blob as a lid: centre on the lid-top plane, whether depth gave the height."""
     from hardware.maxarm.wrist_camera import pixel_at_height
-    z_tape, n_depth = _tape_height(frame, mask)
+    z_tape, n_depth, rows, cols = _tape_band(frame, mask)
     if z_tape is not None and not (kin.TABLE_CONTACT_Z_MM + 3 <= z_tape <= kin.TABLE_CONTACT_Z_MM + 35):
         z_tape = None            # not on this table: a lid hanging on the cup reads nonsense
     if z_tape is None:
         z_top, depth = float(default_top), False
+        rows, cols = np.nonzero(mask)
     else:
         z_top, depth = z_tape + LID_THICKNESS_MM - a.depth_bias_mm, True
-    rows, cols = np.nonzero(mask)
     step = max(1, len(rows) // 3000)
     pts = [pixel_at_height(frame, c, r, z_top) for r, c in zip(rows[::step], cols[::step])]
     pts = np.array([p[:2] for p in pts if p is not None])
@@ -131,7 +170,7 @@ def _look_all(cam, a, default_top, name):
         print(f"  lid {i}: tape centre {np.round(l['xyz'], 1).tolist()} mm (height from {src}), "
               f"{l['n_px']} px")
     if not lids:
-        print("  no blue tape seen")
+        print("  no tape seen")
     LOOP_OUT.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(LOOP_OUT / name), img)
     return frame, lids
@@ -186,6 +225,25 @@ def _rim_near(frame, px, z_mm, a, name=None):
 
 # -- checks that look --------------------------------------------------------
 
+def _pick_remember(arm, xyz, floor, press_mm, hold_s):
+    """maxarm_lid._pick, and the joints READ BACK with the cup sealed on the lid: the
+    plate's coordinate in servo values, replayed for the first put-back (bench rule,
+    2026-11-11). Returns (joints_deg[3], read-back xyz)."""
+    z = max(float(xyz[2]) - press_mm, floor)
+    arm.set_position(xyz[0], xyz[1], CARRY_Z, speed=40)
+    arm.set_position(xyz[0], xyz[1], z + APPROACH_MM, speed=30)
+    arm.set_position(xyz[0], xyz[1], z, speed=10)
+    _, pose = arm.get_position()
+    _, joints = arm.get_servo_angle()
+    joints = [float(j) for j in joints[:3]]
+    print(f"cup at commanded z {z:.1f} (lid top {xyz[2]:.1f}, press {press_mm:.0f}); "
+          f"read-back {np.round(pose[:3], 1).tolist()}, servo pose {np.round(joints, 2).tolist()} deg")
+    arm.close_gripper()
+    time.sleep(hold_s)
+    arm.set_position(xyz[0], xyz[1], CARRY_Z, speed=15)
+    return joints, np.array(pose[:3], float)
+
+
 def _lifted(arm, cam, a, xyz, name):
     """True if no lid lies at xyz any more after the pick (maxarm_lid._verify_lift, any blob)."""
     arm.set_position(*_view_for_check(xyz[:2]), speed=30)
@@ -194,9 +252,12 @@ def _lifted(arm, cam, a, xyz, name):
     for l in lids:
         off = float(np.linalg.norm(l["xyz"][:2] - xyz[:2]))
         dz = float(l["xyz"][2] - xyz[2])
-        if l["depth"] and off <= a.aside_tol_mm and abs(dz) <= 6.0 and l["n_px"] >= LID_PX_MIN:
+        # A big tape blob at the pick point is the lid whether or not depth is valid: the
+        # orange tape seen obliquely often has none, and a hanging lid is never in the
+        # picture (the camera looks beside the cup). Depth, when there, must agree.
+        if off <= a.aside_tol_mm and l["n_px"] >= LID_PX_MIN and (not l["depth"] or abs(dz) <= 6.0):
             print(f"lift check: the lid is still there ({off:.1f} mm from the pick point, "
-                  f"height {dz:+.1f}); nothing was lifted")
+                  f"height {dz:+.1f}{'' if l['depth'] else ' assumed'}); nothing was lifted")
             return False
     print("lift check: no lid lies at the pick point; it came up")
     return True
@@ -206,29 +267,118 @@ def _hanging(cam, a, xy, z_top, name):
     """True unless a lid is seen LYING at xy (depth at z_top, flat, big): maxarm_lid._hanging per blob."""
     _, lids = _look_all(cam, a, z_top, name)
     for l in lids:
-        if (l["depth"] and l["n_px"] >= LID_PX_MIN and abs(l["xyz"][2] - z_top) <= 8.0
-                and np.linalg.norm(l["xyz"][:2] - xy) <= a.aside_tol_mm):
+        # as _lifted: a big blob where the lid was set down is the lid, depth or not (the
+        # orange lid at its set-aside spot had no depth and was called hanging, 2026-11-11)
+        if (l["n_px"] >= LID_PX_MIN and np.linalg.norm(l["xyz"][:2] - xy) <= a.aside_tol_mm
+                and (not l["depth"] or abs(l["xyz"][2] - z_top) <= 8.0)):
             return False
     return True
 
 
-def _release_on(arm, cam, a, xy, z_top, tag):
-    """Lower the held lid onto z_top at xy and vent IN CONTACT until it lets go (maxarm_lid._release_on)."""
+#: Tape hue windows, OR-ed: blue at the default floors, orange windowed on brightness too
+#: (the wooden table shares its hue but is dark; measured 2026-11-11, maxarm_lid.ORANGE_WINDOW).
+TAPE_WINDOWS = (L.BLUE_HUE, L.ORANGE_WINDOW)
+
+PEEL_MM = 6.0   # sideways drag of the cup lip across the lid at release, per attempt
+
+
+def _peel(arm, xy, z, mm):
+    """Drag the cup `mm` sideways at height z and back; +x first, -x if that is out of reach."""
+    from hardware.maxarm.real_maxarm import MaxArmError
+    for dx in (mm, -mm):
+        try:
+            arm.set_position(xy[0] + dx, xy[1], z, speed=10)
+        except MaxArmError as exc:
+            print(f"  peel {dx:+.0f} mm refused: {exc}")
+            continue
+        arm.set_position(xy[0], xy[1], z, speed=10)
+        return dx
+    return 0.0
+
+
+def _release_on(arm, cam, a, xy, z_top, tag, peel=True):
+    """Lower the held lid onto z_top at xy, vent with the valve HELD OPEN, peel the cup
+    off sideways, rise, close the valve, look. Each retry presses 1 mm deeper and peels
+    further. (The vendor's one-second vent closes the valve before the cup rises, and the
+    cup's spring-back then re-grips a light lid: bench, 2026-11-11.)"""
     arm.set_position(xy[0], xy[1], CARRY_Z, speed=30)
     arm.set_position(xy[0], xy[1], z_top + APPROACH_MM, speed=30)
     for attempt in range(3):
-        z = max(z_top - RELEASE_PRESS_MM - attempt, arm.floor_z_mm)
+        # Press as the pick does (a.press_mm, 4 mm): at RELEASE_PRESS_MM (1 mm) over a dish the
+        # cup, which reads ~3 mm high here, never put the lid on its base; it was vented
+        # dangling and adhesion took it up again, three times (2026-11-11).
+        z = max(z_top - a.press_mm - attempt, arm.floor_z_mm)
         arm.set_position(xy[0], xy[1], z, speed=10)
-        arm.open_gripper()
-        time.sleep(0.5)
+        arm.vent(True)
+        time.sleep(0.6)
+        # Peel only on the table. Over a dish the drag moved the lid along x by the peel's
+        # length and left it perched on the rim (three put-backs, 2026-11-11); the valve
+        # held open through the lift-off is what stops the sticking.
+        peeled = _peel(arm, xy, z, PEEL_MM * (attempt + 1)) if peel else 0.0
+        if not peel:
+            _settle(arm, xy, z_top)       # over a dish: push a perched skirt into the seat
         arm.set_position(xy[0], xy[1], z_top + 20.0, speed=10)
+        arm.vent(False)
         arm.set_position(*_view_for_check(xy), speed=30)
         time.sleep(0.4)
         if not _hanging(cam, a, xy, z_top, f"{tag}_release{attempt}.png"):
-            print(f"released after {attempt + 1} vent(s), lid set down at z {z:.1f}")
+            print(f"released after {attempt + 1} vent(s) (peel {peeled:+.0f} mm), "
+                  f"lid set down at z {z:.1f}")
             return True
-        print(f"vent {attempt + 1} at z {z:.1f}: the lid still hangs on the cup")
+        print(f"vent {attempt + 1} at z {z:.1f} (peel {peeled:+.0f} mm): the lid still hangs on the cup")
         arm.set_position(xy[0], xy[1], z_top + APPROACH_MM, speed=30)
+    arm.set_position(xy[0], xy[1], CARRY_Z, speed=15)
+    return False
+
+
+SETTLE_RADII_MM = (3.0, 6.0, 9.0)
+SETTLE_PRESS_MM = 2.0
+
+
+def _settle(arm, xy, z_seated):
+    """Vented, pressing SETTLE_PRESS_MM below the seated top, walk the cup round widening
+    squares about xy and back to it: a lid perched on the rim (6-7 mm high, 5-9 mm off,
+    every put-back on 2026-11-11) is pushed sideways until its skirt drops over the rim.
+    The cup follows it down because the servo is commanded below the seat."""
+    from hardware.maxarm.real_maxarm import MaxArmError
+    z = max(z_seated - SETTLE_PRESS_MM, arm.floor_z_mm)
+    arm.set_position(xy[0], xy[1], z, speed=10)
+    done = 0
+    for r in SETTLE_RADII_MM:
+        for dx, dy in ((r, 0.0), (0.0, r), (-r, 0.0), (0.0, -r)):
+            try:
+                arm.set_position(xy[0] + dx, xy[1] + dy, z, speed=10)
+                done += 1
+            except MaxArmError as exc:
+                print(f"  settle step ({dx:+.0f}, {dy:+.0f}) refused: {exc}")
+    arm.set_position(xy[0], xy[1], z, speed=10)
+    print(f"settled: {done} vented pushes up to {SETTLE_RADII_MM[-1]:.0f} mm, pressing {SETTLE_PRESS_MM:.0f} mm below the seat")
+
+
+def _release_at_joints(arm, cam, a, joints, xy, z_top, tag):
+    """Put the held lid back by replaying the servo pose read at the pick (the cup sealed on
+    the seated lid there), vent with the valve held open, peel, rise, look. One attempt."""
+    arm.set_position(xy[0], xy[1], CARRY_Z, speed=30)
+    arm.set_position(xy[0], xy[1], z_top + APPROACH_MM, speed=30)
+    arm.set_servo_angle(joints, speed=15)
+    _, pose = arm.get_position()
+    print(f"cup at the pick's servo pose; read-back {np.round(pose[:3], 1).tolist()}")
+    # Let go PLACE_GAP_MM (2 mm) above that pose so the skirt can drop into place: set down
+    # pressed, a lid arriving 3 mm off perched on the rim (2026-11-11). The user allows a
+    # drop of a couple of millimetres, never more.
+    arm.set_position(float(pose[0]), float(pose[1]), float(pose[2]) + L.PLACE_GAP_MM, speed=10)
+    arm.vent(True)
+    time.sleep(0.6)
+    peeled = 0.0                          # no peel over a dish (see _release_on)
+    _settle(arm, (float(pose[0]), float(pose[1])), z_top)
+    arm.set_position(xy[0], xy[1], z_top + 20.0, speed=10)
+    arm.vent(False)
+    arm.set_position(*_view_for_check(xy), speed=30)
+    time.sleep(0.4)
+    if not _hanging(cam, a, xy, z_top, f"{tag}_release0.png"):
+        print(f"released at the servo pose (peel {peeled:+.0f} mm)")
+        return True
+    print(f"servo-pose release (peel {peeled:+.0f} mm): the lid still hangs on the cup")
     arm.set_position(xy[0], xy[1], CARRY_Z, speed=15)
     return False
 
@@ -268,7 +418,7 @@ def _reseat(arm, cam, a, home_xy, lid_xyz, rim_xy, offset, z_seated, tag, tries)
         time.sleep(a.hold_s)
         arm.set_position(lid_xyz[0], lid_xyz[1], z_seated + 20.0, speed=10)
         arm.set_position(target[0], target[1], z_seated + 20.0, speed=10)
-        if not _release_on(arm, cam, a, target, z_seated, f"{tag}_reseat{i}"):
+        if not _release_on(arm, cam, a, target, z_seated, f"{tag}_reseat{i}", peel=False):
             return False, "HELD: the lid would not leave the cup over the dish"
         arm.set_position(*_view_over(home_xy), speed=30)
         time.sleep(0.4)
@@ -333,7 +483,7 @@ def _merge(found, lids):
 
 
 
-def _return_lid(arm, cam, a, home_xyz, z_seated, aside, tag):
+def _return_lid(arm, cam, a, home_xyz, home_joints, z_seated, aside, tag):
     """The lid lies at the set-aside spot: pick it up and put it back at home_xyz.
 
     Returns (result line, held): held = parked at home with the lid still on the cup.
@@ -358,16 +508,30 @@ def _return_lid(arm, cam, a, home_xyz, z_seated, aside, tag):
         print("WARNING: lid rim not measured; taking the tape centre as the lid centre")
 
     # lid back on, at the remembered pick coordinate
-    _gate(lid_aside["xyz"], _view_for_check(lid_aside["xyz"][:2]))
-    _pick(arm, lid_aside["xyz"], floor, a.press_mm, a.hold_s)
+    # Pick height from GEOMETRY (table + --lid-height-mm), not from depth: the tape is on the
+    # lid's underside and depth reads it ~1 mm above the table, under the lid's top, and the
+    # cup at the floor margin stopped short of the lid and lifted nothing (2026-11-11).
+    pick_xyz = np.array([lid_aside["xyz"][0], lid_aside["xyz"][1], z_aside_top])
+    _gate(pick_xyz, _view_for_check(pick_xyz[:2]))
+    _pick(arm, pick_xyz, floor, a.press_mm, a.hold_s)
     if not _lifted(arm, cam, a, lid_aside["xyz"], f"{tag}_lift2.png"):
         _abort_holding(arm, lid_aside["xyz"])
         return "FAILED: the lid was not lifted from the set-aside spot", False
     target = home_xyz[:2]
-    print(f"putting the lid back at the pick coordinate {np.round(target, 1).tolist()}")
-    if not _release_on(arm, cam, a, target, z_seated, f"{tag}_back"):
-        arm.go_home()
-        return "HELD: the lid would not leave the cup over the dish", True
+    if float(home_xyz[2]) > z_seated + SEAT_HEIGHT_TOL_MM:
+        # picked PERCHED (above the seat): its servo pose is no seat to replay, and a lid
+        # let go there would drop further than the couple of millimetres allowed
+        print(f"the lid was picked {home_xyz[2] - z_seated:+.1f} mm above the seat: putting it "
+              f"back pressed at the pick coordinate {np.round(target, 1).tolist()}, not at the servo pose")
+        first = _release_on(arm, cam, a, target, z_seated, f"{tag}_back", peel=False)
+    else:
+        print(f"putting the lid back at the pick's servo pose (xy {np.round(target, 1).tolist()})")
+        first = _release_at_joints(arm, cam, a, home_joints, target, z_seated, f"{tag}_back")
+    if not first:
+        print("second try: pressing release at the pick coordinate")
+        if not _release_on(arm, cam, a, target, z_seated, f"{tag}_back2", peel=False):
+            arm.go_home()
+            return "HELD: the lid would not leave the cup over the dish", True
 
     # judge by looking; re-seat by the measured miss until seated
     arm.set_position(*_view_over(home_xyz[:2]), speed=40)
@@ -375,9 +539,12 @@ def _return_lid(arm, cam, a, home_xyz, z_seated, aside, tag):
     ok, lid_xyz, rim_xy, d = _seat(cam, a, home_xyz[:2], offset, z_seated, f"{tag}_after")
     why = "seated first time"
     if not ok:
-        if lid_xyz is None or rim_xy is None:
-            why = "cannot judge: lid or rim not seen"
+        if lid_xyz is None:
+            why = "cannot judge: lid not seen"
         else:
+            if rim_xy is None:
+                print("rim not measured: re-seating toward the remembered pick coordinate instead")
+                rim_xy = home_xyz[:2] - offset
             ok, why = _reseat(arm, cam, a, home_xyz[:2], lid_xyz, rim_xy, offset, z_seated,
                               tag, a.reseat_tries)
             if why.startswith("HELD"):
@@ -399,16 +566,22 @@ def episode(arm, cam, a, ep, remembered):
         print(f"survey view {i} from wrist {np.round(v, 0).tolist()}:")
         _, lids = _look_all(cam, a, SEATED_TOP_Z_MM, f"e{ep}_survey{i}.png")
         _merge(found, lids)
-    on_dish, other = [], []
+    on_dish, other, specks = [], [], []
     for l in found:
-        seated = (abs(l["xyz"][2] - SEATED_TOP_Z_MM) <= SEATED_BAND_MM) if l["depth"] \
-            else l["n_px"] >= LID_PX_MIN
+        if l["n_px"] < SIGHTING_PX_MIN or (l["depth"] and l["xyz"][2] < GLARE_MAX_Z_MM):
+            specks.append(l)                 # glints and tape edges: not a dish, not an obstacle
+            continue
+        seated = (-SEATED_BAND_MM <= l["xyz"][2] - SEATED_TOP_Z_MM <= PERCHED_MM) if l["depth"] \
+            else l["n_px"] >= ON_DISH_NODEPTH_PX
         (on_dish if seated else other).append(l)
+    if specks:
+        print(f"ignoring {len(specks)} tape-coloured blob(s) (under {SIGHTING_PX_MIN} px, or glints "
+              f"at table height) at {[np.round(l['xyz'][:2], 0).tolist() for l in specks]}")
     for l in other:
         print(f"skipping tape at {np.round(l['xyz'], 1).tolist()}: not at the seated height "
               f"(a lid alone or upside down, or too small to be sure)")
     on_dish.sort(key=lambda l: -l["xyz"][1])          # nearest the base first
-    dishes_xy = [l["xyz"][:2].copy() for l in found]
+    dishes_xy = [l["xyz"][:2].copy() for l in on_dish + other]   # lids on dishes and lids lying about
     print(f"episode {ep}: {len(on_dish)} lid(s) on dishes at "
           f"{[np.round(l['xyz'][:2], 0).tolist() for l in on_dish]}")
     results = []
@@ -423,6 +596,10 @@ def episode(arm, cam, a, ep, remembered):
         if here is None:
             results.append((k, "FAILED: lid not seen from the dish view"))
             continue
+        if not here["depth"]:
+            results.append((k, "FAILED: the lid's height was not measured from the dish view "
+                               "(no depth on the tape); not picking blind"))
+            continue
         home_xyz = here["xyz"].copy()
         z_seated = min(float(home_xyz[2]), SEATED_TOP_Z_MM)
         aside = _aside_for(home_xyz[:2], dishes_xy, a)
@@ -434,8 +611,8 @@ def episode(arm, cam, a, ep, remembered):
         print(f"plan: pick at {np.round(home_xyz, 1).tolist()}, aside at {np.round(aside, 1).tolist()}, "
               f"back to the pick coordinate, released {L.PLACE_GAP_MM:.0f} mm above seated z {z_seated:.1f}")
 
-        # 1. lid off
-        _pick(arm, home_xyz, floor, a.press_mm, a.hold_s)
+        # 1. lid off, remembering the servo pose with the cup sealed on the seated lid
+        home_joints, _ = _pick_remember(arm, home_xyz, floor, a.press_mm, a.hold_s)
         if not _lifted(arm, cam, a, home_xyz, f"{tag}_lift.png"):
             _abort_holding(arm, home_xyz)
             results.append((k, "FAILED: the lid was not lifted (set back down)"))
@@ -445,7 +622,7 @@ def episode(arm, cam, a, ep, remembered):
             results.append((k, "HELD: the lid would not leave the cup at the set-aside spot"))
             return results, True, dishes_xy
 
-        line, held = _return_lid(arm, cam, a, home_xyz, z_seated, aside, tag)
+        line, held = _return_lid(arm, cam, a, home_xyz, home_joints, z_seated, aside, tag)
         results.append((k, line))
         if held:
             return results, True, dishes_xy
@@ -457,28 +634,42 @@ def build_parser():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--episodes", type=int, default=3, help="0 = until Ctrl-C")
     ap.add_argument("--pause-s", type=float, default=10.0, help="at home between episodes")
-    ap.add_argument("--reseat-tries", type=int, default=5)
+    ap.add_argument("--reseat-tries", type=int, default=1,
+                    help="re-seats (lift with the pump on, set down shifted by the miss) before "
+                         "moving on to the next dish; one, by the bench rule of 2026-11-11")
     ap.add_argument("--max-dishes", type=int, default=4, help="per episode")
     ap.add_argument("--no-survey", dest="survey", action="store_false",
                     help="look only from --view, the remembered dishes and --extra-views")
     ap.add_argument("--extra-views", type=float, nargs=3, action="append", default=None)
-    ap.add_argument("--hue", type=int, nargs=2, default=L.BLUE_HUE, metavar=("LO", "HI"))
+    ap.add_argument("--hue", type=int, nargs="+", default=None, metavar="LO HI",
+                    help="tape hue windows (OpenCV 0-179), LO HI pairs; default: blue and orange "
+                         "(TAPE_WINDOWS)")
     ap.add_argument("--press-mm", type=float, default=PRESS_MM)
     ap.add_argument("--depth-bias-mm", type=float, default=DEPTH_BIAS_MM)
     ap.add_argument("--hold-s", type=float, default=1.5)
     ap.add_argument("--aside", type=float, nargs=2, default=None, metavar=("X", "Y"),
                     help="one fixed set-aside spot (only sensible with one dish)")
-    ap.add_argument("--lid-height-mm", type=float, default=5.0)
+    ap.add_argument("--lid-height-mm", type=float, default=3.0,
+                    help="cup height above table contact at which a lid lying on the table is held "
+                         "(set-down released at 56 = contact + 4; a pick at 55 missed it; 2026-11-11)")
     ap.add_argument("--dish-mm", type=float, default=90.0)
-    ap.add_argument("--floor-margin-mm", type=float, default=3.0)
-    ap.add_argument("--aside-tol-mm", type=float, default=25.0)
+    ap.add_argument("--floor-margin-mm", type=float, default=-1.0,
+                    help="lowest commanded cup z, relative to table contact (52); -1 lets the soft "
+                         "cup press a lid lying on the table by the pick's 4 mm")
+    ap.add_argument("--aside-tol-mm", type=float, default=40.0,
+                    help="how far from the set-aside spot the lid may land (28 mm seen, 2026-11-11)")
     ap.add_argument("--view", type=float, nargs=3, default=VIEW_POSE)
     return ap
 
 
 def main() -> int:
     a = build_parser().parse_args()
-    _set_hue(*a.hue)
+    if a.hue is None:
+        _set_hue(*TAPE_WINDOWS)
+    elif len(a.hue) % 2:
+        raise SystemExit("--hue takes LO HI pairs")
+    else:
+        _set_hue(*zip(a.hue[::2], a.hue[1::2]))
     floor = kin.TABLE_CONTACT_Z_MM + a.floor_margin_mm
     arm, cam = _connect(a.view, floor)
     arm.open_gripper()            # pump off: nothing is held at the start of a run

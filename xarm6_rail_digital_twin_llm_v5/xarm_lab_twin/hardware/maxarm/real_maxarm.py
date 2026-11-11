@@ -81,6 +81,7 @@ def _r(f, *a):
         print('@@' + _j.dumps({'ok': False, 'e': repr(e)}))
     else:
         print('@@' + _j.dumps({'ok': True, 'v': v}))
+import time as _time
 from BusServo import BusServo as _B
 from SuctionNozzle import SuctionNozzle as _N
 try:
@@ -92,8 +93,11 @@ def _pulses():
     out = []
     for i in (1, 2, 3):
         p = _bs.get_position(i)
-        if p is False:
+        n = 0
+        while p is False and n < 5:
+            _time.sleep_ms(20)
             p = _bs.get_position(i)
+            n += 1
         out.append(p)
     return out
 def _move(p1, p2, p3, t):
@@ -103,6 +107,14 @@ def _move(p1, p2, p3, t):
     return True
 def _vin():
     return [_bs.get_vin(i) for i in (1, 2, 3)]
+def _vent(o):
+    if o:
+        _nz.pump_f.duty(0)
+        _nz.pump_b.duty(0)
+        _nz.nozzle_st = False
+    _nz.valve_f.duty(_nz.hz if o else 0)
+    _nz.valve_b.duty(0)
+    return True
 from machine import Timer as _T
 def _stop_stock_loop():
     t = globals().get('tim')
@@ -142,6 +154,7 @@ class RealMaxArmAPI:
         self._lock = threading.RLock()
         self._nozzle_cmd_deg: float | None = None   # PWM servo: no readback
         self._suction_cmd = False
+        self._vent_open = False
 
         self.link = link if link is not None else SerialLink(port, baudrate)
         self.repl = RawRepl(self.link)
@@ -182,6 +195,9 @@ class RealMaxArmAPI:
         return state
 
     def _read_pulses(self) -> list[int]:
+        """The three servos' pulses. On the board each read is re-asked up to five
+        times 20 ms apart: a reply was missed twice in a row mid-move with a lid
+        held (2026-11-11), and aborting there leaves the pump on with the lid up."""
         p = self._call("_r(_pulses)", "read servo positions")
         if not isinstance(p, list) or len(p) != 3 or any(v is False or v is None for v in p):
             raise MaxArmError(
@@ -348,6 +364,24 @@ class RealMaxArmAPI:
             self._sleep(1.1)
         return 0
 
+    def vent(self, open: bool = True) -> int:
+        """Hold the vent valve OPEN with the pump off, or close it again.
+
+        The vendor's release (`open_gripper`) opens the valve for one second and
+        shuts it. A soft cup pressed onto a light Petri lid then springs back
+        against a CLOSED valve on the way up and pulls a fresh vacuum, so the lid
+        rises with the cup although the pump is off (bench, 2026-11-11). Hold
+        the valve open through the lift-off instead, then close it. The vendor's
+        `off()` is also gated on its own flag and does nothing until the pump has
+        run again, so a repeated `open_gripper()` is not a second vent; this is.
+        The valve is a solenoid: `disconnect` closes it if it was left open.
+        """
+        self._call(f"_r(_vent, {1 if open else 0})", "vent valve")
+        self._vent_open = bool(open)
+        if open:
+            self._suction_cmd = False
+        return 0
+
     def set_gripper(self, mode: str) -> int:
         if mode != self.effector:
             raise MaxArmError(f"plan expects the {mode!r} effector; the MaxArm has "
@@ -410,6 +444,8 @@ class RealMaxArmAPI:
         True, because switching it off drops whatever is held.
         """
         try:
+            if self._vent_open:
+                self.vent(False)
             if release_suction and self._suction_cmd:
                 self.open_gripper()
             elif self._suction_cmd:

@@ -116,6 +116,7 @@ class SimMaxArmAPI:
         self._lock = threading.RLock()
         self._nozzle_cmd_deg: Optional[float] = None
         self._suction_cmd = False
+        self._vent_open = False
         self._held: Optional[str] = None
 
         m = self.model
@@ -368,6 +369,9 @@ class SimMaxArmAPI:
         pump runs on nothing, exactly as the bench would (no error: the real
         arm cannot tell either)."""
         self._suction_cmd = True
+        if self._vent_open:
+            print("[SimMaxArm] suction on: the vent valve is held open, the pump runs on air")
+            return 0
         if self._held is not None:
             return 0
         best = None
@@ -411,6 +415,11 @@ class SimMaxArmAPI:
         if wait:
             self._wait_sim(1.1)
         return 0
+
+    def vent(self, open: bool = True) -> int:
+        """Valve held open (pump off, the weld lets go at once) or closed; as the real one."""
+        self._vent_open = bool(open)
+        return self.open_gripper(wait=False) if open else 0
 
     def set_gripper(self, mode: str) -> int:
         if mode != self.effector:

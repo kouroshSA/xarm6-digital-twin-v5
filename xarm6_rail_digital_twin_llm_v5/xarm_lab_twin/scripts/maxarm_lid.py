@@ -59,14 +59,43 @@ ASIDE_DX_MM = -110.0     # "left of the robot" is -x (+x is the arm's right)
 MIN_TAPE_PX = 150
 MIN_DEPTH_PX = 40
 BLUE_HUE = (95, 130)     # OpenCV hue units (0-179); set per lid with --hue
+ORANGE_HUE = (5, 25)     # a second lid's tape (2026-11-11). The WOODEN table is in this band
+                         # too (hue 13-17, saturation to ~150, but DARK: value ~100); the tape
+                         # is bright (value ~210). Window it on value as well: ORANGE_WINDOW.
+ORANGE_WINDOW = (*ORANGE_HUE, 100, 150)   # measured on three wrist views, 2026-11-11
 _tape_mask_hue_default = BLUE_HUE
 MIN_SATURATION = 70
 MIN_VALUE = 40
 OUT = Path(__file__).resolve().parents[1] / "hardware" / "maxarm" / "data"
 
 
-def _set_hue(lo, hi):
-    _tape_mask.hue = (int(lo), int(hi))
+def _set_hue(*windows):
+    """The tape's hue windows, OR-ed together: (lo, hi), (lo, hi, min_saturation) or
+    (lo, hi, min_saturation, min_value) each.
+
+    The old call `_set_hue(lo, hi)` is one window at MIN_SATURATION."""
+    if windows and not isinstance(windows[0], (tuple, list)):
+        windows = (windows,)
+    _tape_mask.hue = tuple(_window(w) for w in windows)
+
+
+def _window(w):
+    lo, hi = int(w[0]), int(w[1])
+    sat = int(w[2]) if len(w) > 2 else MIN_SATURATION
+    val = int(w[3]) if len(w) > 3 else MIN_VALUE
+    if not 0 <= lo <= hi <= 179:
+        raise SystemExit(f"hue window {w}: OpenCV hue runs 0-179 and lo <= hi")
+    return lo, hi, sat, val
+
+
+def hue_mask(hsv, windows=None):
+    """Bool mask of the pixels inside any tape hue window (hsv: OpenCV HSV image)."""
+    windows = _tape_mask.hue if windows is None else windows
+    m = np.zeros(hsv.shape[:2], bool)
+    for lo, hi, sat, val in windows:
+        m |= ((hsv[..., 0] >= lo) & (hsv[..., 0] <= hi)
+              & (hsv[..., 1] > sat) & (hsv[..., 2] > val))
+    return m
 
 
 
@@ -113,10 +142,11 @@ _capture.arm = None
 def _tape_mask(frame, hue=None):
     """The largest blob of the tape's hue (bool mask) or None."""
     import cv2
-    lo, hi = hue if hue is not None else _tape_mask.hue
+    windows = None
+    if hue is not None:   # (lo, hi) or a tuple of windows
+        windows = tuple(_window(w) for w in (hue if isinstance(hue[0], (tuple, list)) else (hue,)))
     hsv = cv2.cvtColor(frame.color, cv2.COLOR_RGB2HSV)
-    m = ((hsv[..., 0] >= lo) & (hsv[..., 0] <= hi)
-         & (hsv[..., 1] > MIN_SATURATION) & (hsv[..., 2] > MIN_VALUE))
+    m = hue_mask(hsv, windows)
     m = cv2.morphologyEx(m.astype(np.uint8), cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
     n, lab, stats, _ = cv2.connectedComponentsWithStats(m)
     if n < 2:
@@ -125,6 +155,9 @@ def _tape_mask(frame, hue=None):
     if stats[i, cv2.CC_STAT_AREA] < MIN_TAPE_PX:
         return None
     return lab == i
+
+
+_tape_mask.hue = (_window(_tape_mask_hue_default),)
 
 
 BASE_RIM_ABOVE_TABLE_MM = 6.0   # the bare base's rim height, for putting its pixel on a plane

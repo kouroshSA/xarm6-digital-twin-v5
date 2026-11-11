@@ -365,6 +365,35 @@ def test_disconnect_keeps_torque_and_warns_about_pump():
     return f"{PASS} disconnect: torque kept, pump untouched, REPL exited, port closed"
 
 
+def test_vent_drives_the_valve_pin_and_disconnect_closes_it():
+    """vent(True) must reach the board's valve pin with the pump off, stay open (the
+    vendor's one-second release re-closes it before the cup rises), and vent(False)
+    must close it; a vent left open is closed by disconnect (it is a solenoid)."""
+    arm, board = _arm()
+    arm.close_gripper()
+    n0 = len(board.calls)
+    arm.vent(True)
+    after = board.calls[n0:]
+    if ("valve_f", 1000) not in after:
+        return f"{FAIL} vent(True) did not open the valve pin: {after}"
+    if ("pump_f", 0) not in after:
+        return f"{FAIL} vent(True) left the pump running: {after}"
+    if ("valve_f", 0) in after:
+        return f"{FAIL} vent(True) closed the valve again (the vendor's 1 s release): {after}"
+    if arm.verify_grasp()[1].find("off") < 0:
+        return f"{FAIL} pump still reported on after vent: {arm.verify_grasp()}"
+    n1 = len(board.calls)
+    arm.vent(False)
+    if ("valve_f", 0) not in board.calls[n1:]:
+        return f"{FAIL} vent(False) did not close the valve: {board.calls[n1:]}"
+    arm.vent(True)
+    n2 = len(board.calls)
+    arm.disconnect()
+    if ("valve_f", 0) not in board.calls[n2:]:
+        return f"{FAIL} disconnect left the solenoid valve energised: {board.calls[n2:]}"
+    return f"{PASS} vent: valve pin opened with pump off, held, closed on request and at disconnect"
+
+
 TESTS = [
     test_ik_matches_compiled_vendor_source,
     test_fk_matches_compiled_vendor_source,
@@ -388,6 +417,7 @@ TESTS = [
     test_joint_move_cannot_bypass_the_floor,
     test_yaw_is_none_until_commanded_and_grasp_is_unknown,
     test_disconnect_keeps_torque_and_warns_about_pump,
+    test_vent_drives_the_valve_pin_and_disconnect_closes_it,
 ]
 
 

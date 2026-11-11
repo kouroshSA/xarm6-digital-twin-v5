@@ -115,7 +115,21 @@ class FakeBoard:
             def unload(self, i):
                 board.calls.append(("unload", i))
 
+        class Pwm:
+            def __init__(self, name):
+                self.name = name
+
+            def duty(self, v):
+                board.calls.append((self.name, v))
+
         class SuctionNozzle:
+            hz = 1000
+            nozzle_st = False
+
+            def __init__(self):
+                self.pump_f, self.pump_b = Pwm("pump_f"), Pwm("pump_b")
+                self.valve_f, self.valve_b = Pwm("valve_f"), Pwm("valve_b")
+
             def on(self):
                 board.calls.append(("pump_on",))
 
@@ -139,6 +153,7 @@ class FakeBoard:
                 return f"Timer(3ffe0000; alarm_en={on}, auto_reload=1, counter_en={on})"
 
         mods = {"ujson": type("m", (), {"dumps": staticmethod(json.dumps)}),
+                "time": type("m", (), {"sleep_ms": staticmethod(lambda ms: board.calls.append(("sleep_ms", ms)))}),
                 "machine": type("m", (), {"Timer": Timer}),
                 "BusServo": type("m", (), {"BusServo": BusServo}),
                 "SuctionNozzle": type("m", (), {"SuctionNozzle": SuctionNozzle})}
